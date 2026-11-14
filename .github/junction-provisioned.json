@@ -1,0 +1,8 @@
+{
+  "approved_digest": "sha256:a05d772bcb52e48f000415590d71ff4822f4169482efb7e0bf1e519f214f72a4",
+  "approving_discord_user_id": "331687261894606849",
+  "plan_id": "provision-backend-go-service-v2",
+  "provisioned_at": "2026-11-14T01:44:47Z",
+  "step_id": "provision-backend",
+  "template_id": "go-service"
+}
