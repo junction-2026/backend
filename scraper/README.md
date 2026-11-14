@@ -2,7 +2,7 @@
 
 Python 3.12 FastAPI service that implements the shared `social-scraper-api`: given the URL of a public
 post or profile it returns the author's profile, recent posts and (for post URLs) the comments, normalized
-across platforms, with typed errors. Platforms: Bluesky and Mastodon here; Instagram, Threads, Facebook and
+across platforms, with typed errors. Platforms: Bluesky, Mastodon, Instagram and Threads here; Facebook and
 X are recognized and answer `503 platform_not_configured` until their modules are added.
 
 - `GET /health` – `{"status": "ok"}`, no auth, contacts no platform.
@@ -16,7 +16,8 @@ All configuration comes from the environment; values are never logged and the lo
 |---|---|---|
 | `SCRAPER_TOKEN` | yes | Bearer token clients must send. The service refuses to start without it. |
 | `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | no (30) | Bound for one whole scrape and for every upstream request; exceeding it answers `504 upstream_timeout`. |
-| platform credentials | per platform | Read by the platform modules that need them (for example the X cookie settings). Bluesky and Mastodon need none. |
+| `INSTAGRAM_SESSION_FILE` | no | Path of an instaloader session file named `session-<username>`. With it Instagram comments are served; without it (or if it cannot be loaded) Instagram is scraped anonymously. Never logged. |
+| platform credentials | per platform | Read by the platform modules that need them (for example the X cookie settings). Bluesky, Mastodon, Instagram and Threads need none. |
 
 ## Run locally
 
@@ -49,6 +50,16 @@ labels:
   - traefik.http.routers.scraper.tls.certresolver=letsencrypt
   - traefik.http.services.scraper.loadbalancer.server.port=8003
 ```
+
+## Instagram and Threads
+
+- **Instagram** (instaloader, public profiles and posts): anonymous Instagram throttles hard, so expect `429 rate_limited`
+  (no `Retry-After`: instaloader does not expose it) or a login wall, which is also `rate_limited`. Anonymous post
+  comments are not served: the result has `comments: []` and a `comments_unavailable` warning. History costs one
+  request per post. `reposts` is always null; hidden like counts are null.
+- **Threads** (httpx, embedded page JSON): only the posts embedded in the first page are returned (no pagination), so
+  `posts` can be shorter than `max_posts`. `following` and `post_count` are always null. Replies shown on a post page are
+  returned as comments with `in_reply_to_id: null`. A page layout the parser no longer recognizes answers `502 upstream_error`.
 
 ## Adding a platform
 
