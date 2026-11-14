@@ -5,7 +5,7 @@
       "id": "17841400000000001",
       "username": "alice",
       "full_name": "Alice Example",
-      "biography": "Birds & books.\nOpinions are mine.",
+      "biography": "  Birds & books.\nOpinions are mine.  \n",
       "follower_count": 4321,
       "following_count": 87,
       "all_media_count": 3,

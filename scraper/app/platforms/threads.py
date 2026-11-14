@@ -157,7 +157,7 @@ def _profile_result(user: dict, username: str, url_kind: str) -> ScrapeResult:
     name = str_or_none(user.get("username")) or username
     return ScrapeResult(
         platform=NAME, url_kind=url_kind, username=name, display_name=str_or_none(user.get("full_name")),
-        bio=str_or_none(user.get("biography")) or ("" if "biography" in user else None),
+        bio=user["biography"].strip() if isinstance(user.get("biography"), str) else None,
         profile_url=f"{_BASE}/@{name}", followers=_int(user.get("follower_count")), following=None, post_count=None,  # not exposed by Threads
         verified=user["is_verified"] if isinstance(user.get("is_verified"), bool) else None)
 
@@ -174,12 +174,13 @@ async def scrape(req: ScrapeRequest) -> ScrapeResult:
                                  headers={"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml",
                                           "Accept-Language": "en-US,en;q=0.9"}) as client:
         warnings: list[ScrapeWarning] = []
+        bad: list = []  # post-like objects of every page read, reported once
         if req.kind == "profile":
-            result = _profile(await _page(client, f"/@{username}", "account"), req, username, warnings)
+            result = _profile(await _page(client, f"/@{username}", "account"), req, username, bad)
         else:
-            result = _post(await _page(client, f"/@{username}/post/{req.ids['code']}", "post"), req, username)
+            result = _post(await _page(client, f"/@{username}/post/{req.ids['code']}", "post"), req, username, bad)
             try:  # the author's history and counters live on the profile page, a second request
-                prof = _profile(await _page(client, f"/@{result.username}", "account"), req, result.username, [])
+                prof = _profile(await _page(client, f"/@{result.username}", "account"), req, result.username, bad)
             except ScrapeError as e:
                 warnings.append(ScrapeWarning(code="history_unavailable", message=e.message))
             else:
@@ -187,28 +188,27 @@ async def scrape(req: ScrapeRequest) -> ScrapeResult:
                 for k in ("display_name", "bio", "followers", "verified"):
                     if getattr(result, k) is None:
                         setattr(result, k, getattr(prof, k))
+        if bad:
+            warnings.append(ScrapeWarning(code="partial_parse", message=f"{len(bad)} post(s) could not be parsed"))
         if result.followers is None:
             warnings.append(ScrapeWarning(code="partial_parse", message="Threads page did not contain the follower count"))
         result.warnings = warnings
         return result
 
 
-def _profile(html: str, req: ScrapeRequest, username: str, warnings: list) -> ScrapeResult:
+def _profile(html: str, req: ScrapeRequest, username: str, bad: list) -> ScrapeResult:
     blocks = _blocks(html)
     user = _user_dict(blocks, username)
     if user is None:
         raise ScrapeError("upstream_error", "the Threads page contained no recognizable profile data", platform=NAME)
     result = _profile_result(user, username, "profile")
-    bad: list = []
     result.posts = _history(_parse_posts(blocks, bad), result.username, req.max_posts)
-    if bad:
-        warnings.append(ScrapeWarning(code="partial_parse", message=f"{len(bad)} post(s) could not be parsed"))
     return result
 
 
-def _post(html: str, req: ScrapeRequest, username: str) -> ScrapeResult:
+def _post(html: str, req: ScrapeRequest, username: str, bad: list) -> ScrapeResult:
     blocks = _blocks(html)
-    posts = _parse_posts(blocks, [])
+    posts = _parse_posts(blocks, bad)
     code = req.ids["code"]
     target = next(((d, p) for d, p in posts if d.get("code") == code), None)
     if target is None:

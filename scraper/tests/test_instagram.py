@@ -114,11 +114,42 @@ def test_comments_with_a_session(monkeypatch):
     ctx.doc_id_graphql_query = n.doc_id_graphql_query
     post = instaloader.Post.from_shortcode(ctx, "CpB222")
     post._node["comment_count"] = 3
-    got = instagram._comments(post, 10, time.monotonic() + 5)
+    got = instagram._comments(post, 10, time.monotonic() + 5, [])
     assert [(c.id, c.in_reply_to_id, c.author.username) for c in got] == [
         ("9001", None, "erin"), ("9002", None, "carol"), ("9003", "9002", "dave")]
+    assert got[0].text == "first parent"  # padded in the fixture
     assert got[0].likes == 5 and got[0].created_at == "2025-11-13T09:10:00Z"
-    assert [c.id for c in instagram._comments(post, 2, time.monotonic() + 5)] == ["9001", "9002"]
+    assert [c.id for c in instagram._comments(post, 2, time.monotonic() + 5, [])] == ["9001", "9002"]
+
+
+def _session_post():
+    ctx = instaloader.Instaloader(quiet=True).context
+    ctx.username = "viewer"
+    n = Net(comments="instagram/comments_CpB222.json")
+    ctx.graphql_query, ctx.doc_id_graphql_query = n.graphql_query, n.doc_id_graphql_query
+    post = instaloader.Post.from_shortcode(ctx, "CpB222")
+    post._node["comment_count"] = 3
+    return post, list(post.get_comments())
+
+
+def test_comments_time_budget_keeps_what_was_read_and_warns():
+    post, comments = _session_post()
+    warnings = []
+    got = instagram._comments(post, 10, time.monotonic() - 1, warnings)  # budget already used up
+    assert [c.id for c in got] == ["9002", "9003"] and [w.code for w in warnings] == ["comments_unavailable"]
+    assert "time budget" in warnings[0].message
+
+
+def test_comments_failure_midway_keeps_what_was_read():
+    post, comments = _session_post()
+
+    def broken():
+        yield comments[1]  # 9001, no answers
+        raise ex.ConnectionException("500 Internal Server Error")
+    post.get_comments = broken
+    warnings = []
+    got = instagram._comments(post, 10, time.monotonic() + 5, warnings)
+    assert [c.id for c in got] == ["9001"] and [w.code for w in warnings] == ["comments_unavailable"]
 
 
 def test_private_account(client, net):

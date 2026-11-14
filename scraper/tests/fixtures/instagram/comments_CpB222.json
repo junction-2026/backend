@@ -45,7 +45,7 @@
             "node": {
               "id": "9001",
               "created_at": 1763025000,
-              "text": "first parent",
+              "text": " first parent \n",
               "owner": {
                 "id": "4",
                 "username": "erin"

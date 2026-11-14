@@ -23,7 +23,7 @@ def test_profile(client, mock):
     assert r.status_code == 200
     b = r.json()
     assert (b["platform"], b["url_kind"], b["username"], b["display_name"]) == ("threads", "profile", "alice", "Alice Example")
-    assert b["bio"] == "Birds & books." and b["profile_url"] == f"{BASE}/@alice"
+    assert b["bio"] == "Birds & books." and b["profile_url"]  # padded in the fixture, trimmed == f"{BASE}/@alice"
     assert (b["followers"], b["following"], b["post_count"], b["verified"]) == (4321, None, None, True)
     assert [p["id"] for p in b["posts"]] == ["7003", "7002"]  # newest first, capped
     assert b["posts"][0] == {"id": "7003", "text": "Third thread", "created_at": "2025-11-14T08:50:15Z",
@@ -121,3 +121,12 @@ def test_upstream_failures(client, mock):
     assert scrape(client, "https://www.threads.net/@alice").json()["error"]["code"] == "upstream_error"
     mock.get(f"{BASE}/@alice").respond(302, headers={"Location": "https://evil.example/"})
     assert scrape(client, "https://www.threads.net/@alice").json()["error"]["code"] == "upstream_error"
+
+
+def test_codeless_post_objects_warn_once_on_post_urls(client, mock):
+    mock.get(f"{BASE}/@alice/post/T2").respond(text=html("post_codeless.html"))
+    mock.get(f"{BASE}/@alice").respond(text=html("profile_codeless.html"))
+    b = scrape(client, "https://threads.com/@alice/post/T2").json()
+    assert b["post"]["id"] == "7002" and [p["id"] for p in b["posts"]] == ["7003", "7002", "7001"]
+    assert [w["code"] for w in b["warnings"]] == ["partial_parse"]  # one warning for both pages
+    assert "post(s) could not be parsed" in b["warnings"][0]["message"]

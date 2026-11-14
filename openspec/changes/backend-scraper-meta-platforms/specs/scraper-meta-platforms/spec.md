@@ -38,7 +38,7 @@ The Instagram module SHALL load an instaloader session from the file named by th
 - **THEN** the scrape runs anonymously and the log line does not contain the path
 
 ### Requirement: Instagram failure mapping
-The Instagram module SHALL map failures to the shared error codes: private profile `account_private`; HTTP 429 or a login wall `rate_limited` (with retry information only when the wait is known); missing account or post `account_not_found` or `post_not_found`; timeout `upstream_timeout`; anything else `upstream_error`. A failure while reading the history SHALL keep the posts already read and add a warning.
+The Instagram module SHALL map failures to the shared error codes: private profile `account_private`; HTTP 429 or a login wall `rate_limited` (with retry information only when the wait is known); missing account or post `account_not_found` or `post_not_found`; timeout `upstream_timeout`; anything else `upstream_error`. A failure while reading the history or the comments, or running out of the time budget, SHALL keep what was already read and add a warning.
 
 #### Scenario: Private account
 - **WHEN** the profile is private
@@ -55,6 +55,14 @@ The Instagram module SHALL map failures to the shared error codes: private profi
 #### Scenario: Missing account
 - **WHEN** Instagram has no such profile
 - **THEN** the status is 404 `account_not_found`
+
+#### Scenario: Comments cut short
+- **WHEN** reading the comments fails after the first comment, or the time budget runs out
+- **THEN** the response is 200 with the comments already read and a `comments_unavailable` warning
+
+#### Scenario: Plain text
+- **WHEN** a caption, comment or biography has leading or trailing whitespace
+- **THEN** the returned `text` and `bio` are trimmed
 
 #### Scenario: Timeout
 - **WHEN** an Instagram request times out

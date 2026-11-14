@@ -13,7 +13,7 @@
             "full_name": "Alice Example"
           },
           "caption": {
-            "text": "Third post"
+            "text": "  Third post \n\n"
           },
           "image_versions2": {
             "candidates": [
