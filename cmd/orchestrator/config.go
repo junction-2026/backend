@@ -3,11 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/junction-2026/backend/internal/engine"
-	"github.com/junction-2026/backend/internal/scraper"
+	ss "github.com/junction-2026/backend/internal/socialscraper"
 )
 
 const (
@@ -19,11 +19,17 @@ type config struct {
 	ListenAddr      string
 	AnalyzersConfig string
 	Engine          engine.Config
+	ScraperEnabled  bool      // SCRAPER_ENABLED, default true
+	Upstream        ss.Config // SCRAPER_UPSTREAM_TIMEOUT_SECONDS
+	Ignored         []string  // obsolete scraper variables that are set: warned about, never read
 }
 
-// loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG and the engine settings
-// (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_URL,
-// SCRAPER_TOKEN, SCRAPER_TIMEOUT). Errors name variables, never their values.
+// obsoleteScraperVars belonged to the former standalone scraper service.
+var obsoleteScraperVars = []string{"SCRAPER_URL", "SCRAPER_TOKEN", "SCRAPER_LISTEN_ADDR"}
+
+// loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG, the engine settings
+// (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_TIMEOUT) and
+// SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS. Errors name variables, never their values.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{ListenAddr: getenv("LISTEN_ADDR"), AnalyzersConfig: getenv("ANALYZERS_CONFIG")}
 	if c.ListenAddr == "" {
@@ -36,31 +42,35 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if c.Engine, err = engine.ConfigFromEnv(getenv); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
-	if err := loadScraper(getenv, &c.Engine); err != nil {
+	if err := loadScraper(getenv, &c); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
 	return c, nil
 }
 
-func loadScraper(getenv func(string) string, e *engine.Config) error {
+func loadScraper(getenv func(string) string, c *config) error {
 	if v := getenv("SCRAPER_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
 			return errors.New("SCRAPER_TIMEOUT must be a positive duration")
 		}
-		e.ScrapeTimeout = d
+		c.Engine.ScrapeTimeout = d
 	}
-	base := getenv("SCRAPER_URL")
-	if base == "" {
-		return nil // no scraper: scrape jobs answer 503
+	switch v := strings.ToLower(getenv("SCRAPER_ENABLED")); v {
+	case "", "true":
+		c.ScraperEnabled = true
+	case "false":
+	default:
+		return errors.New("SCRAPER_ENABLED must be true or false")
 	}
-	if u, err := url.Parse(base); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("SCRAPER_URL must be an absolute http(s) URL")
+	var err error
+	if c.Upstream, err = ss.LoadConfig(getenv); err != nil {
+		return err
 	}
-	token := getenv("SCRAPER_TOKEN")
-	if token == "" {
-		return errors.New("SCRAPER_TOKEN is required when SCRAPER_URL is set")
+	for _, name := range obsoleteScraperVars {
+		if getenv(name) != "" {
+			c.Ignored = append(c.Ignored, name)
+		}
 	}
-	e.Scraper = &scraper.Client{URL: base, Token: token}
 	return nil
 }

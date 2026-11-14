@@ -1,6 +1,6 @@
-// Package socialscraper implements the shared social-scraper-api: the HTTP server, request validation,
-// URL recognition, the error envelope and the platform-module interface. Platform modules live in
-// subpackages and are registered from cmd/scraper.
+// Package socialscraper is the in-process scraper core of the shared social-scraper-api: URL
+// recognition, the scrape error codes, the module runner and the platform-module interface. Platform
+// modules live in subpackages and are registered from cmd/orchestrator.
 package socialscraper
 
 import (
@@ -16,14 +16,14 @@ type Request struct {
 
 // Target is a recognized URL.
 type Target struct {
-	Platform string            // bluesky, mastodon, instagram, threads, facebook, twitter
+	Platform string            // bluesky, mastodon, instagram, threads, twitter
 	URLKind  string            // profile or post
 	URL      *url.URL          // the parsed request URL
 	IDs      map[string]string // platform-specific identifiers taken from the URL
 }
 
-// Module scrapes one platform. It returns *Error for typed failures; any other error becomes 500
-// internal_error, except context deadline errors, which become 504 upstream_timeout. The server sets
+// Module scrapes one platform. It returns *Error for typed failures; any other error becomes
+// internal_error, except deadline and network timeouts, which become upstream_timeout. Scraper.Scrape sets
 // ScrapedAt and LatencyMS and replaces nil slices with empty ones.
 type Module interface {
 	Scrape(ctx context.Context, t Target, req Request) (*Result, error)

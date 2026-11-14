@@ -1,5 +1,5 @@
-// Package scraper is the orchestrator's client of the social-scraper-api
-// (POST /scrape) and maps a ScrapeResult to the job Input.
+// Package scraper adapts the in-process scraper core (internal/socialscraper) to the engine: it runs
+// one scrape, maps a ScrapeResult to the job Input and a scrape error to the job's Scrape.error.
 package scraper
 
 import (
@@ -7,21 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/junction-2026/backend/internal/job"
+	ss "github.com/junction-2026/backend/internal/socialscraper"
 )
 
-const maxResponse = 16 << 20 // max_posts ≤ 100 and max_comments ≤ 200 keep real bodies far below
-
-// Client calls POST {URL}/scrape with Authorization: Bearer {Token}.
+// Client calls the scraper core directly: no HTTP hop, no token.
 type Client struct {
-	URL   string
-	Token string
-	HTTP  *http.Client // default http.DefaultClient; the context bounds every call
+	Core     *ss.Scraper
+	Redactor *ss.Redactor // nil: error messages are passed through as the core wrote them
 }
 
 // Result is a successful scrape mapped to the job.
@@ -50,14 +46,14 @@ type scrapeResult struct {
 
 func fail(code, msg string) *job.ScrapeError { return &job.ScrapeError{Code: code, Message: msg} }
 
-var errUnavailable = fail(job.CodeScraperUnavailable, "the scraper service is unavailable")
+var errUnavailable = fail(job.CodeScraperUnavailable, "the scraper is unavailable")
 
-// Scrape runs one scrape. The error is always a *job.ScrapeError.
+// Scrape runs one scrape bounded by ctx. The error is always a *job.ScrapeError.
 func (c *Client) Scrape(ctx context.Context, req job.ScrapeRequest) (*Result, error) {
 	res, err := c.scrape(ctx, req)
-	if err != nil && ctx.Err() != nil { // the call failed because ctx ended
+	if err != nil && ctx.Err() != nil { // the scrape failed because ctx ended
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, fail(job.CodeTimeout, "the scraper did not answer within the scrape timeout")
+			return nil, fail(job.CodeTimeout, "the scrape did not finish within the scrape timeout")
 		}
 		return nil, fail(job.CodeCancelled, "scrape aborted: job cancelled")
 	}
@@ -65,62 +61,37 @@ func (c *Client) Scrape(ctx context.Context, req job.ScrapeRequest) (*Result, er
 }
 
 func (c *Client) scrape(ctx context.Context, req job.ScrapeRequest) (*Result, error) {
-	body, _ := json.Marshal(req)
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.URL, "/")+"/scrape", bytes.NewReader(body))
+	res, serr := c.Core.Scrape(ctx, req.URL, ss.Request{MaxPosts: req.MaxPosts, MaxComments: req.MaxComments})
+	if serr != nil {
+		return nil, c.mapError(serr)
+	}
+	raw, err := json.Marshal(res)
 	if err != nil {
 		return nil, errUnavailable
-	}
-	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.Token)
-	hc := c.HTTP
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	resp, err := hc.Do(hr)
-	if err != nil {
-		return nil, errUnavailable // err names the URL: never surfaced
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
-	if err != nil || len(raw) > maxResponse {
-		return nil, errUnavailable
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.mapError(resp.StatusCode, raw)
 	}
 	return mapResult(req.URL, raw)
 }
 
-// mapError maps a scraper error response (social-scraper-api error codes).
-func (c *Client) mapError(status int, raw []byte) *job.ScrapeError {
-	var env struct {
-		Error *job.ScrapeError `json:"error"`
-	}
-	if json.Unmarshal(raw, &env) != nil || env.Error == nil || env.Error.Code == "" {
+// mapError maps a scrape error (social-scraper-api error codes); internal_error means our failure, not the user's URL.
+func (c *Client) mapError(e *ss.Error) *job.ScrapeError {
+	if e.Code == "" || e.Code == "internal_error" {
 		return errUnavailable
 	}
-	switch e := env.Error; {
-	case status == http.StatusUnauthorized, status == http.StatusInternalServerError,
-		e.Code == "unauthorized", e.Code == "invalid_request", e.Code == "validation_failed", e.Code == "internal_error":
-		return errUnavailable // our request or our credentials are wrong, not the user's URL
-	default:
-		msg := e.Message
-		for _, secret := range []string{c.Token, strings.TrimRight(c.URL, "/")} {
-			if secret != "" {
-				msg = strings.ReplaceAll(msg, secret, "[redacted]")
-			}
-		}
-		if msg == "" {
-			msg = "scrape failed: " + e.Code
-		}
-		if len(e.Details) > 0 && e.Details[0] != '{' { // details must be an object; drop anything else
-			e.Details = nil
-		}
-		return &job.ScrapeError{Code: e.Code, Message: msg, Details: e.Details}
+	msg := e.Message
+	if c.Redactor != nil {
+		msg = c.Redactor.Redact(msg)
 	}
+	if msg == "" {
+		msg = "scrape failed: " + e.Code
+	}
+	out := &job.ScrapeError{Code: e.Code, Message: msg}
+	if len(e.Details) > 0 {
+		out.Details, _ = json.Marshal(e.Details) // a value that cannot be encoded drops the details, not the error
+	}
+	return out
 }
 
-// mapResult validates a 200 body and maps it to the Input (shared "Scraped input content/source").
+// mapResult validates a ScrapeResult and maps it to the Input (shared "Scraped input content/source").
 func mapResult(url string, raw []byte) (*Result, error) {
 	var r scrapeResult
 	if json.Unmarshal(raw, &r) != nil || // also rejects non-objects; null leaves Platform empty
