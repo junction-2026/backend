@@ -34,6 +34,7 @@ type fakeSvc struct {
 	last   engine.CreateRequest
 	bus    *events.Bus
 	subbed chan struct{} // closed on the first Subscribe
+	maps   *store.Memory // map source (map_test.go); nil: no map analyses
 	once   sync.Once
 }
 
@@ -88,6 +89,20 @@ func (f *fakeSvc) Page(status string, after *store.Cursor, limit int) ([]job.Job
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+func (f *fakeSvc) MapCountries() ([]store.MapCountry, error) {
+	if f.maps == nil {
+		return nil, nil
+	}
+	return f.maps.MapCountries()
+}
+
+func (f *fakeSvc) MapAnalyses(code string, after *store.Cursor, limit int) ([]store.MapItem, error) {
+	if f.maps == nil {
+		return nil, nil
+	}
+	return f.maps.MapAnalyses(code, after, limit)
 }
 
 func (f *fakeSvc) Subscribe(id string) (*events.Subscription, error) {

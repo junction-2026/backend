@@ -24,3 +24,6 @@ var techniqueDisplay = map[string]techniqueInfo{
 	"Slogans":                            {"Slogans", "Uses a short, catchy phrase to push a position"},
 	"Obfuscation,Intentional_Vagueness,Confusion": {"Obfuscation or intentional vagueness", "Uses unclear wording so the claim can be read in several ways"},
 }
+
+// TechniqueDisplay is the built-in English display name of a technique name ("" for an unknown name).
+func TechniqueDisplay(name string) string { return techniqueDisplay[name].Display }
