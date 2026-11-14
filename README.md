@@ -112,3 +112,46 @@ Follow the job with `GET /api/v1/jobs/{id}` or the event stream (`scrape.started
 service (port 8001): it binds `$input` and `$input.source`, so it receives the profile, history and comments.
 Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
 the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.
+
+## Scraper service
+
+`cmd/scraper` serves the shared `social-scraper-api` (`GET /health`, `POST /scrape`) that the orchestrator's
+`SCRAPER_URL` points to. It is one Go binary; Bluesky and Mastodon need no credentials.
+
+```
+SCRAPER_TOKEN=<token> go run ./cmd/scraper
+docker build -f scraper.Dockerfile -t scraper .
+docker run -d --name scraper --network ml_net -p 8003:8003 -e SCRAPER_TOKEN=<token> \
+  --label 'traefik.enable=true' \
+  --label 'traefik.http.routers.scraper.rule=Host(`<scraper-host>`)' \
+  --label 'traefik.http.services.scraper.loadbalancer.server.port=8003' \
+  scraper
+curl -s -X POST http://localhost:8003/scrape -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{"url": "https://bsky.app/profile/alice.bsky.social", "max_posts": 5}'
+```
+
+The Traefik labels (host, entrypoints, TLS) are the operator's to add; the values above are placeholders. The
+image runs as a non-root user with `HOME=/tmp`, contains chromium for browser-based platform modules and no
+secret. `scraper -healthcheck` requests `/health` on `127.0.0.1` (the port of `SCRAPER_LISTEN_ADDR`) and exits 0
+on 200; the image's `HEALTHCHECK` uses it. `SIGTERM` stops the server gracefully within 10 s.
+
+| Variable | Default | |
+|---|---|---|
+| `SCRAPER_TOKEN` | | **required**; the bearer token of `POST /scrape`. Without it the process exits with an error naming the variable |
+| `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | `30` | positive number (decimals allowed); bounds one scrape and every outbound request, a slower scrape answers 504 `upstream_timeout` |
+| `SCRAPER_LISTEN_ADDR` | `0.0.0.0:8003` | listen address |
+| `INSTAGRAM_SESSION_FILE` | unset | path of a JSON file `{"sessionid": "<value>", "csrftoken": "<value>", "ds_user_id": "<value>"}` with the cookies of an Instagram login; unset: anonymous |
+| `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` | unset | the `auth_token` and `ct0` cookies of an X login; both are needed for X, otherwise X URLs answer 503 `platform_not_configured` |
+
+All settings come from the environment; none is ever logged or returned. Logs are JSON lines on stderr
+(method, path, status, platform, url_kind, latency) with `Bearer ...` values, the secrets above and the session
+file's path and contents replaced by `[redacted]`.
+
+Migration notes: `INSTAGRAM_SESSION_FILE` now holds the cookie JSON shown above; a session file in the
+format the scraper used before is not read, so create the new file once from a logged-in browser session.
+`SCRAPER_X_POOL_DB` is removed: X is read with the two cookie variables only and keeps no database.
+
+The orchestrator side is configured separately (see "Jobs from a social-media URL"): `SCRAPER_URL`,
+`SCRAPER_TOKEN` (the same token) and `SCRAPER_TIMEOUT` (default `120s`, the orchestrator's bound for one scrape).
+Tests run offline: `go test ./...` serves recorded fixtures (`internal/socialscraper/<platform>/testdata/`) through
+`internal/socialscraper/scrapertest` and reaches no platform.
