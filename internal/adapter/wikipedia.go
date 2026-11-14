@@ -47,6 +47,9 @@ type claimLookup struct {
 	CheckWorthiness float64      `json:"check_worthiness"`
 	SearchMode      string       `json:"search_mode"`
 	Wikis           []wikiLookup `json:"wikis"`
+	// CrossLanguage and its differences compare the two passages (wikipedia_crosslang.go); null when there is nothing to compare.
+	CrossLanguage            *string         `json:"cross_language"`
+	CrossLanguageDifferences []crossLangDiff `json:"cross_language_differences"`
 }
 
 type wikiFlight struct {
@@ -123,6 +126,9 @@ func (x *Executor) wikipedia(ctx context.Context, def *registry.Analyzer, req Re
 		return nil, fatal
 	}
 	cached := 0
+	for i := range out { // after every WikiLookup, coverage included, is final
+		out[i].CrossLanguage, out[i].CrossLanguageDifferences = crossLanguage(out[i].Wikis)
+	}
 	for _, c := range out {
 		for _, w := range c.Wikis {
 			if w.Cached {
