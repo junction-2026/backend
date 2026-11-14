@@ -162,6 +162,8 @@ func llmCall(ctx context.Context, e *registry.Execution, model string, maxTokens
 		schema, name = TopicExtractionSchema, "topic_extraction"
 	case e.Adapter == registry.AdapterTechniqueClassifier: // the spans.llm Execution
 		schema, name = TechniqueSpanSchema, "technique_spans"
+	case e.Adapter == registry.AdapterLLMTechniques:
+		schema, name = LLMTechniquesSchema, "llm_techniques"
 	}
 	switch e.ResponseFormat {
 	case registry.FormatJSONSchema:

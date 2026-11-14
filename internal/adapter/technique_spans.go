@@ -20,12 +20,14 @@ type techniqueSpan struct {
 	Text      string `json:"text"`
 	Start     int    `json:"start"`
 	End       int    `json:"end"`
+	Why       string `json:"why"`
 }
 
 // detectedTechnique is a Detection of `detected` with its spans.
 type detectedTechnique struct {
 	techniqueDetection
-	Spans []techniqueSpan `json:"spans"`
+	Spans         []techniqueSpan `json:"spans"`
+	PlainLanguage plainLanguage   `json:"plain_language"`
 }
 
 // TechniqueSpanSchema is the JSON schema of the span LLM's reply.
@@ -94,7 +96,7 @@ func (x *Executor) techniqueSpans(ctx context.Context, def *registry.Analyzer, r
 				uniq = append(uniq, v)
 			}
 		}
-		r.detected = append(r.detected, detectedTechnique{d, uniq})
+		r.detected = append(r.detected, detectedTechnique{techniqueDetection: d, Spans: uniq})
 	}
 	if r.detected == nil {
 		r.detected = []detectedTechnique{}
@@ -145,7 +147,7 @@ func (x *Executor) sentenceSpans(ctx context.Context, def *registry.Analyzer, re
 	for i, st := range sents {
 		for _, d := range det {
 			if scores[i].scores[d.Name] >= m.ThresholdFor(d.Name) {
-				out[d.Name] = append(out[d.Name], techniqueSpan{d.Name, st.Text, st.Start, st.End})
+				out[d.Name] = append(out[d.Name], techniqueSpan{Technique: d.Name, Text: st.Text, Start: st.Start, End: st.End})
 			}
 		}
 	}
@@ -195,7 +197,7 @@ func phraseSpans(ctx context.Context, def *registry.Analyzer, content string, de
 			continue
 		}
 		start := utf16Len(content[:k])
-		out[name] = append(out[name], techniqueSpan{name, t, start, start + utf16Len(t)})
+		out[name] = append(out[name], techniqueSpan{Technique: name, Text: t, Start: start, End: start + utf16Len(t)})
 	}
 	return out, truncated, nil
 }

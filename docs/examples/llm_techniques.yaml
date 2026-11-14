@@ -1,0 +1,40 @@
+# Example registry entry: ask an OpenAI-compatible LLM for three weaknesses that the 18 SemEval-2020 technique
+# labels do not cover (evidence_certainty_mismatch, misleading_headline, statistical_cherry_picking) in the user's
+# original text and, for jobs created with `input` that carry a distinct `source.title`, in that headline. Findings
+# are kept only when their quoted passage is an exact substring of the content or title. It needs the `translation`
+# analyzer of propaganda_detection.yaml (only its source_language is used, to pick the explanation language). Set
+# LLM_TECHNIQUES_BASE_URL, LLM_TECHNIQUES_API_KEY and LLM_TECHNIQUES_MODEL and add this file to the directory in
+# ANALYZERS_CONFIG.
+analyzers:
+  - id: llm_techniques
+    name: LLM-assessed weaknesses
+    category: propaganda
+    depends_on: [translation]
+    input:
+      bindings:
+        translation: $analyzers.translation
+    execution:
+      adapter: llm_techniques
+      timeout: 60s
+      base_url: ${LLM_TECHNIQUES_BASE_URL}
+      api_key: ${LLM_TECHNIQUES_API_KEY}
+      model: ${LLM_TECHNIQUES_MODEL}
+      prompt_file: /etc/orchestrator/llm_techniques/prompt.md   # image default from config/llm_techniques/prompt.md
+      temperature: 0
+      max_tokens: 1500
+      min_confidence: 0.5         # findings rated lower are dropped
+      max_findings_per_label: 5   # more are dropped, highest confidence kept; sets truncated
+      max_input_chars: 20000      # characters of the original text sent; more sets truncated
+    # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).
+    llm:
+      include: true
+      description: >
+        LLM-assessed findings of three weaknesses outside the SemEval-2020 techniques: evidence_certainty_mismatch
+        (a claim stated with more certainty than the text's evidence supports), misleading_headline (the headline
+        states or implies what the body does not support; only checked when title_checked is true) and
+        statistical_cherry_picking (numbers selected to support a conclusion the fuller data would not). Each
+        finding quotes an exact passage of the content or title, with the LLM's own uncalibrated confidence and
+        one-sentence explanation. These findings are assessed by an LLM, not by a trained classifier: they are
+        weaker evidence than the techniques model labels, must not be treated as model detections and must not be
+        counted as or merged with detected techniques. An empty list means the LLM found none, not that the text
+        is free of them.

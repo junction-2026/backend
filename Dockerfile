@@ -14,6 +14,7 @@ COPY config/analyzers /etc/orchestrator/analyzers
 COPY config/finalizer/prompt.md /etc/orchestrator/finalizer/prompt.md
 COPY config/extractor/prompt.md /etc/orchestrator/extractor/prompt.md
 COPY config/technique_spans/prompt.md /etc/orchestrator/technique_spans/prompt.md
+COPY config/llm_techniques/prompt.md /etc/orchestrator/llm_techniques/prompt.md
 COPY data/outlets.csv /etc/orchestrator/data/outlets.csv
 USER 65532:65532
 EXPOSE 8080
