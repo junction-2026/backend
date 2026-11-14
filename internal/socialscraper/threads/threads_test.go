@@ -16,7 +16,7 @@ import (
 	"github.com/junction-2026/backend/internal/socialscraper/scrapertest"
 )
 
-const host = "www.threads.net"
+const host = "www.threads.com"
 
 // site is Threads: handlers by path, every request recorded.
 type site struct {
@@ -27,7 +27,7 @@ type site struct {
 
 func newSite(t *testing.T) (*site, *Module) {
 	s := &site{t: t, routes: map[string]http.HandlerFunc{}}
-	return s, New(scrapertest.New(t).Handle(host, s).Handle("www.threads.com", s).Client())
+	return s, New(scrapertest.New(t).Handle(host, s).Client())
 }
 
 func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -93,14 +93,14 @@ func TestProfile(t *testing.T) {
 	assert.Equal(t, "alice", res.Username)
 	assert.Equal(t, "Alice Example", *res.DisplayName)
 	assert.Equal(t, "Birds & books.", *res.Bio, "trimmed")
-	assert.Equal(t, "https://www.threads.net/@alice", *res.ProfileURL)
+	assert.Equal(t, "https://www.threads.com/@alice", *res.ProfileURL)
 	assert.Equal(t, 4321, *res.Followers)
 	assert.Nil(t, res.Following, "not exposed by Threads")
 	assert.Nil(t, res.PostCount)
 	assert.True(t, *res.Verified)
 	assert.Equal(t, []string{"7003", "7002"}, ids(res.Posts), "newest first, capped")
 	assert.Equal(t, ss.Post{ID: "7003", Text: "Third thread", CreatedAt: ss.Ptr("2025-11-14T08:50:15Z"),
-		URL: ss.Ptr("https://www.threads.net/@alice/post/T3"), Likes: ss.Ptr(30), Replies: ss.Ptr(4), Reposts: ss.Ptr(2)}, res.Posts[0])
+		URL: ss.Ptr("https://www.threads.com/@alice/post/T3"), Likes: ss.Ptr(30), Replies: ss.Ptr(4), Reposts: ss.Ptr(2)}, res.Posts[0])
 	assert.Nil(t, res.Post)
 	assert.Empty(t, res.Comments)
 	assert.Empty(t, res.Warnings)
@@ -134,15 +134,17 @@ func TestPostWithRepliesAndAuthorHistory(t *testing.T) {
 	assert.Nil(t, res.Comments[1].Likes, "a null like count stays null")
 }
 
-func TestThreadsComHost(t *testing.T) {
-	s, m := newSite(t)
-	s.html("/@alice", 200, "profile.html")
-	tg := profile("alice")
-	tg.URL = mustURL(t, "https://threads.com/@alice")
-	res, err := scrape(m, tg, 1, 0)
-	require.NoError(t, err)
-	assert.Equal(t, "https://www.threads.com/@alice", *res.ProfileURL)
-	assert.Equal(t, "www.threads.com", s.seen[0].URL.Host)
+func TestRequestsGoToThreadsCom(t *testing.T) {
+	for _, u := range []string{"https://www.threads.net/@alice", "https://threads.net/@alice", "https://threads.com/@alice"} {
+		s, m := newSite(t)
+		s.html("/@alice", 200, "profile.html")
+		tg := profile("alice")
+		tg.URL = mustURL(t, u)
+		res, err := scrape(m, tg, 1, 0)
+		require.NoError(t, err, u)
+		assert.Equal(t, "https://www.threads.com/@alice", *res.ProfileURL)
+		assert.Equal(t, "www.threads.com", s.seen[0].URL.Host, u)
+	}
 }
 
 func TestPostWithoutAuthorPageStillSucceeds(t *testing.T) {
@@ -221,6 +223,43 @@ func TestUnrecognizableAndGarbagePages(t *testing.T) {
 			assert.Equal(t, "threads", e.Details["platform"])
 		})
 	}
+}
+
+func TestLoginWallPages(t *testing.T) {
+	for name, body := range map[string]string{
+		"login form":      `<html><form method="post" action="/accounts/x"><input type="password" name="p"></form></html>`,
+		"form to login":   `<html><form action="/login/"><input name="u"></form></html>`,
+		"link to login":   `<html><a href="https://www.threads.com/login?next=%2F%40alice">Log in</a></html>`,
+		"require_login":   `<script type="application/json">{"data":{"require_login":true}}</script>`,
+		"login_required":  `<script type="application/json">{"error":{"message":"login_required"}}</script>`,
+		"error_type flag": `<script type="application/json">{"error_type":"login_required"}</script>`,
+	} {
+		for _, tg := range []ss.Target{profile("alice"), post("alice", "T2")} {
+			t.Run(name+" "+tg.URLKind, func(t *testing.T) {
+				s, m := newSite(t)
+				s.raw("/@alice", 200, body)
+				s.raw("/@alice/post/T2", 200, body)
+				_, err := scrape(m, tg, 2, 0)
+				e := mustErr(t, err)
+				assert.Equal(t, "login_required", e.Code)
+				assert.Equal(t, 503, e.Status)
+				assert.Equal(t, "threads", e.Details["platform"])
+				assert.NotContains(t, e.Details, "missing_settings")
+			})
+		}
+	}
+}
+
+func TestNoDataWithoutLoginMarkersNamesTheMissingData(t *testing.T) {
+	s, m := newSite(t)
+	s.html("/@alice", 200, "profile_unrecognizable.html")
+	s.html("/@alice/post/T2", 200, "profile_unrecognizable.html")
+	_, err := scrape(m, profile("alice"), 2, 0)
+	e := mustErr(t, err)
+	assert.Equal(t, "upstream_error", e.Code)
+	assert.Equal(t, "the Threads page contained no recognizable profile data", e.Message)
+	_, err = scrape(m, post("alice", "T2"), 2, 0)
+	assert.Equal(t, "the Threads page contained no recognizable post data", mustErr(t, err).Message)
 }
 
 func TestPostPageWithoutThePost(t *testing.T) {

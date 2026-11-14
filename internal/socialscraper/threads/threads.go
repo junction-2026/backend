@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,13 +43,9 @@ func New(hc *http.Client) *Module {
 
 type obj = map[string]any
 
-// base is the origin of the URL's host: threads.com or (otherwise) threads.net.
-func base(t ss.Target) string {
-	if t.URL != nil && strings.HasSuffix(strings.ToLower(t.URL.Hostname()), "threads.com") {
-		return "https://www.threads.com"
-	}
-	return "https://www.threads.net"
-}
+// base is the origin every request goes to: Threads lives on threads.com, whatever host the URL named
+// (threads.net redirects there, and redirects are not followed).
+func base(ss.Target) string { return "https://www.threads.com" }
 
 func retryAfter(h http.Header) int {
 	if s, err := strconv.Atoi(h.Get("Retry-After")); err == nil && s >= 0 {
@@ -311,7 +308,42 @@ func deref(s *string) string {
 	return *s
 }
 
-func unrecognizable(what string) *ss.Error {
+// loginWall reports a page that asks for a login: a login form (password field or form posting to /login), a link
+// to /login, or login-required flags in the embedded JSON. Only consulted for a page without the wanted data.
+func loginWall(page []byte, bl []any) bool {
+	z := html.NewTokenizer(bytes.NewReader(page))
+	for tt := z.Next(); tt != html.ErrorToken; tt = z.Next() {
+		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
+			continue
+		}
+		tok := z.Token()
+		for _, a := range tok.Attr {
+			switch {
+			case tok.Data == "a" && a.Key == "href", tok.Data == "form" && a.Key == "action":
+				if p, err := url.Parse(a.Val); err == nil && (p.Path == "/login" || strings.HasPrefix(p.Path, "/login/")) {
+					return true
+				}
+			case tok.Data == "input" && a.Key == "type" && strings.EqualFold(a.Val, "password"):
+				return true
+			}
+		}
+	}
+	found := false
+	for _, b := range bl {
+		walk(b, func(d obj) {
+			if rl, _ := d["require_login"].(bool); rl || d["message"] == "login_required" || d["error_type"] == "login_required" {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+// unrecognizable is the error for a 200 page without the wanted data: a login wall or an unparseable page.
+func unrecognizable(what string, page []byte, bl []any) *ss.Error {
+	if loginWall(page, bl) {
+		return ss.LoginRequired(platform, "Threads requires a login to show this "+what)
+	}
 	return ss.UpstreamError(platform, "the Threads page contained no recognizable "+what+" data")
 }
 
@@ -324,7 +356,7 @@ func (m *Module) profile(ctx context.Context, base, username string, limit int, 
 	bl := blocks(page)
 	u := userObj(bl, username)
 	if u == nil {
-		return nil, unrecognizable("profile")
+		return nil, unrecognizable("profile", page, bl)
 	}
 	res, err := profileResult(u, username, ss.KindProfile, base)
 	if err != nil {
@@ -399,7 +431,7 @@ func (m *Module) post(ctx context.Context, base, username, code string, req ss.R
 		}
 	}
 	if target == nil {
-		return nil, unrecognizable("post")
+		return nil, unrecognizable("post", page, bl)
 	}
 	name := author(target.d)
 	if name == "" {
