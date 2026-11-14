@@ -108,6 +108,7 @@ type fcResult struct {
 		Status                string                          `json:"status"`
 		Cached                bool                            `json:"cached"`
 		Error                 *struct{ Code, Message string } `json:"error"`
+		RetryOf               *string                         `json:"retry_of"`
 	} `json:"queries"`
 	FactChecks []map[string]any `json:"fact_checks"`
 	Requests   int              `json:"requests_used"`
@@ -138,7 +139,8 @@ func TestFactCheckPlanAndRequestShape(t *testing.T) {
 	s := newFCStub(t, empty)
 	got, err := runFC(context.Background(), &Executor{}, fcDef(s.URL), extraction(de2...))
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"de:Rentenalter auf 70", "en:pension age 70", "de:Steuer 40 Prozent", "en:tax rose 40 percent"}, s.pairs())
+	// "tax rose 40 percent" returns 0 claims and gets its 3-word retry; the other searches have no shorter query
+	require.ElementsMatch(t, []string{"de:Rentenalter auf 70", "en:pension age 70", "de:Steuer 40 Prozent", "en:tax rose 40 percent", "en:tax rose 40"}, s.pairs())
 	for _, r := range s.reqs {
 		require.Equal(t, "/v1alpha1/claims:search", r.path)
 		require.Equal(t, fcKey, r.key)
@@ -152,8 +154,8 @@ func TestFactCheckPlanAndRequestShape(t *testing.T) {
 		require.Equal(t, "succeeded", q.Status)
 		require.Nil(t, q.Error)
 	}
-	require.Equal(t, []string{"de:Rentenalter auf 70", "en:pension age 70", "de:Steuer 40 Prozent", "en:tax rose 40 percent"}, order, "claims order, query before query_en")
-	require.Equal(t, 4, res.Requests)
+	require.Equal(t, []string{"de:Rentenalter auf 70", "en:pension age 70", "de:Steuer 40 Prozent", "en:tax rose 40 percent", "en:tax rose 40"}, order, "claims order, query before query_en, retry after its original")
+	require.Equal(t, 5, res.Requests)
 	require.Equal(t, `[]`, string(mustField(t, got, "fact_checks")))
 	require.NotContains(t, string(got), fcKey)
 }
@@ -510,4 +512,198 @@ func TestFactCheckOversizedAnswerNotCached(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, 2, s.count())
+}
+
+// ent is a claim with entities, for the shorter-retry tests.
+func extractionEnt(c cl, entities ...string) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{"claims": []map[string]any{{"text": c.Text, "language": c.Lang, "query": c.Q,
+		"query_en": c.QEN, "entities": entities, "check_worthiness": c.W}}})
+	return b
+}
+
+func TestShorterRetryQueryBuilding(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		q, qen       string
+		entities     []string
+		wantQ, wantE string // "" = no retry
+	}{
+		{"entities and three words", "EU beschließt Bargeld abschaffen 2027", "EU decides to abolish cash 2027", []string{"EU", "Bargeld", "2027"}, "EU Bargeld", "EU decides to"},
+		{"blank entities skipped and trimmed", "a b c", "x y", []string{"  ", " Bargeld ", "", "EU "}, "Bargeld EU", ""},
+		{"fewer than two entities", "long query here", "abolish cash", []string{" ", "Bargeld"}, "Bargeld", ""},
+		{"no entities", "long query here", "abolish cash", []string{}, "", ""},
+		{"equal to original, case and whitespace", "eu  BARGELD", "Abolish   Cash now", []string{"EU", "Bargeld"}, "", ""},
+		{"three words of a whitespace-heavy query_en", "q", " one\ttwo\n three four ", nil, "", "one two three"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := planFactChecks(extractionEntRaw(tc.q, tc.qen, tc.entities), 0.4, 3)
+			require.Len(t, plan, 2)
+			require.Equal(t, tc.wantQ, plan[0].short)
+			require.Equal(t, tc.wantE, plan[1].short)
+		})
+	}
+	// an English claim has only the claim-language search: entities rule
+	plan := planFactChecks(extractionEntRaw("pension age raised to 70", "pension age raised to 70", []string{"pension", "age"}), 0.4, 3)
+	require.Len(t, plan, 2)
+	plan = planFactChecks(json.RawMessage(`[{"text":"t","language":"en","query":"pension age raised","query_en":"x","entities":["pension","age"],"check_worthiness":0.9}]`), 0.4, 3)
+	require.Len(t, plan, 1)
+	require.Equal(t, "pension age", plan[0].short)
+}
+
+func extractionEntRaw(q, qen string, entities []string) json.RawMessage {
+	b, _ := json.Marshal([]map[string]any{{"text": "t", "language": "de", "query": q, "query_en": qen, "entities": entities, "check_worthiness": 0.9}})
+	return b
+}
+
+var bargeld = cl{"Die EU hat beschlossen, das Bargeld 2027 abzuschaffen.", "de", "EU beschließt Bargeld abschaffen 2027", "EU decides to abolish cash 2027", 0.9}
+
+func TestShorterRetryFindsResults(t *testing.T) {
+	s := newFCStub(t, func(r fcReq, _ int) (int, string) {
+		if r.query == "EU Bargeld" {
+			return 200, review("EU schafft Bargeld ab", "https://dpa.example/bargeld", "2026-11-01T00:00:00Z", "Falsch")
+		}
+		return 200, `{}`
+	})
+	got, err := runFC(context.Background(), &Executor{}, fcDef(s.URL), extractionEnt(bargeld, "EU", "Bargeld", "2027"))
+	require.NoError(t, err)
+	// planned de, retry of de (entities), planned en, retry of en (3 words, nothing found)
+	require.Equal(t, []string{"de:EU beschließt Bargeld abschaffen 2027", "de:EU Bargeld", "en:EU decides to abolish cash 2027", "en:EU decides to"}, sortedByOrder(s.pairs(), []string{
+		"de:EU beschließt Bargeld abschaffen 2027", "de:EU Bargeld", "en:EU decides to abolish cash 2027", "en:EU decides to"}))
+	res := decodeFC(t, got)
+	require.Equal(t, 4, res.Requests)
+	require.Len(t, res.Queries, 4)
+	for i, want := range []struct {
+		q, lang string
+		claims  int
+		retryOf *string
+	}{
+		{"EU beschließt Bargeld abschaffen 2027", "de", 0, nil},
+		{"EU Bargeld", "de", 1, ptr("EU beschließt Bargeld abschaffen 2027")},
+		{"EU decides to abolish cash 2027", "en", 0, nil},
+		{"EU decides to", "en", 0, ptr("EU decides to abolish cash 2027")},
+	} {
+		q := res.Queries[i]
+		require.Equal(t, want.q, q.QQ)
+		require.Equal(t, want.lang, q.Lang)
+		require.Equal(t, want.claims, q.Claims)
+		require.Equal(t, bargeld.Text, q.For, "retry keeps for_claim")
+		require.Equal(t, "succeeded", q.Status)
+		require.Equal(t, want.retryOf, q.RetryOf)
+	}
+	require.Contains(t, string(got), `"retry_of":null`, "planned searches carry retry_of: null")
+	require.Len(t, res.FactChecks, 1)
+	require.Equal(t, "EU Bargeld", res.FactChecks[0]["query"])
+	require.Equal(t, bargeld.Text, res.FactChecks[0]["for_claim"])
+}
+
+func ptr(s string) *string { return &s }
+
+func sortedByOrder(in, order []string) []string {
+	var out []string
+	for _, o := range order {
+		for _, i := range in {
+			if i == o {
+				out = append(out, i)
+			}
+		}
+	}
+	return out
+}
+
+func TestShorterRetryNotForFailuresOrRetries(t *testing.T) {
+	for name, answer := range map[string]func(fcReq, int) (int, string){
+		"503 twice":    func(fcReq, int) (int, string) { return 503, `` },
+		"429 twice":    func(fcReq, int) (int, string) { return 429, `{}` },
+		"decode error": func(fcReq, int) (int, string) { return 200, `not json` },
+	} {
+		s := newFCStub(t, answer)
+		_, err := runFC(context.Background(), &Executor{}, fcDef(s.URL), extractionEnt(bargeld, "EU", "Bargeld"))
+		require.Error(t, err, name) // every search failed
+		for _, p := range s.pairs() {
+			require.Contains(t, []string{"de:EU beschließt Bargeld abschaffen 2027", "en:EU decides to abolish cash 2027"}, p, name)
+		}
+	}
+
+	// a retry that finds nothing is not retried; the original's backoff retry is unaffected
+	s := newFCStub(t, empty)
+	got, err := runFC(context.Background(), &Executor{}, fcDef(s.URL), extractionEnt(bargeld, "EU", "Bargeld"))
+	require.NoError(t, err)
+	require.Equal(t, 4, s.count(), "two planned searches, one shorter retry each")
+	require.Equal(t, 4, decodeFC(t, got).Requests)
+
+	// a failing retry is listed failed, the analyzer still succeeds and the retry is not retried again; 503 once gets the backoff retry
+	s = newFCStub(t, func(r fcReq, n int) (int, string) {
+		if r.query == "EU Bargeld" {
+			return 500, ``
+		}
+		return 200, `{}`
+	})
+	got, err = runFC(context.Background(), &Executor{}, fcDef(s.URL), extractionEnt(bargeld, "EU", "Bargeld"))
+	require.NoError(t, err)
+	res := decodeFC(t, got)
+	require.Equal(t, "failed", res.Queries[1].Status)
+	require.Equal(t, "search_failed", res.Queries[1].Error.Code)
+	require.Equal(t, 2+2+1, res.Requests, "de, de retry x2 (backoff), en, en retry")
+}
+
+func TestShorterRetryBoundCacheAndOrder(t *testing.T) {
+	three := []cl{
+		{"A", "de", "a1 a2 a3 a4", "en a1 a2 a3 a4", 0.9}, {"B", "fr", "b1 b2 b3 b4", "en b1 b2 b3 b4", 0.8}, {"C", "es", "c1 c2 c3 c4", "en c1 c2 c3 c4", 0.7}}
+	ext := func() json.RawMessage {
+		var claims []map[string]any
+		for _, c := range three {
+			claims = append(claims, map[string]any{"text": c.Text, "language": c.Lang, "query": c.Q, "query_en": c.QEN,
+				"entities": []string{"e1", "e2", "e3"}, "check_worthiness": c.W})
+		}
+		b, _ := json.Marshal(map[string]any{"claims": claims})
+		return b
+	}()
+	s := newFCStub(t, empty)
+	x := &Executor{}
+	got, err := runFC(context.Background(), x, fcDef(s.URL), ext)
+	require.NoError(t, err)
+	res := decodeFC(t, got)
+	require.Len(t, res.Queries, 12)
+	require.Equal(t, 12, res.Requests)
+	require.LessOrEqual(t, s.count(), 12)
+	var order []string
+	for i, q := range res.Queries {
+		order = append(order, q.Lang+":"+q.QQ)
+		require.Equal(t, i%2 == 1, q.RetryOf != nil, "retries directly follow their original")
+	}
+	require.Equal(t, []string{"de:a1 a2 a3 a4", "de:e1 e2", "en:en a1 a2 a3 a4", "en:en a1 a2", "fr:b1 b2 b3 b4", "fr:e1 e2",
+		"en:en b1 b2 b3 b4", "en:en b1 b2", "es:c1 c2 c3 c4", "es:e1 e2", "en:en c1 c2 c3 c4", "en:en c1 c2"}, order)
+
+	// a repeated job within the cache lifetime: retries are cached like any search
+	before := s.count()
+	got, err = runFC(context.Background(), x, fcDef(s.URL), ext)
+	require.NoError(t, err)
+	res = decodeFC(t, got)
+	require.Equal(t, before, s.count())
+	require.Zero(t, res.Requests)
+	require.Len(t, res.Queries, 12)
+	require.Equal(t, 12, res.Cached)
+	for _, q := range res.Queries {
+		require.True(t, q.Cached)
+	}
+}
+
+func TestShorterRetryRejectedKeyStopsFurtherRequests(t *testing.T) {
+	s := newFCStub(t, func(r fcReq, _ int) (int, string) {
+		if r.query == "EU Bargeld" {
+			return 400, `{"error":{"message":"API key not valid"}}`
+		}
+		return 200, `{}`
+	})
+	d := fcDef(s.URL)
+	one := 1
+	d.Execution.MaxConcurrency = &one
+	got, err := runFC(context.Background(), &Executor{}, d, extractionEnt(bargeld, "EU", "Bargeld"))
+	require.Nil(t, got)
+	var re *job.RunError
+	require.ErrorAs(t, err, &re)
+	require.Contains(t, re.Message, "api_key")
+	pairs := s.pairs()
+	require.Equal(t, "de:EU Bargeld", pairs[len(pairs)-1], "no request after the rejected retry")
+	require.LessOrEqual(t, len(pairs), 4)
 }
