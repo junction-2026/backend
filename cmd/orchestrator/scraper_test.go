@@ -143,7 +143,7 @@ func platforms(t *testing.T) *scrapertest.Router {
 	})
 	return scrapertest.New(t).Handle("public.api.bsky.app", bluesky).Handle("mastodon.example", mastodon).
 		Handle("www.instagram.com", instagram).Handle("i.instagram.com", instagram).
-		Handle("www.threads.net", threads).Handle("x.com", x)
+		Handle("www.threads.com", threads).Handle("x.com", x)
 }
 
 type rtFunc func(*http.Request) (*http.Response, error)

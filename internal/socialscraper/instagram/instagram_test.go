@@ -355,56 +355,133 @@ func TestPrivateAccount(t *testing.T) {
 	assert.Zero(t, s.count(mobileHost))
 }
 
-func TestThrottledAndLoginWall(t *testing.T) {
+func TestThrottled(t *testing.T) {
 	cases := map[string]struct {
-		status  int
 		body    string
 		headers []string
 		retry   string
 	}{
-		"429":               {429, `{"message":"Please wait a few minutes","status":"fail"}`, nil, ""},
-		"429 with wait":     {429, `{}`, []string{"Retry-After", "90"}, "90"},
-		"redirect to login": {302, ``, []string{"Location", "https://www.instagram.com/accounts/login/?next=/alice/"}, ""},
-		"login body 400":    {400, `{"message":"login_required","require_login":true,"status":"fail"}`, nil, ""},
-		"401":               {401, `{}`, nil, ""},
-		"login page 200":    {200, `<html><a href="/accounts/login/">Log in</a></html>`, nil, ""},
+		"429":           {`{"message":"Please wait a few minutes","status":"fail"}`, nil, ""},
+		"429 with wait": {`{}`, []string{"Retry-After", "90"}, "90"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := newSite(t)
-			s.raw(webHost+"/api/v1/users/web_profile_info/", c.status, c.body, c.headers...)
+			s.raw(webHost+"/api/v1/users/web_profile_info/", 429, c.body, c.headers...)
 			_, err := scrape(s.module("", nil), profile(), 2, 0)
 			e := mustErr(t, err)
 			assert.Equal(t, 429, e.Status)
 			assert.Equal(t, "rate_limited", e.Code)
 			assert.Equal(t, c.retry, e.Header.Get("Retry-After"))
+			if c.retry == "90" {
+				assert.Equal(t, 90, e.Details["retry_after_s"])
+			}
 		})
 	}
 }
 
-func TestNotFound(t *testing.T) {
+func TestLoginWall(t *testing.T) {
+	cases := map[string]struct {
+		status  int
+		body    string
+		headers []string
+	}{
+		"redirect to login": {302, ``, []string{"Location", "https://www.instagram.com/accounts/login/?next=/alice/"}},
+		"login body 400":    {400, `{"message":"login_required","require_login":true,"status":"fail"}`, nil},
+		"401":               {401, `{}`, nil},
+		"login page 200":    {200, `<html><a href="/accounts/login/">Log in</a></html>`, nil},
+		"require_login 200": {200, `{"message":"Please log in","require_login":true,"status":"fail"}`, nil},
+	}
+	for name, c := range cases {
+		for sess, module := range map[string]func(*site) *Module{
+			"anonymous":    func(s *site) *Module { return s.module("", nil) },
+			"with session": func(s *site) *Module { return s.module(goodSession(t), nil) },
+		} {
+			t.Run(name+" "+sess, func(t *testing.T) {
+				s := newSite(t)
+				s.raw(webHost+"/api/v1/users/web_profile_info/", c.status, c.body, c.headers...)
+				_, err := scrape(module(s), profile(), 2, 0)
+				e := mustErr(t, err)
+				assert.Equal(t, 503, e.Status)
+				assert.Equal(t, "login_required", e.Code)
+				assert.Equal(t, "instagram", e.Details["platform"])
+				assert.Empty(t, e.Header.Get("Retry-After"))
+				if sess == "anonymous" {
+					assert.Equal(t, []string{"INSTAGRAM_SESSION_FILE"}, e.Details["missing_settings"])
+				} else {
+					assert.NotContains(t, e.Details, "missing_settings")
+				}
+				assert.NotContains(t, e.Message, sentinel)
+			})
+		}
+	}
+}
+
+func TestNotFoundWithSession(t *testing.T) {
 	s := newSite(t)
+	sess := goodSession(t)
 	s.raw(webHost+"/api/v1/users/web_profile_info/", 404, `{"message":"Not found"}`)
-	_, err := scrape(s.module("", nil), profile(), 2, 0)
+	_, err := scrape(s.module(sess, nil), profile(), 2, 0)
 	assert.Equal(t, "account_not_found", mustErr(t, err).Code)
 
 	s.json(webHost+"/api/v1/users/web_profile_info/", 200, "web_profile_info_missing.json")
-	_, err = scrape(s.module("", nil), profile(), 2, 0)
+	_, err = scrape(s.module(sess, nil), profile(), 2, 0)
 	assert.Equal(t, 404, mustErr(t, err).Status)
 	assert.Equal(t, "account_not_found", mustErr(t, err).Code)
 
 	id := mustID(t, "CpZ999")
 	s.json(mobileHost+"/api/v1/media/"+id+"/info/", 200, "media_empty.json")
-	_, err = scrape(s.module("", nil), post("CpZ999"), 2, 0)
+	_, err = scrape(s.module(sess, nil), post("CpZ999"), 2, 0)
 	assert.Equal(t, 404, mustErr(t, err).Status)
 	assert.Equal(t, "post_not_found", mustErr(t, err).Code)
 
 	s.raw(mobileHost+"/api/v1/media/"+id+"/info/", 404, `{}`)
-	_, err = scrape(s.module("", nil), post("CpZ999"), 2, 0)
+	_, err = scrape(s.module(sess, nil), post("CpZ999"), 2, 0)
 	assert.Equal(t, "post_not_found", mustErr(t, err).Code)
 
-	_, err = scrape(s.module("", nil), post("not*a*code"), 2, 0)
+	_, err = scrape(s.module(sess, nil), post("not*a*code"), 2, 0)
 	assert.Equal(t, "post_not_found", mustErr(t, err).Code)
+}
+
+// Anonymously Instagram cannot tell a missing account from a refused caller: every "not found" is login_required.
+func TestAnonymousNotFoundIsLoginRequired(t *testing.T) {
+	id := mustID(t, "CpZ999")
+	cases := map[string]struct {
+		key, fixture, body string
+		status             int
+		target             ss.Target
+	}{
+		"profile 404":        {webHost + "/api/v1/users/web_profile_info/", "", `{"message":"Not found"}`, 404, profile()},
+		"profile empty user": {webHost + "/api/v1/users/web_profile_info/", "web_profile_info_missing.json", "", 200, profile()},
+		"media 404":          {mobileHost + "/api/v1/media/" + id + "/info/", "", `{}`, 404, post("CpZ999")},
+		"media empty":        {mobileHost + "/api/v1/media/" + id + "/info/", "media_empty.json", "", 200, post("CpZ999")},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newSite(t)
+			if c.fixture != "" {
+				s.json(c.key, c.status, c.fixture)
+			} else {
+				s.raw(c.key, c.status, c.body)
+			}
+			_, err := scrape(s.module("", nil), c.target, 2, 0)
+			e := mustErr(t, err)
+			assert.Equal(t, "login_required", e.Code)
+			assert.Equal(t, "instagram", e.Details["platform"])
+			assert.Equal(t, []string{"INSTAGRAM_SESSION_FILE"}, e.Details["missing_settings"])
+		})
+	}
+	// a shortcode that cannot be decoded needs no request: the post cannot exist
+	_, err := scrape(newSite(t).module("", nil), post("not*a*code"), 2, 0)
+	assert.Equal(t, "post_not_found", mustErr(t, err).Code)
+}
+
+func TestRefusedHistoryKeepsTheProfile(t *testing.T) {
+	s := newSite(t)
+	s.raw(mobileHost+"/api/v1/feed/user/1001/", 404, `{}`)
+	res, err := scrape(s.module("", nil), profile(), 2, 0)
+	require.NoError(t, err, "a refused history keeps the profile")
+	assert.Equal(t, []string{"history_unavailable"}, codes(res.Warnings))
 }
 
 func TestTimeout(t *testing.T) {
