@@ -68,5 +68,5 @@ cancellation settles, `job.cancelled`).
 - A custom handler that ignores its context keeps its goroutine until it returns; the
   adapter returns on time anyway.
 - Jobs are lost on restart (in-memory store, as the shared design states).
-- A finalizer implementation that blocks without honouring its context is bounded only
-  by the engine's timeout handling of late results (a late result is dropped).
+- A finalizer that ignores its context keeps its goroutine until it returns; the engine
+  stops waiting at the timeout and drops the late result.

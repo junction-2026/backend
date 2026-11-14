@@ -97,7 +97,11 @@ The engine SHALL expose a `Finalizer` interface `Run(ctx, FinalizationInput) (Fi
 - **THEN** the events `analysis.finalizing`, `analysis.finalized` and `job.completed` follow `analysis.ready_for_finalization` and the object is stored verbatim
 
 ### Requirement: Finalizer failures
-A `*RunError` returned by the finalizer SHALL keep its code, a timeout SHALL map to `timeout`, any other error to `adapter_error` and a non-object result to `invalid_output`. AnalyzerRuns are never changed and the job still ends `completed`.
+The finalizer timeout SHALL bound the job even when the `Finalizer` ignores its context: on timeout or cancellation the engine SHALL stop waiting and drop a late result. A `*RunError` returned by the finalizer SHALL keep its code, a timeout SHALL map to `timeout`, any other error to `adapter_error` and a non-object result to `invalid_output`. AnalyzerRuns are never changed and the job still ends `completed`.
+
+#### Scenario: Finalizer ignores its context
+- **WHEN** a finalizer blocks past its 50ms timeout without honouring its context
+- **THEN** finalization is `failed` with `timeout` within about a second, the late result is dropped and the global job slot is released
 
 #### Scenario: Finalizer failure
 - **WHEN** the finalizer returns an error

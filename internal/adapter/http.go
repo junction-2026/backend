@@ -22,8 +22,13 @@ func (x *Executor) client() *http.Client {
 	if x.Client != nil {
 		return x.Client
 	}
-	return http.DefaultClient
+	return noRedirects
 }
+
+// noRedirects: adapters never retry or follow redirects, so configured
+// credential headers cannot reach another host through a 3xx answer (which
+// then fails as a non-2xx response).
+var noRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 // send performs one request. Configured headers (credentials) go to target
 // only when it shares scheme and host with the configured endpoint.

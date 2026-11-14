@@ -5,7 +5,11 @@ Backend-local format, loading and validation rules of the analyzer registry that
 ## ADDED Requirements
 
 ### Requirement: Registry loading
-The backend SHALL load the registry at startup from the path in `ANALYZERS_CONFIG`, which is either one YAML file or a directory whose `*.yaml` and `*.yml` files (not recursive, in name order) are all loaded. Each file SHALL have the top-level member `analyzers`, a list of one or more analyzer definitions, and unknown members SHALL be rejected.
+The backend SHALL load the registry at startup from the path in `ANALYZERS_CONFIG`, which is either one YAML file or a directory whose `*.yaml` and `*.yml` files (not recursive, in name order) are all loaded. Each file SHALL have the top-level member `analyzers`, a list of one or more analyzer definitions, and unknown members SHALL be rejected. A file whose `analyzers` list is empty or missing (including an empty file), and a directory without any `*.yaml`/`*.yml` file, SHALL abort startup.
+
+#### Scenario: Empty registry
+- **WHEN** a file is empty, is `{}` or has `analyzers: []`
+- **THEN** loading fails with an error naming the file
 
 #### Scenario: Directory of files
 - **WHEN** `ANALYZERS_CONFIG` is a directory with `a.yaml` (analyzers `a`, `c`), `b.yml` (analyzer `b`) and `notes.txt`

@@ -226,7 +226,24 @@ func (r *run) finalize(in FinalizationInput) {
 	defer r.guard()
 	ctx, cancel := context.WithTimeout(r.ctx, r.finDef.Execution.Timeout)
 	defer cancel()
-	raw, err := r.e.cfg.Finalizer.Run(ctx, in)
+	type res struct {
+		raw json.RawMessage
+		err error
+	}
+	ch := make(chan res, 1) // buffered: a finalizer that ignores ctx must not leak blocked
+	go func() {
+		defer r.guard()
+		raw, err := r.e.cfg.Finalizer.Run(ctx, in)
+		ch <- res{raw, err}
+	}()
+	var raw json.RawMessage
+	var err error
+	select {
+	case v := <-ch:
+		raw, err = v.raw, v.err
+	case <-ctx.Done(): // timeout or cancel bounds a finalizer that ignores its ctx; its late result is dropped
+		err = ctx.Err()
+	}
 	rerr := classify(ctx, err)
 	if rerr == nil && (len(raw) == 0 || raw[0] != '{' || !json.Valid(raw)) {
 		rerr = &job.RunError{Code: job.CodeInvalidOutput, Message: "finalizer result is not a JSON object"}

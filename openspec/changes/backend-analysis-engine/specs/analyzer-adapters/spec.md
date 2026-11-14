@@ -41,7 +41,11 @@ When the context ends while `http_async` waits for the submission or polls, the 
 - **THEN** the adapter sends exactly one `DELETE` to `status_url` and fails with `timeout` or `cancelled` respectively
 
 ### Requirement: Adapter messages and credentials
-Adapter error messages SHALL NOT contain endpoint or status URLs. Configured headers SHALL be sent to a `status_url` only when it has the same scheme and host as the configured endpoint.
+Adapter error messages SHALL NOT contain endpoint or status URLs, and the default HTTP client SHALL NOT follow redirects. Configured headers SHALL be sent to a `status_url` only when it has the same scheme and host as the configured endpoint.
+
+#### Scenario: Redirect to another host
+- **WHEN** a configured endpoint answers 307 to another host
+- **THEN** the redirect is not followed, the other host receives no request and the adapter fails with `adapter_error`
 
 #### Scenario: Status URL on another host
 - **WHEN** an async service answers with a `status_url` on a different host and the analyzer has an `Authorization` header configured

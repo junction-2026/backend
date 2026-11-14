@@ -564,3 +564,25 @@ func TestPanickingFinalizerFailsJobWithoutCrash(t *testing.T) {
 	require.Equal(t, job.StatusFailed, fin.Status)
 	require.Equal(t, job.RunSucceeded, ar(fin, "a").Status, "settled results are kept")
 }
+
+func TestFinalizerIgnoringContextIsBoundedByTimeout(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	f := &fakeFinalizer{fn: func(context.Context) (rawMsg, error) {
+		<-release // ignores ctx
+		return rawMsg(`{"verdict":"low_risk","categories":[],"explanation":"late"}`), nil
+	}}
+	y := strings.Replace(finDef, "timeout: 1s", "timeout: 50ms", 1)
+	e := newEngine(t, regYAML(an("a", "ok"), y), Config{Finalizer: f, MaxParallelJobs: 1}, map[string]adapter.Handler{"ok": ok, "final": ok})
+	j, _ := e.Create(in("x"))
+	start := time.Now()
+	fin := waitDone(t, e, j.ID)
+	require.Less(t, time.Since(start), time.Second)
+	require.Equal(t, job.StatusCompleted, fin.Status)
+	require.Equal(t, job.RunFailed, fin.Finalization.Status)
+	require.Equal(t, job.CodeTimeout, fin.Finalization.Error.Code)
+	require.Nil(t, fin.Finalization.Result, "late result is dropped")
+	// the global slot is free again
+	j2, _ := e.Create(CreateRequest{Input: job.Input{Content: "y"}, Analyzers: []string{"a"}, Finalize: job.Ptr(false)})
+	require.Equal(t, job.StatusCompleted, waitDone(t, e, j2.ID).Status)
+}

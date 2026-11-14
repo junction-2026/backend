@@ -177,8 +177,11 @@ func Load(path string, opt Options) (*Registry, error) {
 		}
 		dec := yaml.NewDecoder(bytes.NewReader(b))
 		dec.KnownFields(true)
-		if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+		if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) { // EOF: empty file, caught below
 			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		if len(doc.Analyzers) == 0 {
+			return nil, fmt.Errorf("%s: no analyzers defined (top-level 'analyzers' list is empty or missing)", f)
 		}
 		for i := range doc.Analyzers {
 			a := doc.Analyzers[i].Analyzer
@@ -193,6 +196,9 @@ func Load(path string, opt Options) (*Registry, error) {
 			reg.byID[a.ID] = &a
 			reg.all = append(reg.all, &a)
 		}
+	}
+	if len(reg.all) == 0 {
+		return nil, fmt.Errorf("%s: no analyzer files found", path)
 	}
 	sort.Slice(reg.all, func(i, j int) bool { return reg.all[i].ID < reg.all[j].ID })
 	if err := reg.validateGraph(); err != nil {

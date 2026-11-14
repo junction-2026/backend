@@ -322,3 +322,21 @@ func TestTextStatsAndInputs(t *testing.T) {
 	got, _ = textStats(context.Background(), Request{Inputs: map[string]any{"x": ""}})
 	require.Equal(t, map[string]int{"characters": 0, "words": 0, "lines": 0}, got)
 }
+
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	var leaked atomic.Bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked.Store(true)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer other.Close()
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+	}))
+	defer svc.Close()
+	d := def(registry.AdapterHTTPSync, svc.URL)
+	d.Execution.Headers = map[string]string{"X-Api-Key": "secret"}
+	_, err := exec(context.Background(), d)
+	require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+	require.False(t, leaked.Load(), "the redirect target must not be contacted")
+}

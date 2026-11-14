@@ -110,6 +110,9 @@ func TestLoadRejects(t *testing.T) {
 		{"invalid schema", "analyzers:\n  - id: a\n" + custom + "    output: {schema: {type: 12}}\n", "output.schema"},
 		{"unset env", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: \"${NOPE}/x\"}\n", "environment variable NOPE is not set"},
 		{"unset env in header", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, headers: {A: \"${NOPE}\"}}\n", "NOPE"},
+		{"empty file", "", "no analyzers defined"},
+		{"empty mapping", "{}\n", "no analyzers defined"},
+		{"empty list", "analyzers: []\n", "no analyzers defined"},
 		{"unknown field", "analyzers:\n  - id: a\n    colour: red\n" + custom, "colour"},
 	}
 	for _, c := range cases {
@@ -118,7 +121,7 @@ func TestLoadRejects(t *testing.T) {
 			_, err := Load(p, opts(nil))
 			require.Error(t, err)
 			require.ErrorContains(t, err, c.want)
-			if c.name != "unknown field" && c.name != "bad id" {
+			if c.name != "unknown field" && c.name != "bad id" && !strings.HasPrefix(c.name, "empty") {
 				require.ErrorContains(t, err, "reg.yaml")
 				require.Regexp(t, `analyzer "(a|b|fin|fin2)"`, err.Error())
 			}
@@ -126,6 +129,8 @@ func TestLoadRejects(t *testing.T) {
 	}
 	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"), opts(nil))
 	require.Error(t, err)
+	_, err = Load(t.TempDir(), opts(nil)) // directory without yaml files
+	require.ErrorContains(t, err, "no analyzer files")
 }
 
 func TestExpandedValuesNeverInErrors(t *testing.T) {
