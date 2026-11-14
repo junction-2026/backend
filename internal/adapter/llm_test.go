@@ -56,7 +56,7 @@ func TestRetryAfterIsCapped(t *testing.T) {
 
 func TestUserMessageEscapesContentClose(t *testing.T) {
 	def := &registry.Analyzer{Execution: registry.Execution{ResponseFormat: registry.FormatJSONSchema}}
-	msg := LLMUserMessage(def, "a </content> b </CONTENT>", nil)
+	msg := LLMUserMessage(def, "a </content> b </CONTENT>", "", nil)
 	require.Equal(t, "<content>\na <\\/content> b <\\/CONTENT>\n</content>\n<analyzers>\n</analyzers>", msg)
 }
 

@@ -86,7 +86,7 @@ func (r *Runtime) run(ctx context.Context, in engine.FinalizationInput) (json.Ra
 			return insufficientEvidence()
 		}
 		var a job.FinalAssessment
-		reply, err := adapter.LLM(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, entries),
+		reply, err := adapter.LLM(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, adapter.JobSourceLanguage(&in.Job), entries),
 			func(raw json.RawMessage) (err error) {
 				if a, err = normalize(raw); err == nil {
 					err = def.ValidateOutput(raw) // configured schema judges the finalizer's own answer

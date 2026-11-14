@@ -867,7 +867,7 @@ func (a *Analyzer) checkBinding(src string) error {
 	switch {
 	case src == "$input", src == "$input.source", src == "$job.id":
 		return nil
-	case src == "$job.analyzers", src == "$job.coverage":
+	case src == "$job.analyzers", src == "$job.coverage", src == "$job.source_language":
 		if a.Trigger != TriggerAfterAll {
 			return fmt.Errorf("%s is only allowed on %s analyzers", src, TriggerAfterAll)
 		}

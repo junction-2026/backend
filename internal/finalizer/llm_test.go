@@ -61,10 +61,19 @@ type llmEnv struct {
 
 // newLLMEngine loads the analyzers plus an llm finalizer pointed at s.
 func newLLMEngine(t *testing.T, yaml string, s *stub) llmEnv {
+	return newLLMEngineWith(t, yaml, s, nil)
+}
+
+// newLLMEngineWith is newLLMEngine with extra custom handlers.
+func newLLMEngineWith(t *testing.T, yaml string, s *stub, extra map[string]adapter.Handler) llmEnv {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "reg.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("analyzers:\n"+yaml), 0o600))
-	hs := handlers(map[string]adapter.Handler{"ok": okHandler, "fail": failHandler})
+	hm := map[string]adapter.Handler{"ok": okHandler, "fail": failHandler}
+	for k, v := range extra {
+		hm[k] = v
+	}
+	hs := handlers(hm)
 	env := map[string]string{"FINALIZER_BASE_URL": s.URL + "/v1/", "FINALIZER_API_KEY": testKey,
 		"FINALIZER_MODEL": "gpt-test", "PROMPT": promptFile(t), "SITE": "https://example.test"}
 	reg, err := registry.Load(path, registry.Options{HandlerExists: hs.Has,
