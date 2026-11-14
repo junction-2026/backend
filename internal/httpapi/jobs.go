@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 var (
@@ -315,27 +315,29 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 		bad("unknown status")
 		return
 	}
-	jobs := a.svc.List(status) // newest first
-	start := 0
+	var after *store.Cursor
 	if c := q.Get("cursor"); c != "" {
 		at, id, err := decodeCursor(c)
 		if err != nil {
 			bad("invalid cursor")
 			return
 		}
-		start = sort.Search(len(jobs), func(i int) bool {
-			return jobs[i].CreatedAt.Before(at) || (jobs[i].CreatedAt.Equal(at) && jobs[i].ID > id)
-		})
+		after = &store.Cursor{CreatedAt: at, ID: id}
 	}
-	end := min(start+limit, len(jobs))
-	items := make([]JobSummary, 0, end-start)
-	for _, j := range jobs[start:end] {
-		items = append(items, summarize(j))
+	jobs, err := a.svc.Page(status, after, limit+1) // newest first; one more than the page tells whether there is a next
+	if err != nil {
+		a.internal(w, "list jobs", err)
+		return
 	}
 	var next *string
-	if end < len(jobs) {
+	if len(jobs) > limit {
+		jobs = jobs[:limit]
 		next = new(string)
-		*next = encodeCursor(jobs[end-1])
+		*next = encodeCursor(jobs[limit-1])
+	}
+	items := make([]JobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		items = append(items, summarize(j))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
 }

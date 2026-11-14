@@ -39,6 +39,7 @@ const (
 	ReasonNotConfigured     = "not_configured"
 	ReasonDisabledByRequest = "disabled_by_request"
 	ReasonInputUnavailable  = "input_unavailable"
+	ReasonInterrupted       = "interrupted" // pending part when the server stopped (persistent history)
 )
 
 // Error codes of failed runs and failed finalization.
@@ -47,6 +48,7 @@ const (
 	CodeAdapterError  = "adapter_error"
 	CodeInvalidOutput = "invalid_output"
 	CodeCancelled     = "cancelled"
+	CodeInterrupted   = "interrupted" // running part when the server stopped (persistent history)
 )
 
 // RunError is the {"code","message"} error object. It is also the error type
@@ -177,6 +179,7 @@ type Record struct {
 	Progress   *Progress
 	Previews   map[string]any
 	Activities map[string]Activity
+	LastSeq    int64 // seq of the last event emitted for the job (0 if none)
 }
 
 // Snapshot copies the event-stream state. Caller holds the lock.

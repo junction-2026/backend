@@ -141,3 +141,12 @@ func (b *Bus) Remove(jobID string) {
 		delete(b.st, jobID)
 	}
 }
+
+// Closed returns a subscription that delivers only a job.snapshot at seq and then ends: the stream of a job that was
+// reloaded from persistent history (seq is its last emitted seq). The bus keeps no state for it.
+func (b *Bus) Closed(jobID string, seq int64, snapshot any) *Subscription {
+	sub := &Subscription{ch: make(chan Event, 1), s: &stream{closed: true}, b: b}
+	sub.ch <- Event{Type: "job.snapshot", JobID: jobID, Seq: seq, EmittedAt: b.now().UTC(), Data: snapshot}
+	close(sub.ch)
+	return sub
+}

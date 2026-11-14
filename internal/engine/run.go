@@ -29,7 +29,12 @@ type run struct {
 	cancelled bool
 }
 
-func (r *run) emit(typ string, data any) { r.e.bus.Publish(r.j.ID, typ, data) }
+// emit publishes an event and persists the job it describes. Every state change of a job is followed by an event
+// within the same locked section, so the stored job and its last_seq always agree.
+func (r *run) emit(typ string, data any) {
+	r.j.LastSeq = r.e.bus.Publish(r.j.ID, typ, data).Seq
+	r.e.persistLocked(r.j)
+}
 
 // main starts the job once it owns a global slot (until then it is queued).
 func (r *run) main() {
