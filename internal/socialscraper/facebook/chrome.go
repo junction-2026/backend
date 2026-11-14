@@ -24,11 +24,18 @@ type chrome struct {
 	cancelBrowser  context.CancelFunc
 	cancelAllocate context.CancelFunc
 
-	mu      sync.Mutex
-	pending sync.WaitGroup
-	graphql map[network.RequestID]bool // GraphQL responses whose body is not yet loadable
-	bodies  [][]byte
-	status  int
+	mu       sync.Mutex
+	idle     *sync.Cond                 // on mu; signalled when inflight drops (a WaitGroup would forbid Add racing Wait)
+	inflight int                        // body reads in progress
+	graphql  map[network.RequestID]bool // GraphQL responses whose body is not yet loadable
+	bodies   [][]byte
+	status   int
+}
+
+func newChrome(ctx context.Context) *chrome {
+	c := &chrome{ctx: ctx, graphql: map[network.RequestID]bool{}}
+	c.idle = sync.NewCond(&c.mu)
+	return c
 }
 
 // launchChrome starts chromium from PATH. Under `go test` it panics: a test must install a fake launcher,
@@ -45,7 +52,8 @@ func launchChrome(ctx context.Context) (Browser, error) {
 	)
 	actx, cancelA := chromedp.NewExecAllocator(ctx, opts...)
 	bctx, cancelB := chromedp.NewContext(actx)
-	c := &chrome{ctx: bctx, cancelBrowser: cancelB, cancelAllocate: cancelA, graphql: map[network.RequestID]bool{}}
+	c := newChrome(bctx)
+	c.cancelBrowser, c.cancelAllocate = cancelB, cancelA
 	chromedp.ListenTarget(bctx, c.onEvent)
 	if err := chromedp.Run(bctx, network.Enable()); err != nil { // starts the browser
 		c.Close()
@@ -71,11 +79,8 @@ func (c *chrome) onEvent(ev any) {
 		defer c.mu.Unlock()
 		if c.graphql[e.RequestID] {
 			delete(c.graphql, e.RequestID)
-			c.pending.Add(1)
-			go func() {
-				defer c.pending.Done()
-				c.readBody(e.RequestID)
-			}()
+			c.inflight++
+			go c.readBody(e.RequestID)
 		}
 	}
 }
@@ -91,12 +96,13 @@ func (c *chrome) readBody(id network.RequestID) {
 		body, err = network.GetResponseBody(id).Do(ctx)
 		return err
 	}))
-	if err != nil || len(body) > ss.MaxResponseBytes {
-		return
-	}
 	c.mu.Lock()
-	c.bodies = append(c.bodies, body)
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	if err == nil && len(body) <= ss.MaxResponseBytes {
+		c.bodies = append(c.bodies, body)
+	}
+	c.inflight--
+	c.idle.Broadcast()
 }
 
 func (c *chrome) Navigate(url string) (int, error) {
@@ -132,9 +138,11 @@ func (c *chrome) sleep(d time.Duration) error {
 }
 
 func (c *chrome) Bodies() [][]byte {
-	c.pending.Wait()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for c.inflight > 0 {
+		c.idle.Wait()
+	}
 	return append([][]byte(nil), c.bodies...)
 }
 
