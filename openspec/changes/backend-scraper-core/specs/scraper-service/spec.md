@@ -81,10 +81,14 @@ The Mastodon module SHALL use the REST API of the instance named in the URL over
 - **THEN** `comments` are the descendants oldest first, capped at `max_comments`, and no context request is made when `max_comments` is 0
 
 ### Requirement: Mastodon host safety
-The Mastodon module SHALL contact only the host named in the scraped URL: it SHALL NOT recognize IP-literal or dotless hosts, SHALL NOT follow redirects and SHALL follow `Link: rel=next` only on that host. A non-JSON answer SHALL mean the host does not serve the Mastodon API (422 `unsupported_url`).
+The Mastodon module SHALL contact only the host named in the scraped URL: it SHALL NOT recognize IP-literal or dotless hosts, SHALL NOT follow redirects and SHALL follow `Link: rel=next` only to the same scheme (`https`), host and port. A non-JSON answer SHALL mean the host does not serve the Mastodon API (422 `unsupported_url`).
 
 #### Scenario: Link to another host
 - **WHEN** `rel="next"` points at a different host
+- **THEN** that URL is not requested
+
+#### Scenario: Link with another scheme or port
+- **WHEN** `rel="next"` points at the same host over `http` or on port 8443
 - **THEN** that URL is not requested
 
 #### Scenario: IP literal
@@ -94,6 +98,17 @@ The Mastodon module SHALL contact only the host named in the scraped URL: it SHA
 #### Scenario: Not a Mastodon host
 - **WHEN** `/api/v1/accounts/lookup` answers 404 with an HTML body
 - **THEN** the status is 422 `unsupported_url`
+
+### Requirement: Mastodon malformed data
+When the requested Mastodon account or status has an unexpected shape (a missing `id`, a wrong-typed member) the module SHALL answer 502 `upstream_error`, never 500. A history item or comment that does not parse SHALL be skipped and reported once with the warning `partial_parse`.
+
+#### Scenario: Status without account id
+- **WHEN** a status URL's status object has an `account` without `id`
+- **THEN** the status is 502 `upstream_error` with `details.platform` `mastodon`
+
+#### Scenario: One bad history item
+- **WHEN** one item of a statuses page has a wrong-typed counter
+- **THEN** the response is 200, the other posts are returned and `warnings` has one `partial_parse`
 
 ### Requirement: Offline scraper tests
 Scraper tests SHALL run offline with recorded JSON fixtures under `scraper/tests/fixtures/<platform>/` and an HTTP mock; no test SHALL contact a real platform. Tests SHALL cover URL recognition table-driven, authentication, validation, error mapping, warnings and each module's success path.

@@ -101,7 +101,7 @@ async def scrape(req: ScrapeRequest) -> ScrapeResult:
         warnings: list[ScrapeWarning] = []
         result = ScrapeResult(
             platform=NAME, url_kind=req.kind, username=profile.handle,
-            display_name=profile.display_name or None, bio=profile.description,
+            display_name=profile.display_name or None, bio=(profile.description or "").strip(),
             profile_url=f"https://bsky.app/profile/{profile.handle}",
             followers=profile.followers_count, following=profile.follows_count, post_count=profile.posts_count,
             verified=None if v is None else v.verified_status == "valid",

@@ -1,7 +1,6 @@
 """Mastodon via the unauthenticated REST API of the instance named in the URL."""
 import re
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -15,6 +14,7 @@ NAME = "mastodon"
 _PAGE = 40  # Mastodon caps statuses pages at 40
 _MAX_PAGES = 10
 _IP_LITERAL = re.compile(r"^[\d.]+$|:")
+_PARSE_ERRORS = (KeyError, TypeError, ValueError, AttributeError)  # ValueError covers pydantic ValidationError
 
 
 def recognize(u) -> Recognized | None:
@@ -99,6 +99,28 @@ def _comment(s: dict, host: str) -> Comment:
                    in_reply_to_id=None if s.get("in_reply_to_id") is None else str(s["in_reply_to_id"]))
 
 
+def _parse_all(items, fn, warnings: list) -> list:
+    """Parse each item; one that does not parse is skipped and reported once as partial_parse."""
+    out, bad = [], 0
+    for s in items:
+        try:
+            out.append(fn(s))
+        except _PARSE_ERRORS:
+            bad += 1
+    if bad:
+        warnings.append(ScrapeWarning(code="partial_parse", message=f"{bad} item(s) from the instance could not be parsed"))
+    return out
+
+
+def _same_origin(url: str, base: httpx.URL) -> bool:
+    """Link rel=next must stay on the instance: same scheme (https), host and port."""
+    try:
+        u = httpx.URL(url)
+    except httpx.InvalidURL:
+        return False
+    return (u.scheme, u.host, u.port) == (base.scheme, base.host, base.port)
+
+
 async def _history(client, account_id: str, req: ScrapeRequest, warnings: list) -> list[Post]:
     posts: list[Post] = []
     url, params = f"/api/v1/accounts/{account_id}/statuses", {"limit": min(_PAGE, req.max_posts), "exclude_reblogs": "true"}
@@ -108,10 +130,9 @@ async def _history(client, account_id: str, req: ScrapeRequest, warnings: list) 
             page = _json(r)
             if not isinstance(page, list):
                 raise ScrapeError("upstream_error", "unexpected statuses response", platform=NAME)
-            posts += [_post(s) for s in page if isinstance(s, dict) and "id" in s]
+            posts += _parse_all(page, _post, warnings)
             nxt = r.links.get("next", {}).get("url")
-            # Follow Link rel=next, but never off the instance host.
-            if len(posts) >= req.max_posts or not page or not nxt or urlsplit(nxt).hostname != client.base_url.host:
+            if len(posts) >= req.max_posts or not page or not nxt or not _same_origin(nxt, client.base_url):
                 break
             url, params = nxt, {}
     except ScrapeError as e:
@@ -120,6 +141,14 @@ async def _history(client, account_id: str, req: ScrapeRequest, warnings: list) 
 
 
 async def scrape(req: ScrapeRequest) -> ScrapeResult:
+    try:
+        return await _scrape(req)
+    except _PARSE_ERRORS:  # the requested account or post itself has an unexpected shape
+        raise ScrapeError("upstream_error", "the Mastodon instance answered with data that could not be parsed",
+                          platform=NAME) from None
+
+
+async def _scrape(req: ScrapeRequest) -> ScrapeResult:
     host = req.ids["host"]
     async with httpx.AsyncClient(base_url=f"https://{host}", timeout=req.timeout_s, follow_redirects=False,
                                  headers={"Accept": "application/json", "User-Agent": "junction-scraper/1"}) as client:
@@ -150,7 +179,7 @@ async def scrape(req: ScrapeRequest) -> ScrapeResult:
                     ctx = _json(await _get(client, f"/api/v1/statuses/{status['id']}/context", "post"))
                     if not isinstance(ctx, dict):
                         raise ScrapeError("upstream_error", "unexpected context response", platform=NAME)
-                    comments = [_comment(s, host) for s in ctx.get("descendants") or [] if isinstance(s, dict) and "id" in s]
+                    comments = _parse_all(ctx.get("descendants") or [], lambda s: _comment(s, host), warnings)
                     comments.sort(key=lambda c: c.created_at or "")
                     result.comments = comments[: req.max_comments]
                 except ScrapeError as e:

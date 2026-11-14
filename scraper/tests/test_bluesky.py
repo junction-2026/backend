@@ -132,3 +132,11 @@ def test_post_not_found(client, mock):
     assert r.status_code == 404 and r.json()["error"]["code"] == "post_not_found"
     mock.get(THREAD).respond(json=fx("bluesky/thread_blocked.json"))
     assert scrape(client, f"{ALICE}/post/3k07aaaaaaaaaa").json()["error"]["code"] == "post_not_found"
+
+
+def test_bio_is_trimmed(client, mock):
+    p = fx("bluesky/profile.json")
+    p["description"] = "  hi\n"
+    mock.get(PROFILE).respond(json=p)
+    mock.get(FEED).respond(json={"feed": []})
+    assert scrape(client, ALICE).json()["bio"] == "hi"

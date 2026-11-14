@@ -172,3 +172,71 @@ def test_upstream_timeout_and_connect_error(client, mock):
 def test_malformed_account_is_upstream_error_not_500(client, mock):
     mock.get(LOOKUP).respond(json={"unexpected": True})
     assert scrape(client, f"{H}/@alice").status_code == 502
+
+
+@pytest.mark.parametrize("scheme_url", ["http://mastodon.example/api/v1/accounts/1001/statuses?max_id=5001",
+                                        "https://mastodon.example:8443/api/v1/accounts/1001/statuses?max_id=5001"])
+def test_pagination_requires_https_and_default_port(client, mock, scheme_url):
+    mock.get(LOOKUP).respond(json=fx("mastodon/account_alice.json"))
+    mock.get(STATUSES).respond(json=fx("mastodon/statuses_page1.json"), headers={"Link": f'<{scheme_url}>; rel="next"'})
+    other = mock.get(scheme_url.split("?")[0]).respond(json=[])
+    r = scrape(client, f"{H}/@alice")
+    assert r.status_code == 200 and len(r.json()["posts"]) == 3 and not other.called
+
+
+SID = "112233445566778899"
+
+
+def _post_routes(mock, status):
+    mock.get(f"{H}/api/v1/statuses/{SID}").respond(json=status)
+    mock.get(f"{H}/api/v1/statuses/{SID}/context").respond(json=fx("mastodon/context.json"))
+    mock.get(STATUSES).respond(json=[])
+
+
+def test_post_status_account_without_id_is_502(client, mock):
+    st = fx(f"mastodon/status_{SID}.json")
+    del st["account"]["id"]
+    _post_routes(mock, st)
+    r = scrape(client, f"{H}/@alice/{SID}")
+    assert r.status_code == 502 and r.json()["error"]["code"] == "upstream_error"
+
+
+def test_status_without_id_is_502(client, mock):
+    st = fx(f"mastodon/status_{SID}.json")
+    del st["id"]
+    _post_routes(mock, st)
+    assert scrape(client, f"{H}/@alice/{SID}").status_code == 502
+
+
+def test_wrong_typed_profile_field_is_502(client, mock):
+    acct = fx("mastodon/account_alice.json")
+    acct["followers_count"] = "abc"
+    mock.get(LOOKUP).respond(json=acct)
+    r = scrape(client, f"{H}/@alice")
+    assert r.status_code == 502 and r.json()["error"]["code"] == "upstream_error"
+
+
+def test_bad_history_item_is_skipped_with_partial_parse(client, mock):
+    page = fx("mastodon/statuses_page1.json")
+    page[1]["favourites_count"] = "many"
+    page.append({"content": "no id"})
+    mock.get(LOOKUP).respond(json=fx("mastodon/account_alice.json"))
+    mock.get(STATUSES).respond(json=page)
+    r = scrape(client, f"{H}/@alice")
+    assert r.status_code == 200
+    b = r.json()
+    assert [p["id"] for p in b["posts"]] == ["5003", "5001"]
+    assert [w["code"] for w in b["warnings"]] == ["partial_parse"]
+
+
+def test_bad_context_item_is_skipped_with_partial_parse(client, mock):
+    ctx = fx("mastodon/context.json")
+    ctx["descendants"][0]["content"] = 42
+    mock.get(f"{H}/api/v1/statuses/{SID}").respond(json=fx(f"mastodon/status_{SID}.json"))
+    mock.get(f"{H}/api/v1/statuses/{SID}/context").respond(json=ctx)
+    mock.get(STATUSES).respond(json=[])
+    r = scrape(client, f"{H}/@alice/{SID}")
+    assert r.status_code == 200
+    b = r.json()
+    assert [c["id"] for c in b["comments"]] == ["6001", "6003"]
+    assert [w["code"] for w in b["warnings"]] == ["partial_parse"]
