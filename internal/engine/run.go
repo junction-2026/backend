@@ -1,0 +1,312 @@
+package engine
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/junction-2026/backend/internal/adapter"
+	"github.com/junction-2026/backend/internal/job"
+	"github.com/junction-2026/backend/internal/registry"
+)
+
+// run is the scheduler state of one job. Everything below the immutable block
+// is guarded by j's mutex, which serializes every transition and its events.
+type run struct {
+	e      *Engine
+	j      *job.Record
+	ctx    context.Context
+	cancel context.CancelFunc
+	defs   []*registry.Analyzer // by analyzer index
+	idx    map[string]int
+	sem    chan struct{}      // per-job analyzer concurrency
+	finDef *registry.Analyzer // non-nil when finalization will run
+
+	launched  []bool
+	slot      bool // holds a global job slot
+	barrier   bool // ready_for_finalization emitted
+	cancelled bool
+}
+
+func (r *run) emit(typ string, data any) { r.e.bus.Publish(r.j.ID, typ, data) }
+
+// main starts the job once it owns a global slot (until then it is queued).
+func (r *run) main() {
+	if g := r.e.gate; g != nil {
+		<-g
+	}
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	if r.j.Done { // cancelled while queued: pass the slot on
+		r.e.releaseSlot()
+		return
+	}
+	r.slot = true
+	r.beginLocked()
+	r.advanceLocked()
+}
+
+// guard converts a panic in an execution goroutine (outside any lock) into
+// job.failed instead of crashing the process.
+func (r *run) guard() {
+	if p := recover(); p != nil {
+		r.j.Lock()
+		defer r.j.Unlock()
+		if !r.j.Done {
+			r.abortLocked(job.StatusFailed)
+		}
+	}
+}
+
+// recoverJob turns an orchestrator panic into job.failed. Deferred after the
+// caller's Unlock registration so the lock is held when it runs.
+func (r *run) recoverJob() {
+	if p := recover(); p != nil && !r.j.Done {
+		r.abortLocked(job.StatusFailed)
+	}
+}
+
+func (r *run) beginLocked() {
+	now := r.e.now()
+	r.j.Status, r.j.StartedAt = job.StatusRunning, &now
+	r.emit("job.started", map[string]any{"job_id": r.j.ID})
+	for i := range r.j.Analyzers {
+		if a := r.j.Analyzers[i]; a.Status == job.RunSkipped {
+			r.emit("analyzer.skipped", map[string]any{"analyzer": a})
+		}
+	}
+}
+
+// settleLocked moves run i to a settled state (never twice) and emits its event.
+func (r *run) settleLocked(i int, status string, reason *string, err *job.RunError, result json.RawMessage) bool {
+	a := &r.j.Analyzers[i]
+	if a.Settled() {
+		return false
+	}
+	now := r.e.now()
+	a.Status, a.Reason, a.Error, a.Result, a.FinishedAt = status, reason, err, result, &now
+	if a.StartedAt != nil {
+		a.DurationMS = job.Ptr(now.Sub(*a.StartedAt).Milliseconds())
+	}
+	r.j.Coverage = job.ComputeCoverage(r.j.Analyzers)
+	r.emit("analyzer."+status, map[string]any{"analyzer": *a})
+	return true
+}
+
+// advanceLocked resolves every pending analyzer whose dependencies settled
+// (skip propagation to a fixpoint, launching the runnable ones), then checks
+// the barrier.
+func (r *run) advanceLocked() {
+	if r.j.Done || r.cancelled {
+		return
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range r.j.Analyzers {
+			a := &r.j.Analyzers[i]
+			if a.Status != job.RunPending || r.launched[i] {
+				continue
+			}
+			ready, failed, skipped := true, false, false
+			for _, d := range a.DependsOn {
+				dep := &r.j.Analyzers[r.idx[d]]
+				if !dep.Settled() {
+					ready = false
+					break
+				}
+				failed = failed || dep.Status == job.RunFailed
+				skipped = skipped || dep.Status == job.RunSkipped
+			}
+			switch {
+			case !ready:
+			case failed:
+				changed = r.settleLocked(i, job.RunSkipped, job.Str(job.ReasonDependencyFailed), nil, nil)
+			case skipped:
+				changed = r.settleLocked(i, job.RunSkipped, job.Str(job.ReasonDependencySkipped), nil, nil)
+			default:
+				r.launched[i] = true
+				go r.exec(i, adapter.Inputs(r.defs[i], &r.j.Job))
+			}
+		}
+	}
+	r.barrierLocked()
+}
+
+// barrierLocked fires exactly once, after the settle event of the last run.
+func (r *run) barrierLocked() {
+	if r.barrier || r.j.Done || r.cancelled || r.j.Coverage.Settled != r.j.Coverage.Total {
+		return
+	}
+	r.barrier = true
+	r.j.Status = job.StatusFinalizing
+	r.emit("analysis.ready_for_finalization", map[string]any{"coverage": r.j.Coverage})
+	if r.finDef == nil { // finalization skipped at creation
+		r.finishLocked(job.StatusCompleted)
+		return
+	}
+	now := r.e.now()
+	f := &r.j.Finalization
+	f.Status, f.StartedAt = job.RunRunning, &now
+	r.emit("analysis.finalizing", map[string]any{"finalization": *f})
+	go r.finalize(FinalizationInput{Job: r.j.Clone(), Analyzer: r.finDef})
+}
+
+// exec runs analyzer i once a per-job slot is free.
+func (r *run) exec(i int, inputs map[string]any) {
+	defer r.guard()
+	select {
+	case r.sem <- struct{}{}:
+	case <-r.ctx.Done():
+		return
+	}
+	defer func() { <-r.sem }()
+	if !r.startRun(i) {
+		return
+	}
+	def := r.defs[i]
+	ctx, cancel := context.WithTimeout(r.ctx, def.Execution.Timeout)
+	defer cancel()
+	raw, err := r.e.cfg.Executor.Execute(ctx, def, adapter.Request{JobID: r.j.ID, AnalyzerID: def.ID, Inputs: inputs})
+	rerr := classify(ctx, err)
+	if rerr == nil {
+		if verr := def.ValidateOutput(raw); verr != nil {
+			rerr = &job.RunError{Code: job.CodeInvalidOutput, Message: verr.Error()}
+		}
+	}
+	r.finishRun(i, raw, rerr)
+}
+
+func (r *run) startRun(i int) bool {
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	a := &r.j.Analyzers[i]
+	if r.j.Done || a.Status != job.RunPending {
+		return false
+	}
+	now := r.e.now()
+	a.Status, a.StartedAt = job.RunRunning, &now
+	r.j.Coverage = job.ComputeCoverage(r.j.Analyzers)
+	r.emit("analyzer.started", map[string]any{"analyzer": *a})
+	return true
+}
+
+func (r *run) finishRun(i int, raw json.RawMessage, rerr *job.RunError) {
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	if r.j.Done || r.j.Analyzers[i].Status != job.RunRunning { // cancelled meanwhile
+		return
+	}
+	if rerr != nil {
+		r.settleLocked(i, job.RunFailed, nil, rerr, nil)
+	} else {
+		r.settleLocked(i, job.RunSucceeded, nil, nil, raw)
+	}
+	r.advanceLocked()
+}
+
+// classify maps an execution error to a RunError (nil on success).
+func classify(ctx context.Context, err error) *job.RunError {
+	if err == nil {
+		return nil
+	}
+	var re *job.RunError
+	if errors.As(err, &re) {
+		return re
+	}
+	if e := adapter.ContextError(ctx); e != nil {
+		return e
+	}
+	return &job.RunError{Code: job.CodeAdapterError, Message: err.Error()}
+}
+
+func (r *run) finalize(in FinalizationInput) {
+	defer r.guard()
+	ctx, cancel := context.WithTimeout(r.ctx, r.finDef.Execution.Timeout)
+	defer cancel()
+	type res struct {
+		raw json.RawMessage
+		err error
+	}
+	ch := make(chan res, 1) // buffered: a finalizer that ignores ctx must not leak blocked
+	go func() {
+		defer r.guard()
+		raw, err := r.e.cfg.Finalizer.Run(ctx, in)
+		ch <- res{raw, err}
+	}()
+	var raw json.RawMessage
+	var err error
+	select {
+	case v := <-ch:
+		raw, err = v.raw, v.err
+	case <-ctx.Done(): // timeout or cancel bounds a finalizer that ignores its ctx; its late result is dropped
+		err = ctx.Err()
+	}
+	rerr := classify(ctx, err)
+	if rerr == nil && (len(raw) == 0 || raw[0] != '{' || !json.Valid(raw)) {
+		rerr = &job.RunError{Code: job.CodeInvalidOutput, Message: "finalizer result is not a JSON object"}
+	}
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	f := &r.j.Finalization
+	if r.j.Done || f.Status != job.RunRunning {
+		return
+	}
+	r.endFinalizationLocked(raw, rerr)
+	r.finishLocked(job.StatusCompleted)
+}
+
+// endFinalizationLocked settles a running finalization and emits its event.
+func (r *run) endFinalizationLocked(raw json.RawMessage, rerr *job.RunError) {
+	f := &r.j.Finalization
+	now := r.e.now()
+	f.FinishedAt, f.DurationMS = &now, job.Ptr(now.Sub(*f.StartedAt).Milliseconds())
+	if rerr != nil {
+		f.Status, f.Error = job.RunFailed, rerr
+		r.emit("analysis.finalization_failed", map[string]any{"finalization": *f})
+		return
+	}
+	f.Status, f.Result = job.StatusCompleted, raw
+	r.emit("analysis.finalized", map[string]any{"finalization": *f})
+}
+
+// abortLocked ends the job as cancelled (or failed on an internal error):
+// settled runs are kept, pending runs are skipped, running ones failed with
+// cancelled, then the finalization, then the terminal event.
+func (r *run) abortLocked(status string) {
+	r.cancelled = true
+	r.cancel()
+	cancelled := &job.RunError{Code: job.CodeCancelled, Message: "analyzer aborted: job " + status}
+	for i := range r.j.Analyzers {
+		switch r.j.Analyzers[i].Status {
+		case job.RunPending:
+			r.settleLocked(i, job.RunSkipped, job.Str(job.ReasonCancelled), nil, nil)
+		case job.RunRunning:
+			r.settleLocked(i, job.RunFailed, nil, cancelled, nil)
+		}
+	}
+	switch f := &r.j.Finalization; f.Status {
+	case job.RunRunning:
+		r.endFinalizationLocked(nil, &job.RunError{Code: job.CodeCancelled, Message: "finalization aborted: job " + status})
+	case job.RunPending:
+		f.Status, f.Reason = job.RunSkipped, job.Str(job.ReasonCancelled)
+	}
+	r.finishLocked(status)
+}
+
+// finishLocked emits the terminal event and releases the job's resources.
+func (r *run) finishLocked(status string) {
+	now := r.e.now()
+	r.j.Status, r.j.Done, r.j.FinishedAt = status, true, &now
+	r.j.Coverage = job.ComputeCoverage(r.j.Analyzers)
+	r.emit("job."+status, map[string]any{"job": r.j.Clone()})
+	r.e.bus.Close(r.j.ID)
+	r.cancel()
+	if r.slot {
+		r.slot = false
+		r.e.releaseSlot()
+	}
+}
