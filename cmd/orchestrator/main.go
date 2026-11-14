@@ -17,6 +17,7 @@ import (
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/finalizer"
 	"github.com/junction-2026/backend/internal/httpapi"
+	"github.com/junction-2026/backend/internal/localization"
 	"github.com/junction-2026/backend/internal/registry"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
 	"github.com/junction-2026/backend/internal/store"
@@ -85,8 +86,9 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	}
 
 	events := ws.New(eng, ws.Options{Logger: log})
+	loc := localization.New(localization.FromRegistry(reg), cfg.LocalizationTimeout, log)
 	srv := &http.Server{
-		Handler:           httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Logger: log}),
+		Handler:           httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Localizer: loc, Logger: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}

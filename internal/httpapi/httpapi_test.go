@@ -518,12 +518,13 @@ func TestRoutingErrorsUseEnvelope(t *testing.T) {
 	wantError(t, x.do("GET", "/api/v1/nope", ""), 404, "not_found")
 	wantError(t, x.do("GET", "/api/v1/jobs/a/b/c", ""), 404, "not_found")
 	for path, allow := range map[string]string{
-		"/api/v1/jobs":          "GET, POST",
-		"/api/v1/jobs/x":        "GET",
-		"/api/v1/jobs/x/cancel": "POST",
-		"/api/v1/analyzers":     "GET",
-		"/api/v1/jobs/x/events": "GET",
-		"/healthz":              "GET",
+		"/api/v1/jobs":                "GET, POST",
+		"/api/v1/jobs/x":              "GET",
+		"/api/v1/jobs/x/cancel":       "POST",
+		"/api/v1/jobs/x/localization": "GET",
+		"/api/v1/analyzers":           "GET",
+		"/api/v1/jobs/x/events":       "GET",
+		"/healthz":                    "GET",
 	} {
 		rec := x.do("DELETE", path, "")
 		wantError(t, rec, 405, "method_not_allowed")
