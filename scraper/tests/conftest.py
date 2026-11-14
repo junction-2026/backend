@@ -24,3 +24,19 @@ def client():
 
 def scrape(client, url, **extra):
     return client.post("/scrape", json={"url": url, **extra}, headers=AUTH)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_browser_or_x_session(monkeypatch):
+    """repo-ci must never start chromium or reach X: tests that need those modules install their own fakes."""
+    from app.platforms import facebook, x
+
+    def no_browser():
+        raise AssertionError("a test tried to start a real browser")
+
+    class NoX:
+        def __getattr__(self, name):
+            raise AssertionError("a test tried to reach X through the real twscrape API")
+
+    monkeypatch.setattr(facebook, "async_playwright", no_browser)
+    monkeypatch.setattr(x, "_api", NoX())

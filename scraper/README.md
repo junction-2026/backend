@@ -2,8 +2,8 @@
 
 Python 3.12 FastAPI service that implements the shared `social-scraper-api`: given the URL of a public
 post or profile it returns the author's profile, recent posts and (for post URLs) the comments, normalized
-across platforms, with typed errors. Platforms: Bluesky and Mastodon here; Instagram, Threads, Facebook and
-X are recognized and answer `503 platform_not_configured` until their modules are added.
+across platforms, with typed errors. Platforms: Bluesky, Mastodon, Facebook (public pages only) and X; Instagram and
+Threads are recognized and answer `503 platform_not_configured` until their modules are added.
 
 - `GET /health` – `{"status": "ok"}`, no auth, contacts no platform.
 - `POST /scrape` – `Authorization: Bearer <SCRAPER_TOKEN>`, body `{"url", "max_posts" (1-100, default 20), "max_comments" (0-200, default 50)}`.
@@ -16,7 +16,12 @@ All configuration comes from the environment; values are never logged and the lo
 |---|---|---|
 | `SCRAPER_TOKEN` | yes | Bearer token clients must send. The service refuses to start without it. |
 | `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | no (30) | Bound for one whole scrape and for every upstream request; exceeding it answers `504 upstream_timeout`. |
-| platform credentials | per platform | Read by the platform modules that need them (for example the X cookie settings). Bluesky and Mastodon need none. |
+| `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` | for X | The `auth_token` and `ct0` cookies of an X account. Either one unset: X URLs answer `503 platform_not_configured` (names only, never values); other platforms keep working. |
+| `SCRAPER_X_POOL_DB` | no | Path of the twscrape account-pool sqlite file (it holds the cookies). Default: a private temp directory. Point it at a volume to keep it across restarts. |
+
+Bluesky, Mastodon and Facebook need no credentials. Facebook runs headless chromium (Playwright, `--no-sandbox`) against public
+pages only; personal profiles answer `422 unsupported_account_type`. The image installs chromium into `/ms-playwright`; for a
+local run outside Docker use `playwright install chromium`. Tests never start a browser or contact the network.
 
 ## Run locally
 
