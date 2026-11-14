@@ -95,7 +95,7 @@ func (x *Executor) llmTechniques(ctx context.Context, def *registry.Analyzer, re
 	}
 	res := llmTechniqueResult{Source: "llm", ExplanationLanguage: explanationLanguage(src),
 		GlossaryVersion: techniqueGlossary.Version, Findings: []llmTechniqueFinding{}}
-	res.TitleChecked = strings.TrimSpace(title) != "" && strings.TrimSpace(title) != strings.TrimSpace(content)
+	res.TitleChecked = titleChecked(title, content)
 	if !res.TitleChecked {
 		title = "" // never sent
 	}
@@ -123,6 +123,11 @@ func (x *Executor) llmTechniques(ctx context.Context, def *registry.Analyzer, re
 		return nil, adapterErr("llm_techniques result is not serializable")
 	}
 	return out, nil
+}
+
+// titleChecked: a title that is not blank and differs from the content is checked as a headline.
+func titleChecked(title, content string) bool {
+	return strings.TrimSpace(title) != "" && strings.TrimSpace(title) != strings.TrimSpace(content)
 }
 
 // parseLLMFindings reads {findings: [{label, field, text, confidence, explanation}]}; messages never quote the reply.
