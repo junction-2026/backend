@@ -31,6 +31,11 @@ func (g gatedFinalizer) Run(ctx context.Context, in engine.FinalizationInput) (j
 	if in.Job.Input.Content != gateContent {
 		return g.Finalizer.Run(ctx, in)
 	}
-	<-gateCh(in.Job.ID) // not ctx-bound: the finalizer timeout must not free the slot early
+	// The engine stops waiting on ctx.Done(), so the hold is bounded by the finalizer timeout
+	// (5s in finYAML). Tests with a shorter timeout (TestTimeout, 150ms) must not assert events.
+	select {
+	case <-gateCh(in.Job.ID):
+	case <-ctx.Done():
+	}
 	return nil, errors.New("gate job")
 }

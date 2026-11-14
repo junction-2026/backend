@@ -5,10 +5,10 @@ Backend-local requirements for the `internal/finalizer` test helpers: event subs
 ## ADDED Requirements
 
 ### Requirement: Subscription before first event
-The finalizer test helper that creates a job and subscribes to its events SHALL make the subscription before the job can emit any event the calling test asserts on, so that the full event sequence starting with `job.snapshot` then `job.started` is delivered regardless of goroutine scheduling.
+The finalizer test helper that creates a job and subscribes SHALL subscribe before the job can emit any event the calling test asserts on, so that `job.snapshot` then `job.started` and all later events are delivered regardless of goroutine scheduling. The guarantee holds while the subscription is made within the gate job's finalizer timeout (5s for event-asserting tests); tests with a shorter timeout SHALL NOT assert on events.
 
 #### Scenario: Subscriber is delayed
-- **WHEN** an arbitrary delay is inserted between job creation and subscription
+- **WHEN** a delay shorter than the finalizer timeout is inserted between job creation and subscription
 - **THEN** the subscription still receives `job.snapshot`, `job.started` and every later event
 
 ### Requirement: Synchronization-only ordering
