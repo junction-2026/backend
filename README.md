@@ -76,6 +76,43 @@ input fails with `adapter_error` without an LLM call; a reply that is not the ex
 analyzer (`invalid_output`). One 429/5xx answer is retried once. Add `llm: {include: true, description: ...}` to
 let the LLM finalizer see the extraction. Every job that runs it makes one paid LLM call.
 
+## News coverage analyzer
+
+`docs/examples/news_search.yaml` (analyzer `news_search`, adapter `news_search`) searches news and web coverage of
+the topics and news items that `topic_extraction` found, through [Serper](https://serper.dev), in the text's
+language and in English, so the finalizer and analysts can see whether and how outlets report the story (result
+shape: shared change `news-search-result`). It depends on `topic_extraction` (binding `topics`) and, for the
+`source` language, on a `translation` analyzer (binding `translation`, optional). Set (independent of the other
+analyzers' variables):
+
+| Variable | |
+|---|---|
+| `SERPER_BASE_URL` | e.g. `https://google.serper.dev` (`/news` and `/search` are appended) |
+| `SERPER_API_KEY` | sent as `X-API-KEY`; never logged, returned or put in error messages |
+| `MISTRAL_API_KEY` | `translate.api_key`, sent as `Authorization: Bearer <key>` to translate the queries; never logged or returned |
+
+Settings (defaults): `languages` (`[source, en]`; `source` is the translation's `source_language`, dropped when
+unknown, else ISO 639-1 codes), `translate.model` (`mistral-small-latest`), `translate.endpoint` (Mistral chat
+completions), `max_topics` (3) and `max_news` (2) searched items, `num` (8) results per search, `min_results` (2),
+`per_domain` (2) and `max_results` (12) articles, `max_concurrency` (4) provider requests in flight per job,
+`cache_ttl` (`6h`), `timeout` (`20s`). Non-positive values, unknown language tokens and missing keys abort startup
+with a message naming the key; `translate.api_key` is required when a language other than `source` is configured.
+
+How it works: the first `max_topics` topic `query` strings, then the first `max_news` headlines, are searched once
+per language; queries not in the target language (everything, when the source language is unknown) are translated
+with one Mistral request per target language. Each query and language is one `POST {base_url}/news`
+(`gl` from the language: en→us, de→de, fr→fr, else the code); when it returns fewer than `min_results` results,
+one `POST {base_url}/search` follows for that query and language only. 429 and 5xx answers are retried once after
+1s. Successful answers are cached in memory per process for `cache_ttl` (identical concurrent requests share one),
+so repeating a job costs no searches. A 401/403 from Serper or Mistral fails the analyzer at once
+(`adapter_error`, naming `execution.api_key` or `execution.translate.api_key`); when some queries fail the analyzer
+still succeeds and lists them (`search_failed`, `translation_failed`); when all fail it fails. Nothing to search
+settles the run as `skipped` with reason `no_searchable_topics`, without any request.
+
+**Quota cost** per job: at most (topics + news) x languages x 2 Serper searches (news plus one fallback), at most
+(3 + 2) x 2 x 2 = 20 with the defaults, plus one retry per 429/5xx answer, minus cached searches; the result reports
+`searches_used` and `cached`. Translation costs at most one Mistral call per non-source language.
+
 ```
 go run ./cmd/orchestrator            # with ANALYZERS_CONFIG=config/analyzers for the sample registry
 docker build -t orchestrator . && docker run -p 8080:8080 orchestrator
