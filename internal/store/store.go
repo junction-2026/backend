@@ -8,12 +8,20 @@ package store
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/outlets"
 )
+
+// Matches tells whether the lowercased search q ("": any) is a literal substring of the job's id, input.content
+// or scrape.url, compared after Unicode lowercase mapping.
+func Matches(j *job.Job, q string) bool {
+	has := func(s string) bool { return strings.Contains(strings.ToLower(s), q) }
+	return q == "" || has(j.ID) || (j.Input != nil && has(j.Input.Content)) || (j.Scrape != nil && has(j.Scrape.URL))
+}
 
 // Cursor is the position after which a page starts (the last job of the previous page).
 type Cursor struct {
@@ -35,8 +43,9 @@ type Store interface {
 	// Load returns an unshared record of a persisted job, with its event-stream state and LastSeq.
 	Load(id string) (*job.Record, bool, error)
 	// Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with
-	// status, only public jobs (the limit and the cursor count those only), starting after cursor (nil: from the newest). Only the jobs it returns are decoded.
-	Page(status string, after *Cursor, limit int) ([]job.Job, error)
+	// status, only public jobs matching the search q (see Matches; "": no search), the limit and the cursor counting
+	// those only, starting after cursor (nil: from the newest). Without q only the jobs it returns are decoded.
+	Page(status, q string, after *Cursor, limit int) ([]job.Job, error)
 	// Unfinished returns the persisted jobs that are not done, as unshared records.
 	Unfinished() ([]*job.Record, error)
 	// Prune deletes persisted done jobs that finished before cutoff.
@@ -142,11 +151,12 @@ func (m *Memory) Prune(time.Time) error                  { return nil }
 func (m *Memory) Close() error                           { return nil }
 
 // Page lists the working set.
-func (m *Memory) Page(status string, after *Cursor, limit int) ([]job.Job, error) {
+func (m *Memory) Page(status, q string, after *Cursor, limit int) ([]job.Job, error) {
 	var out []job.Job
+	q = strings.ToLower(q)
 	for _, j := range m.All() {
 		j.Lock()
-		if j.Public && (status == "" || j.Status == status) {
+		if j.Public && (status == "" || j.Status == status) && Matches(&j.Job, q) {
 			out = append(out, j.Clone())
 		}
 		j.Unlock()

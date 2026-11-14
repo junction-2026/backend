@@ -22,7 +22,7 @@ import (
 type Service interface {
 	Create(req engine.CreateRequest) (job.Job, error)
 	Get(id string) (job.Job, error)
-	Page(status string, after *store.Cursor, limit int) ([]job.Job, error)
+	Page(status, q string, after *store.Cursor, limit int) ([]job.Job, error)
 	Cancel(id string) (job.Job, error)
 	Subscribe(id string) (*events.Subscription, error)
 	MapCountries() ([]store.MapCountry, error)

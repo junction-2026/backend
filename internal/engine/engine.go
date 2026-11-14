@@ -453,7 +453,7 @@ func (e *Engine) persisted(id string) (*job.Record, error) {
 }
 
 // Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with the
-// given status, starting after the cursor (nil: from the newest).
+// given status and matching the search q (store.Matches; "": no search), starting after the cursor (nil: from the newest).
 // MapCountries returns the per-country aggregates of the propaganda map.
 func (e *Engine) MapCountries() ([]store.MapCountry, error) { return e.store.MapCountries() }
 
@@ -462,13 +462,13 @@ func (e *Engine) MapAnalyses(code string, after *store.Cursor, limit int) ([]sto
 	return e.store.MapAnalyses(code, after, limit)
 }
 
-func (e *Engine) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
-	return e.store.Page(status, after, limit)
+func (e *Engine) Page(status, q string, after *store.Cursor, limit int) ([]job.Job, error) {
+	return e.store.Page(status, q, after, limit)
 }
 
 // List returns all jobs newest first, optionally only those with the given status.
 func (e *Engine) List(status string) []job.Job {
-	out, _ := e.Page(status, nil, 0)
+	out, _ := e.Page(status, "", nil, 0)
 	return out
 }
 

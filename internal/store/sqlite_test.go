@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -107,7 +108,7 @@ func TestRoundTripIsLosslessAcrossReopen(t *testing.T) {
 	require.JSONEq(t, string(pw), string(ph))
 	require.Equal(t, got.Snapshot().Plan, got.Plan)
 
-	page, err := s.Page("", nil, 0)
+	page, err := s.Page("", "", nil, 0)
 	require.NoError(t, err)
 	require.Len(t, page, 1)
 	pj, _ := json.Marshal(page[0])
@@ -176,7 +177,7 @@ func TestPrune(t *testing.T) {
 		save(t, s, r)
 	}
 	require.NoError(t, s.Prune(t0.Add(-time.Minute)))
-	all, _ := s.Page("", nil, 0)
+	all, _ := s.Page("", "", nil, 0)
 	var ids []string
 	for _, j := range all {
 		ids = append(ids, j.ID)
@@ -186,31 +187,78 @@ func TestPrune(t *testing.T) {
 
 func TestPageMatchesMemoryOrderFilterAndCursor(t *testing.T) {
 	s, m := open(t, filepath.Join(t.TempDir(), "jobs.db")), NewMemory()
-	for i, id := range []string{"a", "b", "c", "d", "e", "f"} {
+	contents := []string{"ÄRZTE needle", "", "weather", "needle 100 %", "Needle", "x_y"}
+	for i, id := range []string{"a", "b", "c", "d", "e", "f", "g", "hidden-z9"} {
 		st := job.StatusRunning
 		if i%2 == 0 {
 			st = job.StatusCompleted
 		}
 		r := rec(id, i/2, st) // pairs share created_at: ties by id
+		switch {
+		case i < len(contents):
+			r.Input = &job.Input{Content: contents[i]}
+		case i == 6:
+			r.Scrape = &job.Scrape{ScrapeRequest: job.ScrapeRequest{URL: "https://example.com/News/needle"}}
+		default:
+			r.Input, r.Public = &job.Input{Content: "private needle"}, false
+		}
 		save(t, s, r)
 		m.Put(r)
 	}
+	pages := 0
 	for _, status := range []string{"", job.StatusRunning, job.StatusCompleted, job.StatusFailed} {
-		var after *Cursor
-		for {
-			a, err := s.Page(status, after, 2)
-			require.NoError(t, err)
-			b, err := m.Page(status, after, 2)
-			require.NoError(t, err)
-			ja, _ := json.Marshal(append([]job.Job{}, a...))
-			jb, _ := json.Marshal(append([]job.Job{}, b...))
-			require.JSONEq(t, string(jb), string(ja), "status %q after %v", status, after)
-			if len(a) < 2 {
-				break
+		for _, q := range []string{"", "needle", "NEEDLE", "ärzte", "%", "_", "x_y", "c", "example.com/news", "hidden-z9", "private"} {
+			var after *Cursor
+			for {
+				a, err := s.Page(status, q, after, 2)
+				require.NoError(t, err)
+				b, err := m.Page(status, q, after, 2)
+				require.NoError(t, err)
+				ja, _ := json.Marshal(append([]job.Job{}, a...))
+				jb, _ := json.Marshal(append([]job.Job{}, b...))
+				require.JSONEq(t, string(jb), string(ja), "status %q q %q after %v", status, q, after)
+				for _, j := range a {
+					require.True(t, j.Public && Matches(&j, strings.ToLower(q)) && (status == "" || j.Status == status))
+				}
+				if q == "hidden-z9" || q == "private" {
+					require.Empty(t, a, "non-public jobs are never listed")
+				}
+				pages += len(a)
+				if len(a) < 2 {
+					break
+				}
+				after = &Cursor{CreatedAt: a[1].CreatedAt, ID: a[1].ID}
 			}
-			after = &Cursor{CreatedAt: a[1].CreatedAt, ID: a[1].ID}
 		}
 	}
+	require.Positive(t, pages)
+}
+
+func TestMatches(t *testing.T) {
+	j := &job.Job{ID: "job-42", Input: &job.Input{Content: "ÄRZTE warnen"}, Scrape: &job.Scrape{ScrapeRequest: job.ScrapeRequest{URL: "https://Example.com/x"}}}
+	for q, want := range map[string]bool{"": true, "ärzte": true, "b-4": true, "example.com/x": true, "%": false, "_": false, "a%": false, "zz": false} {
+		require.Equal(t, want, Matches(j, q), q)
+	}
+	require.False(t, Matches(&job.Job{ID: "x"}, "needle"), "null input and scrape")
+}
+
+func TestPageSearchScansPastLimitAndSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.db")
+	s := open(t, path)
+	for i := 0; i < 25; i++ {
+		r := rec(fmt.Sprintf("j%02d", i), i, job.StatusCompleted)
+		r.Input = &job.Input{Content: "plain"}
+		if i == 24 {
+			r.Input.Content = "the needle"
+		}
+		save(t, s, r)
+	}
+	require.NoError(t, s.Close())
+	s = open(t, path)
+	got, err := s.Page("", "needle", nil, 21)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "j24", got[0].ID)
 }
 
 func TestPageDecodesOnlyThePage(t *testing.T) {
@@ -227,12 +275,12 @@ func TestPageDecodesOnlyThePage(t *testing.T) {
 	}
 	require.NoError(t, tx.Commit())
 
-	first, err := s.Page("", nil, 21)
+	first, err := s.Page("", "", nil, 21)
 	require.NoError(t, err)
 	require.Len(t, first, 21)
 	require.EqualValues(t, 21, s.decoded.Load())
 	s.decoded.Store(0)
-	deep, err := s.Page(job.StatusCompleted, &Cursor{CreatedAt: first[19].CreatedAt, ID: first[19].ID}, 21)
+	deep, err := s.Page(job.StatusCompleted, "", &Cursor{CreatedAt: first[19].CreatedAt, ID: first[19].ID}, 21)
 	require.NoError(t, err)
 	require.Equal(t, first[20].ID, deep[0].ID)
 	require.EqualValues(t, 21, s.decoded.Load())
@@ -271,7 +319,7 @@ func TestConcurrentSaveLoadPage(t *testing.T) {
 				r.Unlock()
 				_, _, err := s.Load(r.ID)
 				require.NoError(t, err)
-				_, err = s.Page("", nil, 10)
+				_, err = s.Page("", "", nil, 10)
 				require.NoError(t, err)
 			}
 		}()
@@ -317,7 +365,7 @@ func TestPageExcludesNonPublicBeforePaging(t *testing.T) {
 			}
 			var after *Cursor
 			for {
-				page, err := st.Page(status, after, 2)
+				page, err := st.Page(status, "", after, 2)
 				require.NoError(t, err)
 				for _, j := range page {
 					require.True(t, j.Public, name)
@@ -331,11 +379,11 @@ func TestPageExcludesNonPublicBeforePaging(t *testing.T) {
 			}
 			require.Equal(t, want, all, "%s status %q", name, status)
 		}
-		first, err := st.Page("", nil, 2)
+		first, err := st.Page("", "", nil, 2)
 		require.NoError(t, err)
 		require.Equal(t, "p3", first[0].ID)
 		require.Equal(t, "p2", first[1].ID)
-		rest, err := st.Page("", &Cursor{CreatedAt: first[1].CreatedAt, ID: first[1].ID}, 2)
+		rest, err := st.Page("", "", &Cursor{CreatedAt: first[1].CreatedAt, ID: first[1].ID}, 2)
 		require.NoError(t, err)
 		require.Len(t, rest, 1, "%s: next_cursor is null when no public job follows", name)
 	}
@@ -351,7 +399,7 @@ func TestUnlistedJobSurvivesReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.False(t, r.Public)
-	page, err := s.Page("", nil, 0)
+	page, err := s.Page("", "", nil, 0)
 	require.NoError(t, err)
 	require.Len(t, page, 3)
 }
@@ -371,7 +419,7 @@ func TestMigratesDatabaseWithoutPublicColumn(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	s = open(t, path)
-	page, err := s.Page("", nil, 0)
+	page, err := s.Page("", "", nil, 0)
 	require.NoError(t, err)
 	require.Len(t, page, 1, "a pre-existing job is listed")
 	require.True(t, page[0].Public)
