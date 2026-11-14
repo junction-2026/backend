@@ -75,7 +75,7 @@ func TestTopicSuccessAndRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"topics":[{"title":"Fuel price rise","query":"fuel price increase November 2026","description":"Prices rose 40%"}],`+
 		`"news":[{"headline":"Government raises fuel tax","summary":null}],"claims":[],"input_truncated":false,`+
-		`"usage":{"prompt_tokens":300,"completion_tokens":60,"total_tokens":360}}`, string(got))
+		`"usage":{"prompt_tokens":300,"completion_tokens":60,"total_tokens":360},"attempts":1,"retry_reason":null}`, string(got))
 
 	require.EqualValues(t, 1, m.calls.Load())
 	require.Equal(t, "/v1/chat/completions", m.path)
@@ -110,10 +110,10 @@ func TestTopicResponseFormats(t *testing.T) {
 }
 
 func TestTopicEmptyListsAndNoUsage(t *testing.T) {
-	m := newTopicMock(t, answer(`{"choices":[{"finish_reason":"stop","message":{"content":"`+"```json\\n{\\\"topics\\\":[],\\\"news\\\":[],\\\"claims\\\":[]}\\n```"+`"}}]}`))
+	m := newTopicMock(t, answer(`{"choices":[{"finish_reason":"stop","message":{"content":"`+"```json\\n{\\\"topics\\\":[],\\\"news\\\":[],\\\"claims\\\":[],\\\"reasoning\\\":\\\"...\\\",\\\"attempts\\\":7,\\\"retry_reason\\\":\\\"x\\\"}\\n```"+`"}}]}`))
 	got, err := runTopic(context.Background(), topicDef(m.URL), "an opinion")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"topics":[],"news":[],"claims":[],"input_truncated":false,"usage":null}`, string(got))
+	require.JSONEq(t, `{"topics":[],"news":[],"claims":[],"input_truncated":false,"usage":null,"attempts":1,"retry_reason":null}`, string(got))
 }
 
 func TestTopicInvalidOutput(t *testing.T) {
@@ -207,7 +207,7 @@ func TestTopicInputLimitAndBlank(t *testing.T) {
 	d.Execution.MaxInputChars = &ten
 	got, err := runTopic(context.Background(), d, "один два три")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"topics":[],"news":[],"claims":[],"input_truncated":true,"usage":{"prompt_tokens":300,"completion_tokens":60,"total_tokens":360}}`, string(got))
+	require.JSONEq(t, `{"topics":[],"news":[],"claims":[],"input_truncated":true,"usage":{"prompt_tokens":300,"completion_tokens":60,"total_tokens":360},"attempts":1,"retry_reason":null}`, string(got))
 	require.Equal(t, "<content>\nодин два\n</content>", m.body["messages"].([]any)[1].(map[string]any)["content"])
 
 	got, err = runTopic(context.Background(), d, "exactly 10")
@@ -337,4 +337,48 @@ func TestTopicClaimsInvalid(t *testing.T) {
 			require.Equal(t, job.CodeInvalidOutput, re.Code)
 		})
 	}
+}
+
+// seqAnswer answers the i-th request with bodies[i] (the last one repeated).
+func seqAnswer(bodies ...string) func(http.ResponseWriter, *http.Request) {
+	var n atomic.Int32
+	return func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, bodies[min(int(n.Add(1))-1, len(bodies)-1)])
+	}
+}
+
+// shared "Missing query retried", "Cut-off reply retried" and "Both replies invalid" for topic_extraction.
+func TestTopicReplyRetry(t *testing.T) {
+	m := newTopicMock(t, seqAnswer(topicChat(`{"topics":[{"title":"t"}],"news":[],"claims":[]}`), topicChat(goodReply)))
+	got, err := runTopic(context.Background(), topicDef(m.URL), "text")
+	require.NoError(t, err)
+	require.EqualValues(t, 2, m.calls.Load())
+	var res struct {
+		Attempts    int
+		RetryReason *string `json:"retry_reason"`
+		Usage       map[string]any
+		Topics      []map[string]any
+	}
+	require.NoError(t, json.Unmarshal(got, &res))
+	require.Equal(t, 2, res.Attempts)
+	require.Equal(t, "schema", *res.RetryReason)
+	require.Len(t, res.Topics, 1)
+	msgs := m.body["messages"].([]any)
+	require.Len(t, msgs, 3)
+	require.Equal(t, "Your previous reply was not a valid JSON object matching the required schema (topics[0] needs a non-empty title and query). Reply again with only that JSON object.",
+		msgs[2].(map[string]any)["content"])
+
+	cut := `{"choices":[{"finish_reason":"length","message":{"content":"{\"topics\":["}}],"usage":{"prompt_tokens":10,"completion_tokens":2000,"total_tokens":2010,"details":{"cached":4}}}`
+	m = newTopicMock(t, seqAnswer(cut, topicChat(goodReply)))
+	got, err = runTopic(context.Background(), topicDef(m.URL), "text")
+	require.NoError(t, err)
+	require.Contains(t, string(got), `"attempts":2,"retry_reason":"length"`)
+	require.Contains(t, string(got), `"usage":{"completion_tokens":2060,"details":{"cached":4},"prompt_tokens":310,"total_tokens":2370}`)
+	require.EqualValues(t, 4000, m.body["max_tokens"], "default retry_max_tokens is twice max_tokens")
+
+	m = newTopicMock(t, answer(topicChat("I found two topics.")))
+	got, err = runTopic(context.Background(), topicDef(m.URL), "text")
+	require.Nil(t, got)
+	require.EqualError(t, err, "invalid_output: invalid topic extraction reply: first: llm reply content is not a JSON object; retry: llm reply content is not a JSON object")
+	require.EqualValues(t, 2, m.calls.Load())
 }

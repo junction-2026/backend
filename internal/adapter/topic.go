@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -87,10 +88,38 @@ func (x *Executor) topicExtraction(ctx context.Context, def *registry.Analyzer, 
 	if truncated {
 		text = cutAtSpace(runes, e.MaxChars())
 	}
-	raw, usage, err := LLM(ctx, def, topicUserMessage(def, text))
+	var res topicResult
+	reply, err := LLM(ctx, def, topicUserMessage(def, text), func(raw json.RawMessage) (err error) {
+		res, err = parseTopics(raw, e.ExtractorMaxClaims())
+		return err
+	})
 	if err != nil {
+		if re, ok := err.(*job.RunError); ok && re.Code == job.CodeInvalidOutput {
+			re.Message = "invalid topic extraction reply: " + re.Message
+		}
 		return nil, err
 	}
+	res.InputTruncated, res.Usage, res.Attempts, res.RetryReason = truncated, reply.Usage, reply.Attempts, reply.RetryReason
+	out, err := json.Marshal(res)
+	if err != nil {
+		return nil, adapterErr("topic extraction result is not serializable")
+	}
+	return out, nil
+}
+
+type topicResult struct {
+	Topics         []topic         `json:"topics"`
+	News           []newsItem      `json:"news"`
+	Claims         []claim         `json:"claims"`
+	InputTruncated bool            `json:"input_truncated"`
+	Usage          json.RawMessage `json:"usage"`
+	Attempts       int             `json:"attempts"`
+	RetryReason    *string         `json:"retry_reason"`
+}
+
+// parseTopics applies "Topic extraction output validation" and "Claim
+// validation" to the reply and keeps at most maxClaims claims.
+func parseTopics(raw json.RawMessage, maxClaims int) (topicResult, error) {
 	var in struct {
 		Topics *[]struct{ Title, Query, Description *string } `json:"topics"`
 		News   *[]struct{ Headline, Summary *string }         `json:"news"`
@@ -101,35 +130,29 @@ func (x *Executor) topicExtraction(ctx context.Context, def *registry.Analyzer, 
 			CheckWorthiness       *float64  `json:"check_worthiness"`
 		} `json:"claims"`
 	}
+	res := topicResult{Topics: []topic{}, News: []newsItem{}, Claims: []claim{}}
 	if json.Unmarshal(raw, &in) != nil {
-		return invalidTopics("topics, news and their members must be an array, objects and strings")
+		return res, errors.New("topics, news and their members must be an array, objects and strings")
 	}
 	if in.Topics == nil || in.News == nil || in.Claims == nil {
-		return invalidTopics("topics, news and claims must be arrays")
+		return res, errors.New("topics, news and claims must be arrays")
 	}
-	res := struct {
-		Topics         []topic         `json:"topics"`
-		News           []newsItem      `json:"news"`
-		Claims         []claim         `json:"claims"`
-		InputTruncated bool            `json:"input_truncated"`
-		Usage          json.RawMessage `json:"usage"`
-	}{[]topic{}, []newsItem{}, []claim{}, truncated, usage}
 	blank := func(s *string) bool { return s == nil || strings.TrimSpace(*s) == "" }
 	for i, t := range *in.Topics {
 		if blank(t.Title) || blank(t.Query) {
-			return invalidTopics(fmt.Sprintf("topics[%d] needs a non-empty title and query", i))
+			return res, fmt.Errorf("topics[%d] needs a non-empty title and query", i)
 		}
 		res.Topics = append(res.Topics, topic{*t.Title, *t.Query, t.Description})
 	}
 	for i, n := range *in.News {
 		if blank(n.Headline) {
-			return invalidTopics(fmt.Sprintf("news[%d] needs a non-empty headline", i))
+			return res, fmt.Errorf("news[%d] needs a non-empty headline", i)
 		}
 		res.News = append(res.News, newsItem{*n.Headline, n.Summary})
 	}
 	for i, c := range *in.Claims {
 		if c == nil || blank(c.Text) || blank(c.Language) || blank(c.Query) || blank(c.QueryEN) || c.CheckWorthiness == nil {
-			return invalidTopics(fmt.Sprintf("claims[%d] needs non-empty text, language, query and query_en and a numeric check_worthiness", i))
+			return res, fmt.Errorf("claims[%d] needs non-empty text, language, query and query_en and a numeric check_worthiness", i)
 		}
 		ents := []string{}
 		if c.Entities != nil {
@@ -138,14 +161,10 @@ func (x *Executor) topicExtraction(ctx context.Context, def *registry.Analyzer, 
 		res.Claims = append(res.Claims, claim{*c.Text, *c.Language, *c.Query, *c.QueryEN, ents, min(max(*c.CheckWorthiness, 0), 1)})
 	}
 	sort.SliceStable(res.Claims, func(a, b int) bool { return res.Claims[a].CheckWorthiness > res.Claims[b].CheckWorthiness })
-	if n := def.Execution.ExtractorMaxClaims(); len(res.Claims) > n {
-		res.Claims = res.Claims[:n]
+	if len(res.Claims) > maxClaims {
+		res.Claims = res.Claims[:maxClaims]
 	}
-	out, err := json.Marshal(res)
-	if err != nil {
-		return nil, adapterErr("topic extraction result is not serializable")
-	}
-	return out, nil
+	return res, nil
 }
 
 // topicUserMessage is the untrusted text inside <content> (its closing tag
@@ -157,8 +176,4 @@ func topicUserMessage(def *registry.Analyzer, text string) string {
 		msg += "\n<schema>\n" + string(s) + "\n</schema>"
 	}
 	return msg
-}
-
-func invalidTopics(msg string) (json.RawMessage, error) {
-	return nil, &job.RunError{Code: job.CodeInvalidOutput, Message: "invalid topic extraction reply: " + msg}
 }

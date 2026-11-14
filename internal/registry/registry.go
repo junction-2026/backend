@@ -86,6 +86,12 @@ type Execution struct {
 	ExtraBody      map[string]any `yaml:"extra_body"`
 	Prompt         string         `yaml:"-"` // prompt_file content, read once at load
 
+	// llm only: one reply-level retry of a cut-off, non-JSON or schema-failing reply; see the Retry* methods for defaults
+	RetryInvalidOutput *bool          `yaml:"retry_invalid_output"`
+	RetryMaxTokens     *int           `yaml:"retry_max_tokens"`
+	RetryModel         string         `yaml:"retry_model"`
+	RetryMinRemaining  *time.Duration `yaml:"retry_min_remaining"`
+
 	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
 
 	// mistral_translation only: skip the Mistral call for text that is clearly English
@@ -199,6 +205,20 @@ func (e Execution) MaxChars() int {
 		return DefaultMaxInputChars
 	}
 	return *e.MaxInputChars
+}
+
+// RetryEnabled is retry_invalid_output (default true).
+func (e Execution) RetryEnabled() bool { return e.RetryInvalidOutput == nil || *e.RetryInvalidOutput }
+
+// RetryMaxTokensN is retry_max_tokens (default twice max_tokens).
+func (e Execution) RetryMaxTokensN() int { return intOr(e.RetryMaxTokens, 2*e.MaxTokens) }
+
+// RetryMinRemainingD is retry_min_remaining (default 5s).
+func (e Execution) RetryMinRemainingD() time.Duration {
+	if e.RetryMinRemaining == nil {
+		return 5 * time.Second
+	}
+	return *e.RetryMinRemaining
 }
 
 // SkipsEnglish is skip_english with its default (true).
@@ -566,6 +586,12 @@ func (a *Analyzer) normalize(opt Options) error {
 		case e.Task != TaskTopicExtraction && a.Trigger != TriggerAfterAll:
 			return fmt.Errorf("execution.adapter llm is only allowed on %s analyzers (or on analyzers with execution.task: %s)", TriggerAfterAll, TaskTopicExtraction)
 		}
+		switch {
+		case e.RetryMaxTokens != nil && *e.RetryMaxTokens < 1:
+			return fmt.Errorf("execution.retry_max_tokens must be a positive integer")
+		case e.RetryMinRemaining != nil && *e.RetryMinRemaining < 0:
+			return fmt.Errorf("execution.retry_min_remaining must not be negative")
+		}
 		for _, k := range []string{"model", "messages"} {
 			if _, ok := e.ExtraBody[k]; ok {
 				return fmt.Errorf("execution.extra_body.%s is not allowed (it would replace the request's %s)", k, k)
@@ -696,6 +722,7 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) e
 	}{
 		{"base_url", &e.BaseURL, true}, {"api_key", &e.APIKey, true}, {"model", &e.Model, true},
 		{"prompt_file", &e.PromptFile, true}, {"response_format", &e.ResponseFormat, false},
+		{"retry_model", &e.RetryModel, false},
 	} {
 		var err error
 		if *f.v, err = expand(*f.v, getenv); err != nil {

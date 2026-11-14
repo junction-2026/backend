@@ -80,33 +80,42 @@ func (r *Runtime) Run(ctx context.Context, in engine.FinalizationInput) (json.Ra
 
 func (r *Runtime) run(ctx context.Context, in engine.FinalizationInput) (json.RawMessage, error) {
 	def := in.Analyzer
-	var raw, usage json.RawMessage
-	var err error
 	if def.Execution.Adapter == registry.AdapterLLM {
 		entries, ok := r.llmEntries(&in.Job)
 		if !ok {
 			return insufficientEvidence()
 		}
-		raw, usage, err = adapter.LLM(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, entries))
-	} else {
-		if in.Job.Coverage.Succeeded == 0 {
-			return insufficientEvidence()
+		var a job.FinalAssessment
+		reply, err := adapter.LLM(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, entries),
+			func(raw json.RawMessage) (err error) {
+				if a, err = normalize(raw); err == nil {
+					err = def.ValidateOutput(raw) // configured schema judges the finalizer's own answer
+				}
+				return err
+			})
+		if err != nil {
+			return nil, err
 		}
-		raw, err = r.Exec.Execute(ctx, def, adapter.Request{
-			JobID: in.Job.ID, AnalyzerID: def.ID, Inputs: adapter.Inputs(def, &in.Job),
-		})
+		a.Usage, a.Attempts, a.RetryReason = reply.Usage, &reply.Attempts, reply.RetryReason
+		return json.Marshal(a)
 	}
+	if in.Job.Coverage.Succeeded == 0 {
+		return insufficientEvidence()
+	}
+	raw, err := r.Exec.Execute(ctx, def, adapter.Request{
+		JobID: in.Job.ID, AnalyzerID: def.ID, Inputs: adapter.Inputs(def, &in.Job),
+	})
 	if err != nil {
 		return nil, err
 	}
-	out, err := normalize(raw, usage)
+	a, err := normalize(raw)
 	if err == nil {
-		err = def.ValidateOutput(raw) // configured schema judges the finalizer's own answer
+		err = def.ValidateOutput(raw)
 	}
 	if err != nil {
 		return nil, &job.RunError{Code: job.CodeInvalidOutput, Message: err.Error()}
 	}
-	return out, nil
+	return json.Marshal(a)
 }
 
 // llmEntries returns one compact JSON entry per AnalyzerRun opted in to LLM
@@ -153,26 +162,27 @@ var verdicts = map[string]bool{"detected": true, "not_detected": true, "uncertai
 // normalize runs the built-in FinalAssessment checks in a fixed order (the
 // error names the first failing member) and returns the stored object:
 // verdict, confidence (absent -> null) and user_text unchanged, produced_by
-// finalizer, usage from the adapter only; every other member is dropped.
-func normalize(raw, usage json.RawMessage) (json.RawMessage, error) {
+// finalizer; every other member is dropped (usage, attempts and retry_reason
+// are set by the caller, never from the output).
+func normalize(raw json.RawMessage) (job.FinalAssessment, error) {
 	var m map[string]json.RawMessage
+	a := job.FinalAssessment{ProducedBy: "finalizer"}
 	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		return nil, errors.New("finalizer output is not a JSON object")
+		return a, errors.New("finalizer output is not a JSON object")
 	}
-	a := job.FinalAssessment{ProducedBy: "finalizer", Usage: usage}
 	if json.Unmarshal(m["verdict"], &a.Verdict) != nil || !verdicts[a.Verdict] {
-		return nil, errors.New(`finalizer output member "verdict" is missing or not detected, not_detected or uncertain`)
+		return a, errors.New(`finalizer output member "verdict" is missing or not detected, not_detected or uncertain`)
 	}
 	// null unmarshals into a string without error, hence isAbsent
 	if isAbsent(m["user_text"]) || json.Unmarshal(m["user_text"], &a.UserText) != nil || strings.TrimSpace(a.UserText) == "" {
-		return nil, errors.New(`finalizer output member "user_text" is missing, not a string or empty`)
+		return a, errors.New(`finalizer output member "user_text" is missing, not a string or empty`)
 	}
 	if !isAbsent(m["confidence"]) {
 		if json.Unmarshal(m["confidence"], &a.Confidence) != nil || *a.Confidence < 0 || *a.Confidence > 1 {
-			return nil, errors.New(`finalizer output member "confidence" must be null or a number between 0 and 1`)
+			return a, errors.New(`finalizer output member "confidence" must be null or a number between 0 and 1`)
 		}
 	}
-	return json.Marshal(a)
+	return a, nil
 }
 
 func isAbsent(v json.RawMessage) bool { return len(v) == 0 || string(v) == "null" }

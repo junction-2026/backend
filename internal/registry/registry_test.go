@@ -363,6 +363,30 @@ func TestLLMDefaultsAndExpansion(t *testing.T) {
 	require.Empty(t, e.Headers)
 }
 
+func TestLLMRetrySettings(t *testing.T) {
+	r, err := llmReg(t, "      max_tokens: 700\n", "", nil)
+	require.NoError(t, err)
+	e := r.Finalizer().Execution
+	require.True(t, e.RetryEnabled())
+	require.Equal(t, 1400, e.RetryMaxTokensN(), "default is twice max_tokens")
+	require.Equal(t, "", e.RetryModel, "empty: same model")
+	require.Equal(t, 5*time.Second, e.RetryMinRemainingD())
+
+	r, err = llmReg(t, "      retry_invalid_output: false\n      retry_max_tokens: 2500\n      retry_model: ${V}-big\n      retry_min_remaining: 0s\n", "", nil)
+	require.NoError(t, err)
+	e = r.Finalizer().Execution
+	require.False(t, e.RetryEnabled())
+	require.Equal(t, 2500, e.RetryMaxTokensN())
+	require.Equal(t, "x-big", e.RetryModel)
+	require.Equal(t, time.Duration(0), e.RetryMinRemainingD())
+
+	// wrong YAML types are decode errors (the line, like every typed key)
+	for _, bad := range []string{"      retry_min_remaining: soon\n", "      retry_invalid_output: maybe\n"} {
+		_, err = llmReg(t, bad, "", nil)
+		require.ErrorContains(t, err, "cannot unmarshal", bad)
+	}
+}
+
 func TestLLMRejects(t *testing.T) {
 	type env = map[string]string
 	cases := []struct {
@@ -379,6 +403,9 @@ func TestLLMRejects(t *testing.T) {
 		{"include without description", "", "    llm: {include: true}\n", "llm.description is required", nil},
 		{"include with blank description", "", "    llm: {include: true, description: \"  \"}\n", "llm.description is required", nil},
 		{"llm block on finalizer", "    llm: {include: true, description: x}\n", "", "llm block is not allowed", nil},
+		{"retry_max_tokens zero", "      retry_max_tokens: 0\n", "", "execution.retry_max_tokens must be a positive integer", nil},
+		{"retry_max_tokens negative", "      retry_max_tokens: -5\n", "", "execution.retry_max_tokens must be a positive integer", nil},
+		{"retry_min_remaining negative", "      retry_min_remaining: -1s\n", "", "execution.retry_min_remaining must not be negative", nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
