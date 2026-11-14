@@ -377,3 +377,18 @@ func TestAccessLogLine(t *testing.T) {
 	assert.Contains(t, line, "latency_ms")
 	assert.NotContains(t, logs.String(), "header-value")
 }
+
+func TestModuleErrorLiteralWithNilDetailsAndSharedError(t *testing.T) {
+	shared := &Error{Code: "upstream_error", Message: "x", Status: 502} // nil Details, shared by every request
+	reg := NewRegistry()
+	reg.Register(Bluesky, moduleFunc(func(context.Context, Target, Request) (*Result, error) { return nil, shared }))
+	srv, _ := newTestServer(t, time.Second, reg)
+	for range 3 {
+		resp, b := post(t, srv, `{"url": "https://bsky.app/profile/alice.bsky.social"}`, auth()...)
+		assert.Equal(t, 502, resp.StatusCode)
+		e := errBody(t, b)
+		assert.Equal(t, "upstream_error", e["code"])
+		assert.Equal(t, "bluesky", e["details"].(map[string]any)["platform"])
+	}
+	assert.Nil(t, shared.Details) // the module's value is not mutated
+}

@@ -147,10 +147,16 @@ func (s *Server) mapError(err error, platform string) *Error {
 	var se *Error
 	switch {
 	case errors.As(err, &se):
-		if _, ok := se.Details["platform"]; !ok && platform != "" {
-			se.Details["platform"] = platform
+		// Copy: the module's error may be shared, and its Details may be nil.
+		cp := *se
+		cp.Details = make(map[string]any, len(se.Details)+1)
+		for k, v := range se.Details {
+			cp.Details[k] = v
 		}
-		return se
+		if _, ok := cp.Details["platform"]; !ok && platform != "" {
+			cp.Details["platform"] = platform
+		}
+		return &cp
 	case IsTimeout(err):
 		return UpstreamTimeout(platform)
 	}

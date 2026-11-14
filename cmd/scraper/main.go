@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -17,17 +18,29 @@ import (
 )
 
 func main() {
-	healthcheck := flag.Bool("healthcheck", false, "request /health of a running scraper and exit 0 on 200, else 1")
-	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	code := run(ctx, os.Args[1:], os.Getenv, os.Stderr)
+	stop()
+	os.Exit(code)
+}
+
+// run is main without the process: it serves until ctx ends, then shuts down within 10 s. It returns the exit code.
+func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("scraper", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	healthcheck := fs.Bool("healthcheck", false, "request /health of a running scraper and exit 0 on 200, else 1")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 	if *healthcheck {
-		os.Exit(runHealthcheck(os.Getenv("SCRAPER_LISTEN_ADDR")))
+		return runHealthcheck(getenv("SCRAPER_LISTEN_ADDR"))
 	}
-	cfg, err := ss.LoadConfig(os.Getenv)
+	cfg, err := ss.LoadConfig(getenv)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "scraper:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "scraper:", err)
+		return 1
 	}
-	log := ss.DefaultLogger()
+	log := ss.NewLogger(stderr, ss.NewRedactor(getenv, os.ReadFile))
 	registerPlatforms(cfg)
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -35,23 +48,22 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
-	defer stop()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Info("scraper listening", "addr", cfg.ListenAddr)
 	select {
 	case err := <-errc:
 		log.Error("scraper stopped", "error", err.Error())
-		os.Exit(1)
+		return 1
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("shutdown", "error", err.Error())
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // runHealthcheck requests http://127.0.0.1:<port>/health, the port taken from listenAddr (default 8003).
