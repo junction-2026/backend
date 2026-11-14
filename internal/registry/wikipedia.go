@@ -22,6 +22,9 @@ type Wikipedia struct {
 // checkWikipedia rejects the wikipedia-only keys on other adapters and validates and defaults them for wikipedia.
 func (a *Analyzer) checkWikipedia(opt Options) error {
 	e := &a.Execution
+	if e.Adapter == AdapterTermContext {
+		return nil // validated in checkTermContext, which shares wikiTransport
+	}
 	if e.Adapter != AdapterWikipedia {
 		if e.MaxHits != nil || e.MaxPassageChars != nil || e.CacheDir != "" || e.UserAgent != "" || e.BaseURLTemplate != "" {
 			return fmt.Errorf("execution.max_hits, max_passage_chars, cache_dir, user_agent and base_url_template are only allowed for adapter %s", AdapterWikipedia)
@@ -72,6 +75,18 @@ func (a *Analyzer) checkWikipedia(opt Options) error {
 			*f.out = *f.in
 		}
 	}
+	if err := a.wikiTransport(opt); err != nil {
+		return err
+	}
+	if e.Timeout == 0 {
+		e.Timeout = 20 * time.Second
+	}
+	return nil
+}
+
+// wikiTransport validates the cache, base URL and User-Agent keys that wikipedia and term_context share.
+func (a *Analyzer) wikiTransport(opt Options) error {
+	e, w := &a.Execution, &a.Execution.Wiki
 	if w.CacheTTL = 168 * time.Hour; e.CacheTTL != nil {
 		if *e.CacheTTL <= 0 {
 			return fmt.Errorf("execution.cache_ttl must be a positive duration")
@@ -92,9 +107,6 @@ func (a *Analyzer) checkWikipedia(opt Options) error {
 	}
 	if w.UserAgent = strings.TrimSpace(e.UserAgent); w.UserAgent == "" {
 		return fmt.Errorf("execution.user_agent is required for adapter %s (a contact URL or e-mail, per the Wikimedia User-Agent policy)", e.Adapter)
-	}
-	if e.Timeout == 0 {
-		e.Timeout = 20 * time.Second
 	}
 	return nil
 }

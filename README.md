@@ -192,6 +192,41 @@ non-2xx after one retry of 429/5xx, undecodable answer) fails the analyzer with 
 **mount a volume at `DATA_DIR` (or `cache_dir`) that is writable by uid 65532** to keep the cache across container
 restarts; without a writable directory the analyzer still works but makes a request per lookup.
 
+## Term context analyzer
+
+`docs/examples/term_context.yaml` (analyzer `term_context`, adapter `term_context`, category `coverage`,
+`depends_on: [topic_extraction, translation, news_search]`, bindings `extraction`, `translation`, `news`) quotes, per
+loaded or unfamiliar term of a post, the post's own sentence (`in_post`), the verbatim first lead sentence of the term's
+own Wikipedia page with an `oldid` permalink (or `"no_coverage"`) and up to three `news_search` snippets that contain
+the term (`elsewhere`), and says whether they use the term for the same thing (`sense`: `same`, `differs`, `unknown`;
+result shape: shared capability `term-context-result`). It is not a definition or a verdict and no model-written
+text appears in the result. A deployment without an enabled `term_context` entry has no such analyzer; it needs
+`news_search` enabled, and a job whose `news_search` is skipped or failed skips it.
+
+- One LLM call (`<content>` = the post, `<candidates>` = the entities of `topic_extraction`) picks loaded or
+  unfamiliar terms; the backend keeps a pick only if it occurs in the post (case-insensitive, no letter or digit
+  directly before or after) and copies `term` from the post. At most `max_terms` (5) are kept, in the model's order,
+  and listed by first occurrence. Persons, numbers, dates and ordinary words are excluded by the prompt only. The
+  prompts live in the backend (`internal/adapter/term_context_prompt.go`); there is no `prompt_file`.
+- `in_post` is the sentence around the first occurrence (boundary: line break, or `. ! ? … 。 ！ ？ ؟` followed by
+  whitespace), cut to `in_post_max_chars` (300). Because a term needs non-letter/digit neighbours, a term inside
+  running CJK text without spaces is never found.
+- Own page: one title request in `{source_language}.wikipedia.org` (`en` when unknown; redirects followed) and, only
+  when the title has no page, one search whose first hit titled exactly like the term (or `term (qualifier)`) is
+  used. Disambiguation pages and empty leads are `no_coverage`. `quote` is the first lead sentence (a `.` inside
+  parentheses does not end it), cut to `quote_max_chars` (400). Answers (`no_coverage` included, failures not) are
+  cached like the `wikipedia` analyzer's, per `(language, term)`, in `cache_dir` / `cache_ttl`; `requests_used` counts
+  HTTP requests, `cached` the lookups answered without one.
+- A second LLM call compares only `term`, `in_post`, the encyclopedia quote and the snippets of all terms that have
+  another quote (`unknown` without a call when there is none) and answers `same` or `differs` plus the quotes that
+  differ (`differs_from`). Each LLM call follows the usual one reply retry; a second invalid reply is `invalid_output`.
+- `execution` takes `base_url`, `api_key`, `model`, `temperature`, `max_tokens` (default 1000), `headers`,
+  `response_format`, `extra_body`, `retry_*`, `max_input_chars`, `max_terms`, `in_post_max_chars`, `quote_max_chars`,
+  `elsewhere_max`, the Wikipedia keys `user_agent` (required), `base_url_template`, `cache_dir`, `cache_ttl`,
+  `max_concurrency` and `timeout` (default 60s); any other key aborts startup.
+- Progress: the activity has text "Looking up unfamiliar terms", `params.language` (the wiki language) and detail
+  "in the German Wikipedia".
+
 ## News coverage analyzer
 
 `docs/examples/news_search.yaml` (analyzer `news_search`, adapter `news_search`) searches news and web coverage of
@@ -813,7 +848,7 @@ without reading full results. Every member is additive; `GET /api/v1/jobs/{id}` 
   fixed English `text` from a built-in table (unknown keys use the analyzer name), `detail` and `params` from facts
   known at start, never from an LLM or translation call. `news_search`: `params.languages`, detail "in German and
   English"; `fact_check`: `params.claims`; `techniques`: `params.models` ("document model", "short-post model");
-  `llm_techniques`: `params.title_checked`; `scrape`: `params.host`. A fact that cannot be determined is left out
+  `llm_techniques`: `params.title_checked`; `term_context`: `params.language`; `scrape`: `params.host`. A fact that cannot be determined is left out
   and `detail` is null.
 - **Progress** `{done, running, total}` on `analyzer.started`, every settle event after the plan,
   `analysis.finalizing` (`done == total - 1`), `analysis.finalized` and `analysis.finalization_failed`

@@ -216,6 +216,8 @@ type wikiHit struct {
 
 type wikiPage struct {
 	PageID    int64                      `json:"pageid"`
+	Ns        int                        `json:"ns"`
+	Index     int                        `json:"index"` // rank of a generator=search hit
 	Title     string                     `json:"title"`
 	Missing   bool                       `json:"missing"`
 	PageProps map[string]json.RawMessage `json:"pageprops"`
@@ -332,11 +334,16 @@ func (r *wikiRun) fetch(c claim, mode, lang, query string) (wikiLookup, error) {
 		return l, wikiErr(lang, "answer could not be decoded")
 	}
 	rev := p.Revisions[0].RevID
-	link := fmt.Sprintf("https://%s.wikipedia.org/w/index.php?title=%s&oldid=%d", lang, url.QueryEscape(strings.ReplaceAll(p.Title, " ", "_")), rev)
+	link := revisionURL(lang, p.Title, rev)
 	revised := at.UTC().Format(time.RFC3339)
 	l.Status, l.Title, l.URL, l.PageID, l.RevisionID, l.RevisedAt = "found", &p.Title, &link, &p.PageID, &rev, &revised
 	l.Passage, l.PassageSource = &passage, &source
 	return personalize(l, c, query, false), nil
+}
+
+// revisionURL is the permalink of one revision of a page.
+func revisionURL(lang, title string, rev int64) string {
+	return fmt.Sprintf("https://%s.wikipedia.org/w/index.php?title=%s&oldid=%d", lang, url.QueryEscape(strings.ReplaceAll(title, " ", "_")), rev)
 }
 
 func wikiErr(lang, what string) *job.RunError {
