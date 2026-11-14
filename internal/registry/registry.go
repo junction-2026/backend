@@ -124,6 +124,7 @@ type Execution struct {
 	Technique         *NCIModel       `yaml:"technique"`
 	Social            *NCIModel       `yaml:"social"`
 	Spans             *TechniqueSpans `yaml:"spans"`
+	StrongMargin      any             `yaml:"strong_margin"` // any: a non-number is reported naming the file and analyzer id
 	// keys of the earlier technique_classifier, decoded only to reject them naming their replacement
 	OldShortMaxWords any `yaml:"short_max_words"`
 	OldMaxSentences  any `yaml:"max_sentences"`

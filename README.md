@@ -255,7 +255,11 @@ the model returned that are not known (`known: false`, `display` = the label) in
 `label`, `display`, `score`, `model`, `cutoff`, `above_cutoff` (`score >= cutoff`) and `known`; scores below the cutoff
 are kept. Scores of the two models are never averaged or merged and are not comparable. `detected` lists the known
 techniques with `above_cutoff` in at least one model, in name order, with `display`, `explanation`, `models` (which
-models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. Add
+models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. After the span step each
+Detection gets `margin` (highest `score - cutoff` across its `models`, rounded half away from zero to 2 decimals),
+`located` (it has at least one span) and `strength` (`strong` when located or `margin >= execution.strong_margin`,
+else `weak`), and the result gets `summary: {strong, weak}`. `execution.strong_margin` (number 0..1, default 0.15;
+only for this adapter) aborts startup when it is not a number in range. Add
 `llm: {include: true, description: ...}` (as in the example) to let the LLM finalizer see the result.
 
 ### Technique spans
@@ -635,7 +639,11 @@ the model returned that are not known (`known: false`, `display` = the label) in
 `label`, `display`, `score`, `model`, `cutoff`, `above_cutoff` (`score >= cutoff`) and `known`; scores below the cutoff
 are kept. Scores of the two models are never averaged or merged and are not comparable. `detected` lists the known
 techniques with `above_cutoff` in at least one model, in name order, with `display`, `explanation`, `models` (which
-models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. Add
+models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. After the span step each
+Detection gets `margin` (highest `score - cutoff` across its `models`, rounded half away from zero to 2 decimals),
+`located` (it has at least one span) and `strength` (`strong` when located or `margin >= execution.strong_margin`,
+else `weak`), and the result gets `summary: {strong, weak}`. `execution.strong_margin` (number 0..1, default 0.15;
+only for this adapter) aborts startup when it is not a number in range. Add
 `llm: {include: true, description: ...}` (as in the example) to let the LLM finalizer see the result.
 
 ### Technique spans

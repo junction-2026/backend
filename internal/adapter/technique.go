@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -126,11 +128,15 @@ func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyz
 		return nil, err
 	}
 	expLang := explanationLanguage(lang)
+	summary := map[string]int{"strong": 0, "weak": 0}
 	for i := range sp.detected {
-		explain(&sp.detected[i], expLang)
+		d := &sp.detected[i]
+		explain(d, expLang)
+		strengthOf(d, results, e.StrongMarginN())
+		summary[d.Strength]++
 	}
 	out, err := json.Marshal(map[string]any{
-		"words": words, "results": results, "detected": sp.detected,
+		"words": words, "results": results, "detected": sp.detected, "summary": summary,
 		"span_method": sp.method, "span_status": sp.status, "spans_truncated": sp.truncated,
 		"explanation_language": expLang, "glossary_version": techniqueGlossary.Version,
 	})
@@ -138,6 +144,28 @@ func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyz
 		return nil, adapterErr("classifier result is not serializable")
 	}
 	return out, nil
+}
+
+// strengthOf sets margin (highest score - cutoff over d.Models, rounded half away from zero to 2 decimals),
+// located (has spans after the span step) and strength (strong when located or margin >= strongMargin).
+func strengthOf(d *detectedTechnique, results []modelResult, strongMargin float64) {
+	m := 0.0
+	for _, r := range results {
+		if !slices.Contains(d.Models, r.Model) {
+			continue
+		}
+		for _, sc := range r.Scores {
+			if sc.Label == d.Name {
+				m = max(m, sc.Score-sc.Cutoff)
+			}
+		}
+	}
+	d.Margin = math.Round(m*100) / 100
+	d.Located = len(d.Spans) > 0
+	d.Strength = "weak"
+	if d.Located || d.Margin >= strongMargin {
+		d.Strength = "strong"
+	}
 }
 
 // classify sends body to one model and builds its ModelResult: the 18 known labels in names order, then unfamiliar
