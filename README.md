@@ -26,8 +26,12 @@ Optional `translation` settings: `model` (default `mistral-small-latest`, `${VAR
 (default `60s`), `endpoint` (default `https://api.mistral.ai/v1/chat/completions`), `headers` and
 `max_input_chars` (default `20000`). Longer input is **truncated** at the last whitespace before the limit
 (no chunking); the result then has `truncated: true` and `input_characters` holds the original length.
-Cost and latency: every job runs one extra paid LLM call (up to 60s) before propaganda detection starts,
-so `translation` adds that delay and Mistral token cost to each analysis. To analyze the original text
+`skip_english` (default `true`), `english_min_words` (default `8`) and `english_min_ratio` (default `0.25`)
+control a local English check on the text to send: text clearly English (at least `english_min_words` words and an
+English function-word share of at least `english_min_ratio`) makes no Mistral call, and the result has
+`source_language: "en"`, `model: "none"`, `skipped: "detected_english"` and no `usage`. Other or unsure text is translated as usual.
+Cost and latency: every job whose text is not clearly English runs one extra paid LLM call (up to 60s) before
+propaganda detection starts, so `translation` adds that delay and Mistral token cost to those analyses. To analyze the original text
 instead, remove `translation`, `depends_on` and `input` from the example.
 
 Optional LLM finalizer: `docs/examples/final_synthesis.yaml` (adapter `llm`) sends a verdict

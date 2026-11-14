@@ -14,6 +14,7 @@ analyzers:
       model: mistral-small-latest
       timeout: 60s
       # max_input_chars: 20000
+      # skip_english: true      # no Mistral call for text that is clearly English (english_min_words: 8, english_min_ratio: 0.25)
   - id: propaganda_detection
     name: Propaganda detection
     category: propaganda
