@@ -166,13 +166,25 @@ func TestEndToEndScrapeJobs(t *testing.T) {
 	}
 
 	before := len(router.Requests())
+	// no Oxylabs key is configured: former social-network URLs are web pages that cannot be fetched
 	for _, url := range []string{"https://x.com/alice", "https://x.com/alice/status/1790000000000000000",
 		"https://www.facebook.com/examplenews", "https://www.facebook.com/profile.php?id=100000000000001"} {
 		j := s.scrapeJob(t, url)
 		require.Equal(t, "failed", j["status"])
-		require.Equal(t, "unsupported_url", j["scrape"].(map[string]any)["error"].(map[string]any)["code"])
+		e := j["scrape"].(map[string]any)["error"].(map[string]any)
+		require.Equal(t, "platform_not_configured", e["code"])
+		require.Equal(t, "web", e["details"].(map[string]any)["platform"])
+		require.Equal(t, []any{"OXYLABS_WEB_API_KEY"}, e["details"].(map[string]any)["missing_settings"])
 	}
-	require.Len(t, router.Requests(), before, "unsupported social network URLs reach no host")
+	for _, url := range []string{"http://localhost/article", "http://127.0.0.1/admin", "http://10.0.0.5/x", "http://[::1]/",
+		"https://user:s3cret@news.example.org/a"} {
+		j := s.scrapeJob(t, url)
+		require.Equal(t, "failed", j["status"])
+		require.Equal(t, "unsupported_url", j["scrape"].(map[string]any)["error"].(map[string]any)["code"], url)
+		raw, _ := json.Marshal(j["scrape"].(map[string]any)["error"])
+		require.NotContains(t, string(raw), "s3cret", "the userinfo password never appears in the error")
+	}
+	require.Len(t, router.Requests(), before, "unscrapable URLs reach no host")
 
 	require.NotContains(t, logs.String(), sentinelToken)
 }
@@ -227,5 +239,60 @@ func TestObsoleteScraperVariablesWarned(t *testing.T) {
 	}
 	for _, value := range []string{"old-scraper-host", "old-s3cret-token", "8099"} {
 		require.NotContains(t, logs.String(), value)
+	}
+}
+
+const sentinelOxylabs = "SENTINEL-oxy-b7e0a1c3"
+
+// A news article is fetched through the (stubbed) Oxylabs Web API end to end: the job input is the article text and the
+// second job for the same URL is served from the cache. No real provider is reached; the key never leaves the process.
+func TestEndToEndWebPage(t *testing.T) {
+	article := fixture(t, "web", "news_article.html")
+	var provider []string
+	router := platforms(t).Handle("webapi.oxylabs.io", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer "+sentinelOxylabs, r.Header.Get("Authorization"))
+		provider = append(provider, r.URL.Path)
+		body, _ := json.Marshal(map[string]any{"results": []any{map[string]any{"html": string(article), "markdown": ""}}})
+		scrapertest.Body(200, body)(w, r)
+	}))
+	useTransport(t, router)
+	logs := &syncBuf{}
+	s := startLog(t, map[string]string{"ANALYZERS_CONFIG": "../../config/analyzers", "OXYLABS_WEB_API_KEY": sentinelOxylabs}, logs)
+
+	url := "https://www.dw.com/en/election-results/a-70000001?utm_source=x"
+	for i, wantCached := range []bool{false, true} {
+		j := s.scrapeJob(t, url)
+		sc := j["scrape"].(map[string]any)
+		require.Equal(t, "succeeded", sc["status"], sc["error"])
+		require.Equal(t, "completed", j["status"])
+		require.Equal(t, "web", sc["platform"])
+		in := j["input"].(map[string]any)
+		require.Contains(t, in["content"], "The governing coalition lost its majority")
+		src := in["source"].(map[string]any)
+		require.Equal(t, "https://www.dw.com/en/election-results/a-70000001", src["url"])
+		require.Equal(t, "Election results", src["title"])
+		require.Equal(t, "Jane Doe", src["author"])
+		meta := src["metadata"].(map[string]any)["scrape"].(map[string]any)
+		require.Equal(t, "page", meta["url_kind"])
+		require.Equal(t, wantCached, meta["cached"], i)
+		require.Equal(t, "dw.com", meta["domain"])
+		raw, _ := json.Marshal(j)
+		require.NotContains(t, string(raw), sentinelOxylabs)
+	}
+	require.Equal(t, []string{"/v1/scrape"}, provider, "the second scrape came from the cache")
+	require.NotContains(t, logs.String(), sentinelOxylabs)
+}
+
+func TestWebConfigFromEnvironment(t *testing.T) {
+	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := loadConfig(get(map[string]string{"OXYLABS_API": "web_scraper_api", "OXYLABS_LOCATION": "de", "WEB_MIN_TEXT_CHARS": "50"}))
+	require.NoError(t, err)
+	require.Equal(t, "web_scraper_api", c.Upstream.Web.API)
+	require.Equal(t, "DE", c.Upstream.Web.Location)
+	require.Equal(t, 50, c.Upstream.Web.MinTextChars)
+	for name, v := range map[string]string{"OXYLABS_API": "nope", "OXYLABS_LOCATION": "Germany", "WEB_CACHE_TTL": "soon"} {
+		_, err := loadConfig(get(map[string]string{name: v}))
+		require.ErrorContains(t, err, name)
+		require.NotContains(t, err.Error(), v)
 	}
 }

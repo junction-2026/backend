@@ -1,19 +1,25 @@
 package socialscraper
 
 import (
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
 )
 
+// maxURLLength is the longest URL a scrape accepts.
+const maxURLLength = 2000
+
 const (
 	Bluesky  = "bluesky"
 	Mastodon = "mastodon"
+	Web      = "web"
 )
 
 const (
 	KindProfile = "profile"
 	KindPost    = "post"
+	KindPage    = "page"
 )
 
 var (
@@ -61,12 +67,49 @@ func normalize(u *url.URL) (host string, seg []string) {
 	return host, seg
 }
 
-// Recognize maps an absolute http(s) URL to a Target, or fails with unsupported_url. It needs no
-// registered module and makes no network request.
+// unsupported is the one error of a URL that cannot be fetched safely; it never repeats the URL (userinfo).
+func unsupported(why string) *Error {
+	return UnsupportedURL("", "the URL cannot be scraped: "+why)
+}
+
+// localHost reports a name or IP literal that must never be fetched: localhost, private, loopback,
+// link-local and unspecified addresses (IPv4-mapped IPv6 included). A host whose last label starts with a digit
+// but is not a valid IP is a legacy IPv4 spelling (decimal, octal, hex) and is refused too.
+func localHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		a = a.Unmap()
+		return a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified() ||
+			(a.Is4() && a.As4()[0] == 0)
+	}
+	last := host[strings.LastIndexByte(host, '.')+1:]
+	return last != "" && last[0] >= '0' && last[0] <= '9'
+}
+
+// Recognize maps an http(s) URL to a Target without a network request: unsafe URLs fail with
+// unsupported_url, then Bluesky and Mastodon shapes are recognized and every other URL is a web page.
 func Recognize(raw string) (Target, *Error) {
+	if len(raw) > maxURLLength {
+		return Target{}, unsupported("longer than 2,000 characters")
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return Target{}, UnsupportedURL("", "not a recognized public post or profile URL of a supported platform")
+		return Target{}, unsupported("not a valid URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return Target{}, unsupported("not an absolute http or https URL")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return Target{}, unsupported("no host")
+	}
+	if u.User != nil {
+		return Target{}, unsupported("contains credentials")
+	}
+	if localHost(u.Hostname()) {
+		return Target{}, unsupported("a local or private host")
 	}
 	host, s := normalize(u)
 	t := Target{URL: u}
@@ -87,7 +130,7 @@ func Recognize(raw string) (Target, *Error) {
 			return t, nil
 		}
 	}
-	return Target{}, UnsupportedURL("", "not a recognized public post or profile URL of a supported platform")
+	return ok(Web, KindPage, nil)
 }
 
 func recognizeMastodon(t Target, host string, s []string) (Target, bool) {

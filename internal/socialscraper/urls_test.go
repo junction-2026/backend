@@ -1,6 +1,7 @@
 package socialscraper
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,45 +38,85 @@ func TestRecognized(t *testing.T) {
 	}
 }
 
-func TestUnsupported(t *testing.T) {
+func TestWebFallback(t *testing.T) {
 	for _, u := range []string{
+		"https://www.dw.com/en/some-article/a-12345678",
 		"https://example.com/some/article",
 		"https://example.com/",
-		// unsupported social networks: no Bluesky or Mastodon shape
 		"https://x.com/alice",
 		"https://x.com/alice/status/1790000000000000000",
 		"https://twitter.com/alice",
 		"https://www.instagram.com/reel/C1a2b3c4d5/",
-		"https://www.instagram.com/nasa/",
+		"https://www.threads.com/@zuck/post/abc", // not a Mastodon status shape
 		"https://www.facebook.com/examplenews",
 		"https://www.facebook.com/profile.php?id=100000000000001",
-		"https://fb.watch/abc123/",
-		"https://m.fb.com/examplenews",
-		"https://m.facebook.com/examplenews/posts/1234567890",
-		"https://www.facebook.com/groups/12345",
-		"https://www.facebook.com/",
 		"https://bsky.app/",
 		"https://bsky.app/search?q=x",
 		"https://bsky.app/@alice", // bsky.app is never a Mastodon candidate
 		"https://www.bsky.app/users/alice",
 		"https://mastodon.social/about",
-		"https://mastodon.social/",
-		"https://127.0.0.1/@alice", // IP literals and dotless hosts are never contacted
-		"https://localhost/@alice",
-		"https://0x7f.0.0.1/@alice",
+		"https://mastodon.social/%2540alice",
+		"https://8.8.8.8/page", // public IP literals are scraped
+		"http://[2606:4700::1111]/",
+	} {
+		t.Run(u, func(t *testing.T) {
+			got, err := Recognize(u)
+			require.Nil(t, err)
+			assert.Equal(t, "web", got.Platform)
+			assert.Equal(t, "page", got.URLKind)
+		})
+	}
+}
+
+func TestUnsupported(t *testing.T) {
+	for _, u := range []string{
+		"ftp://example.com/a",
+		"/relative/path",
+		"example.com/a",
+		"https://exa mple.com/a",
+		"https:///nohost",
+		"https://user:secret@news.example.org/a",
+		"https://user@news.example.org/a",
+		"https://news.example.org/" + strings.Repeat("a", 2001),
+		"http://localhost/article",
+		"http://LOCALHOST./article",
+		"http://app.localhost/",
+		"http://127.0.0.1/admin",
+		"http://127.1.2.3/",
+		"http://10.0.0.5/x",
+		"http://172.16.0.1/",
+		"http://192.168.1.1/",
+		"http://169.254.169.254/latest/meta-data",
+		"http://0.0.0.0/",
+		"http://0.1.2.3/",
+		"http://[::1]/",
+		"http://[::]/",
+		"http://[fc00::1]/",
+		"http://[fe80::1]/",
+		"http://[::ffff:127.0.0.1]/",
+		"http://[::ffff:10.0.0.1]/",
+		"https://0x7f.0.0.1/@alice", // legacy IPv4 spellings
 		"https://0x7f.1/@alice",
 		"https://0177.0.0.1/@alice",
 		"https://2130706433/@alice",
-		"https://[::1]/@alice",
-		"https://mastodon.social/%2540alice",
 	} {
 		t.Run(u, func(t *testing.T) {
 			_, err := Recognize(u)
 			require.NotNil(t, err)
 			assert.Equal(t, "unsupported_url", err.Code)
 			assert.Equal(t, 422, err.Status)
+			assert.NotContains(t, err.Message, "secret")
+			assert.NotContains(t, err.Error(), "secret")
 		})
 	}
+}
+
+func TestMaxLengthAccepted(t *testing.T) {
+	u := "https://news.example.org/" + strings.Repeat("a", 2000-len("https://news.example.org/"))
+	require.Len(t, u, 2000)
+	got, err := Recognize(u)
+	require.Nil(t, err)
+	assert.Equal(t, "web", got.Platform)
 }
 
 func TestIDs(t *testing.T) {
