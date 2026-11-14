@@ -1,0 +1,16 @@
+{
+  "data": {
+    "user": {
+      "id": "1001",
+      "username": "alice",
+      "full_name": "Alice Example",
+      "biography": "  Birds & books.\nOpinions are mine.  \n",
+      "is_verified": true,
+      "is_private": false,
+      "edge_followed_by": {"count": 4321},
+      "edge_follow": {"count": 87},
+      "edge_owner_to_timeline_media": {"count": 3}
+    }
+  },
+  "status": "ok"
+}
