@@ -169,6 +169,14 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if reg != nil { // the propaganda map matches job URLs with the outlet table of source_info
+		for _, a := range reg.All() {
+			if a.Enabled && a.Execution.Outlets != nil {
+				cfg.Store.SetOutlets(a.Execution.Outlets)
+				break
+			}
+		}
+	}
 	e := &Engine{reg: reg, cfg: cfg, bus: events.New(cfg.EventBuffer), store: cfg.Store, runs: map[string]*run{}}
 	e.ctx, e.stop = context.WithCancel(context.Background())
 	go func() {
@@ -239,6 +247,10 @@ func (e *Engine) Recover() (int, error) {
 		if err := e.store.Save(r); err != nil {
 			return 0, fmt.Errorf("saving interrupted job %s: %w", r.ID, err)
 		}
+	}
+	// Jobs stored before the propaganda map get their map values; a failure never blocks the server, the next start retries.
+	if err := e.store.BackfillMap(); err != nil {
+		e.cfg.Warn("backfilling map values failed", "err", err)
 	}
 	return len(recs), nil
 }
@@ -437,6 +449,14 @@ func (e *Engine) persisted(id string) (*job.Record, error) {
 
 // Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with the
 // given status, starting after the cursor (nil: from the newest).
+// MapCountries returns the per-country aggregates of the propaganda map.
+func (e *Engine) MapCountries() ([]store.MapCountry, error) { return e.store.MapCountries() }
+
+// MapAnalyses returns up to limit (0: all) map analyses of the country (upper case), newest first, after cursor.
+func (e *Engine) MapAnalyses(code string, after *store.Cursor, limit int) ([]store.MapItem, error) {
+	return e.store.MapAnalyses(code, after, limit)
+}
+
 func (e *Engine) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
 	return e.store.Page(status, after, limit)
 }
