@@ -13,7 +13,7 @@ func (r *run) startScrapeLocked() {
 	s := r.j.Scrape
 	now := r.e.now()
 	s.Status, s.StartedAt = job.RunRunning, &now
-	r.emit("scrape.started", map[string]any{"scrape": *s})
+	r.emit("scrape.started", map[string]any{"scrape": *s, "activity": scrapeActivity(s.URL)})
 	go r.scrape(s.ScrapeRequest)
 }
 
@@ -79,6 +79,7 @@ func (r *run) scrapedLocked(res *scraper.Result) {
 	r.j.Input = prepareInput(res.Input)
 	r.endScrapeLocked(nil)
 	r.j.Status = job.StatusRunning
+	r.planLocked() // directly after scrape.succeeded, before the not_applicable skips
 	for i := range r.j.Analyzers {
 		if r.j.Analyzers[i].Status == job.RunPending && !applies(r.defs[i], *r.j.Input) {
 			r.settleLocked(i, job.RunSkipped, job.Str(job.ReasonNotApplicable), nil, nil)
