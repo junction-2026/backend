@@ -166,14 +166,19 @@ type Job struct {
 	Analyzers    []AnalyzerRun `json:"analyzers"`
 	Coverage     Coverage      `json:"coverage"`
 	Finalization Finalization  `json:"finalization"`
+	// Risk is the RiskScore (manipulation-risk-score) as raw JSON, set once at the settle barrier; nil (null) before it.
+	Risk json.RawMessage `json:"risk"`
 }
 
-// UnmarshalJSON reads a Job stored before `public` existed as public.
+// UnmarshalJSON reads a Job stored before `public` existed as public and one stored before `risk` existed without risk.
 func (j *Job) UnmarshalJSON(b []byte) error {
 	type plain Job
 	p := plain{Public: true}
 	if err := json.Unmarshal(b, &p); err != nil {
 		return err
+	}
+	if string(p.Risk) == "null" { // stored null and absent are the same: no risk
+		p.Risk = nil
 	}
 	*j = Job(p)
 	return nil
@@ -218,7 +223,7 @@ func (j *Job) Clone() Job {
 		ID: j.ID, Status: j.Status, Done: j.Done, CreatedAt: j.CreatedAt,
 		StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Input: j.Input, Options: j.Options, Public: j.Public,
 		Analyzers: append([]AnalyzerRun(nil), j.Analyzers...), Coverage: j.Coverage,
-		Finalization: j.Finalization,
+		Finalization: j.Finalization, Risk: j.Risk,
 	}
 	if j.Scrape != nil {
 		s := *j.Scrape

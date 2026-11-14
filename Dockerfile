@@ -15,6 +15,8 @@ COPY config/finalizer/prompt.md /etc/orchestrator/finalizer/prompt.md
 COPY config/extractor/prompt.md /etc/orchestrator/extractor/prompt.md
 COPY config/technique_spans/prompt.md /etc/orchestrator/technique_spans/prompt.md
 COPY config/llm_techniques/prompt.md /etc/orchestrator/llm_techniques/prompt.md
+COPY config/risk_score/risk_score.yaml /etc/orchestrator/risk_score/risk_score.yaml
+# RISK_SCORE_CONFIG (unset: built-in defaults) points at a Manipulation Risk Score configuration, e.g. /etc/orchestrator/risk_score/risk_score.yaml.
 COPY data/outlets.csv /etc/orchestrator/data/outlets.csv
 # DATA_DIR (unset by default: the cache then lives in ./var/wikipedia relative to the working directory) holds the wikipedia analyzer's on-disk cache in
 # $DATA_DIR/wikipedia. The container runs as uid 65532: mount a volume there that uid 65532 can write to

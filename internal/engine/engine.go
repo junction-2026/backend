@@ -20,6 +20,7 @@ import (
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/risk"
 	"github.com/junction-2026/backend/internal/scraper"
 	"github.com/junction-2026/backend/internal/store"
 )
@@ -78,6 +79,7 @@ type Config struct {
 	Warn                 func(msg string, args ...any) // optional: store write failures
 	Scraper              *scraper.Client               // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
 	ScrapeTimeout        time.Duration                 // default 360s: an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry
+	Risk                 risk.Settings                 // manipulation risk score configuration; the zero value means the defaults
 	Now                  func() time.Time
 }
 
@@ -168,6 +170,9 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.Risk.Bands == nil {
+		cfg.Risk = risk.Default()
 	}
 	if reg != nil { // the propaganda map matches job URLs with the outlet table of source_info
 		for _, a := range reg.All() {

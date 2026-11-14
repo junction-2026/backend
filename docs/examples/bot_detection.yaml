@@ -4,6 +4,16 @@
 # Disabled by default: the bot detector's request shape is not documented yet, so check that it
 # accepts the standard analyzer request before enabling it. Set BOT_DETECTION_URL, e.g.
 # http://bot-detector:8001/predict, and add this file to the directory in ANALYZERS_CONFIG.
+#
+# Manipulation Risk Score: the amplification dimension reads this analyzer's result through the `bot_detection` mapping in the
+# risk configuration (RISK_SCORE_CONFIG, see config/risk_score/risk_score.yaml), because the result shape is not a shared
+# contract. Name the dot-separated result member paths of the author-level bot score (0..1), the number of author posts it is
+# based on, and the score of the single text (0..1), e.g. for a result {"author": {"score": 0.9, "posts": 120}, "text": {"score": 0.6}}:
+#   bot_detection:
+#     author_score: author.score
+#     author_posts: author.posts
+#     single_text_score: text.score
+# Without a mapping the analyzer still runs, but amplification is reported unavailable (no_bot_score).
 analyzers:
   - id: bot_detection
     name: Bot detection

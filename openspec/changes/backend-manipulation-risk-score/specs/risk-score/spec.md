@@ -4,7 +4,7 @@ Backend implementation of the Manipulation Risk Score: its configuration file, t
 ## ADDED Requirements
 
 ### Requirement: Risk configuration file
-The server SHALL read the risk configuration from the YAML file named by `RISK_SCORE_CONFIG`; with the variable unset every value SHALL be the shared default. Members absent from the file SHALL keep their default; unknown members SHALL be an error. Start-up SHALL fail with an error naming the member when a weight is negative, the weights of a set do not sum to 1 or give intensity or confirmation no positive weight, `bands` is empty, does not start at `min` 0 or its `min` values are not strictly ascending within 0..1, `detection_threshold`, `dampening_threshold`, `dampening_factor` or `driver_min_contribution` lies outside 0..1, or `reference_technique_count`, `weighted_sum_reference`, `min_author_posts` or `short_text_max_words` is not positive.
+The server SHALL read the risk configuration from the YAML file named by `RISK_SCORE_CONFIG`; with the variable unset every value SHALL be the shared default. Members absent from the file SHALL keep their default; unknown members SHALL be an error.
 
 #### Scenario: No file
 - **WHEN** `RISK_SCORE_CONFIG` is unset
@@ -14,9 +14,27 @@ The server SHALL read the risk configuration from the YAML file named by `RISK_S
 - **WHEN** the file only sets `dampening_factor: 0.5`
 - **THEN** new RiskScores have `config.dampening_factor` 0.5 and the defaults elsewhere
 
-#### Scenario: Invalid value
-- **WHEN** the file sets `bands` starting at `min: 0.1`, or a negative impact weight, or `detection_threshold: 1.5`, or `reference_technique_count: 0`
-- **THEN** loading fails with an error naming that member and the server does not start
+### Requirement: Risk weight and band validation
+Start-up SHALL fail with an error naming the member when a weight is negative, when the weights of a set do not sum to 1 or give intensity or confirmation no positive weight, or when `bands` is empty, does not start at `min` 0 or has `min` values that are not strictly ascending within 0..1.
+
+#### Scenario: Invalid bands
+- **WHEN** the file sets `bands` starting at `min: 0.1`
+- **THEN** loading fails with an error naming `bands` and the server does not start
+
+#### Scenario: Negative weight
+- **WHEN** the file sets a negative impact weight
+- **THEN** loading fails with an error naming that member
+
+### Requirement: Risk threshold and count validation
+Start-up SHALL fail with an error naming the member when `detection_threshold`, `dampening_threshold`, `dampening_factor` or `driver_min_contribution` lies outside 0..1, or when `reference_technique_count`, `weighted_sum_reference`, `min_author_posts` or `short_text_max_words` is not positive.
+
+#### Scenario: Out-of-range threshold
+- **WHEN** the file sets `detection_threshold: 1.5`
+- **THEN** loading fails with an error naming `detection_threshold`
+
+#### Scenario: Non-positive count
+- **WHEN** the file sets `reference_technique_count: 0`
+- **THEN** loading fails with an error naming `reference_technique_count`
 
 ### Requirement: Bot detection mapping
 The risk configuration SHALL have an optional `bot_detection` mapping naming, as dot-separated paths into the `bot_detection` AnalyzerRun result (a numeric segment indexes an array), the members `author_score`, `author_posts` and `single_text_score`. A path that is not configured, does not resolve, or resolves to a value of the wrong type or outside its range (scores 0..1, post count a non-negative integer) SHALL count as absent. The mapping SHALL NOT appear in the RiskScore.
