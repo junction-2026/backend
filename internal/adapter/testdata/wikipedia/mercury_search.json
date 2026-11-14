@@ -1,0 +1,37 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "searchinfo": {
+   "totalhits": 3
+  },
+  "search": [
+   {
+    "ns": 0,
+    "title": "Mercury",
+    "pageid": 20,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "Mercury may refer to",
+    "timestamp": "2026-10-01T00:00:00Z"
+   },
+   {
+    "ns": 0,
+    "title": "Freddie Mercury",
+    "pageid": 21,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "Freddie <span class=\"searchmatch\">Mercury</span> was a singer",
+    "timestamp": "2026-10-01T00:00:00Z"
+   },
+   {
+    "ns": 0,
+    "title": "Mercury (planet)",
+    "pageid": 22,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "planet",
+    "timestamp": "2026-10-01T00:00:00Z"
+   }
+  ]
+ }
+}

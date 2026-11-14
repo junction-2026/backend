@@ -1,0 +1,20 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 22,
+    "ns": 0,
+    "title": "Mercury (planet)",
+    "extract": "Mercury is the smallest planet in the Solar System.",
+    "revisions": [
+     {
+      "revid": 6000022,
+      "parentid": 6000021,
+      "timestamp": "2026-07-03T00:00:00Z"
+     }
+    ]
+   }
+  ]
+ }
+}

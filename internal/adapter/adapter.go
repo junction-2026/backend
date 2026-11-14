@@ -1,5 +1,5 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
-// propaganda_detection, mistral_translation, technique_classifier, llm_techniques, news_search and custom (in-process handlers), following analyzer-service-protocol,
+// propaganda_detection, mistral_translation, technique_classifier, llm_techniques, news_search, wikipedia and custom (in-process handlers), following analyzer-service-protocol,
 // plus llm (OpenAI-compatible chat completions) for the finalizer and the topic_extraction task.
 package adapter
 
@@ -49,6 +49,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.factCheck(ctx, def, req)
 	case registry.AdapterNewsSearch:
 		return x.newsSearch(ctx, def, req)
+	case registry.AdapterWikipedia:
+		return x.wikipedia(ctx, def, req)
 	case registry.AdapterSourceInfo:
 		return x.sourceInfo(ctx, def, req)
 	case registry.AdapterLLMTechniques:
