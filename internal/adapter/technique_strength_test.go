@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
 )
 
 type strengthOfDet struct {
@@ -95,4 +94,3 @@ func TestTechniqueStrengthLocated(t *testing.T) {
 	require.Equal(t, strengthOfDet{0.01, false, "weak", 0}, strengths(r)["Doubt"])
 	require.Equal(t, map[string]int{"strong": 0, "weak": 1}, r.Summary)
 }
-

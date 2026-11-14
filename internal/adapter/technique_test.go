@@ -105,9 +105,9 @@ type techResult struct {
 		Strength                   string
 	} `json:"detected"`
 	Summary        map[string]int `json:"summary"`
-	SpanMethod     string `json:"span_method"`
-	SpanStatus     string `json:"span_status"`
-	SpansTruncated bool   `json:"spans_truncated"`
+	SpanMethod     string         `json:"span_method"`
+	SpanStatus     string         `json:"span_status"`
+	SpansTruncated bool           `json:"spans_truncated"`
 }
 
 func (r techResult) models() (out []string) {

@@ -579,7 +579,9 @@ func TestGetJobServesTechniquesResultWithoutStrength(t *testing.T) {
 	x.svc.jobs["old"] = j
 	rec := x.do("GET", "/api/v1/jobs/old", "")
 	require.Equal(t, 200, rec.Code)
-	var got struct{ Analyzers []struct{ Result json.RawMessage } }
+	var got struct {
+		Analyzers []struct{ Result json.RawMessage }
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.JSONEq(t, old, string(got.Analyzers[0].Result))
 }
