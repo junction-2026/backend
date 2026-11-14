@@ -75,7 +75,6 @@ def test_facebook_personal_profile(client):
 
 
 @pytest.mark.parametrize("url,platform", [
-    ("https://www.instagram.com/alice", "instagram"), ("https://threads.net/@alice", "threads"),
     ("https://www.facebook.com/examplenews", "facebook"), ("https://x.com/alice", "twitter")])
 def test_platform_module_not_installed(client, url, platform):
     r = scrape(client, url)

@@ -1,5 +1,6 @@
 import json
 import pathlib
+import socket
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,3 +25,11 @@ def client():
 
 def scrape(client, url, **extra):
     return client.post("/scrape", json={"url": url, **extra}, headers=AUTH)
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Tests run offline: any real connection attempt fails the test instead of reaching a platform."""
+    def refuse(self, *a, **kw):
+        raise RuntimeError("tests must not open network connections")
+    monkeypatch.setattr(socket.socket, "connect", refuse)

@@ -13,6 +13,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "pydantic>=2.7,<3",
   "atproto>=0.0.55",
+  "instaloader>=4.16,<5",
 ]
 
 [project.optional-dependencies]
