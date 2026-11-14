@@ -1,0 +1,40 @@
+# Example registry entry: score the English translation for the 18 SemEval-2020 Task 11 propaganda
+# techniques with a short-text model (BERTweet) or a long-text model (ModernBERT), chosen by word count.
+# It needs the `translation` analyzer of propaganda_detection.yaml (or any analyzer with that id that
+# returns translated_text and source_language). Set TECHNIQUE_SHORT_URL and TECHNIQUE_LONG_URL to the
+# services' prediction endpoints (e.g. http://technique-short:8000/predict) and ML_API_TOKEN to their
+# bearer token. Add this file to the directory in ANALYZERS_CONFIG and set all three variables.
+analyzers:
+  - id: techniques
+    name: Propaganda techniques
+    category: propaganda
+    depends_on: [translation]
+    input:
+      bindings:
+        text: $analyzers.translation
+    execution:
+      adapter: technique_classifier
+      timeout: 30s
+      short_max_words: 80   # up to 80 words: short model, longer: long model
+      max_sentences: 20     # sentences scored for highlights (the first 20)
+      short:
+        endpoint: ${TECHNIQUE_SHORT_URL}
+        headers:
+          Authorization: Bearer ${ML_API_TOKEN}
+        threshold: 0.3
+        # thresholds: {Doubt: 0.4}   # per-technique overrides
+      long:
+        endpoint: ${TECHNIQUE_LONG_URL}
+        headers:
+          Authorization: Bearer ${ML_API_TOKEN}
+        threshold: 0.5
+    # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).
+    llm:
+      include: true
+      description: >
+        Multi-label classifier for the 18 SemEval-2020 propaganda techniques on the English machine
+        translation of the input text. `techniques` holds an independent score (0-1) per technique and
+        `detected` those at or above their threshold; `sentences` are the sentences that carry a detected
+        technique. `model` is `short` (BERTweet, threshold 0.3) or `long` (ModernBERT, threshold 0.5), chosen
+        by word count; scores of different models are not comparable and are not calibrated probabilities.
+        A detection is an indicator of a technique, not proof of propaganda.
