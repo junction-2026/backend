@@ -29,6 +29,8 @@ const (
 	AdapterHTTPSync  = "http_sync"
 	AdapterHTTPAsync = "http_async"
 	AdapterCustom    = "custom"
+
+	AdapterPropagandaDetection = "propaganda_detection"
 )
 
 var (
@@ -257,6 +259,17 @@ func (a *Analyzer) normalize(opt Options) error {
 		a.DependsOn = []string{}
 	}
 	e := &a.Execution
+	if e.Adapter == AdapterPropagandaDetection {
+		// fixed request shape: checked before defaults fill method and poll_interval
+		switch {
+		case e.Method != "" && e.Method != "POST":
+			return fmt.Errorf("execution.method must be POST or absent for adapter %s", e.Adapter)
+		case e.Handler != "" || e.PollInterval != 0:
+			return fmt.Errorf("execution.handler and execution.poll_interval are not allowed for adapter %s", e.Adapter)
+		case len(a.Input.Bindings) > 0:
+			return fmt.Errorf("input.bindings are not allowed for adapter %s (its text source is fixed)", e.Adapter)
+		}
+	}
 	if e.Method == "" {
 		e.Method = "POST"
 	}
@@ -273,7 +286,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		return fmt.Errorf("timeout and poll_interval must be positive")
 	}
 	switch e.Adapter {
-	case AdapterHTTPSync, AdapterHTTPAsync:
+	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection:
 		if e.Endpoint == "" {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -585,4 +586,24 @@ func TestFinalizerIgnoringContextIsBoundedByTimeout(t *testing.T) {
 	// the global slot is free again
 	j2, _ := e.Create(CreateRequest{Input: job.Input{Content: "y"}, Analyzers: []string{"a"}, Finalize: job.Ptr(false)})
 	require.Equal(t, job.StatusCompleted, waitDone(t, e, j2.ID).Status)
+}
+
+func TestPropagandaDetectionJobSucceeds(t *testing.T) {
+	const body = `{"result":[{"label":"PROPAGANDA","score":0.97}],"latency_ms":12.3,"model":"m"}`
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = string(b)
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	y := "analyzers:\n  - id: propaganda_detection\n    execution: {adapter: propaganda_detection, endpoint: \"" + srv.URL + "\"}\n" +
+		"    output:\n      schema: {type: object, required: [result]}\n"
+	e := newEngine(t, y, Config{}, nil)
+	j, err := e.Create(CreateRequest{Input: job.Input{Content: "<p>Fake  news!</p>", ContentType: "text/html"}})
+	require.NoError(t, err)
+	r := ar(waitDone(t, e, j.ID), "propaganda_detection")
+	require.Equal(t, job.RunSucceeded, r.Status)
+	require.JSONEq(t, body, string(r.Result))
+	require.JSONEq(t, `{"text":"Fake  news!"}`, got) // normalized_content (tags stripped), not raw content
 }

@@ -1,5 +1,5 @@
-// Package adapter executes one analyzer: http_sync, http_async (polling) and
-// custom (in-process handlers), following analyzer-service-protocol.
+// Package adapter executes one analyzer: http_sync, http_async (polling),
+// propaganda_detection and custom (in-process handlers), following analyzer-service-protocol.
 package adapter
 
 import (
@@ -35,6 +35,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.httpAsync(ctx, def, req)
 	case registry.AdapterCustom:
 		return x.custom(ctx, def, req)
+	case registry.AdapterPropagandaDetection:
+		return x.propaganda(ctx, def, req)
 	}
 	return nil, adapterErr("unknown adapter %q", def.Execution.Adapter)
 }
