@@ -3,6 +3,7 @@ module github.com/junction-2026/backend
 go 1.26.8
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.12.1
