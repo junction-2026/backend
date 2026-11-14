@@ -207,7 +207,6 @@ func (e Execution) MaxChars() int {
 	return *e.MaxInputChars
 }
 
-// SkipsEnglish is skip_english with its default (true).
 // RetryEnabled is retry_invalid_output (default true).
 func (e Execution) RetryEnabled() bool { return e.RetryInvalidOutput == nil || *e.RetryInvalidOutput }
 
@@ -222,6 +221,7 @@ func (e Execution) RetryMinRemainingD() time.Duration {
 	return *e.RetryMinRemaining
 }
 
+// SkipsEnglish is skip_english with its default (true).
 func (e Execution) SkipsEnglish() bool { return e.SkipEnglish == nil || *e.SkipEnglish }
 
 // EnglishWords is english_min_words with its default.
