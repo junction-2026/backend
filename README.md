@@ -55,7 +55,7 @@ the LLM (see `propaganda_detection.yaml`); with none opted in, every job ends `u
 `docs/examples/topic_extraction.yaml` (analyzer `topic_extraction`, adapter `llm`, `execution.task:
 topic_extraction`) asks any OpenAI-compatible `POST {base_url}/chat/completions` endpoint for the
 fact-checkable **topics** (`title`, `query` search phrase, `description`) and **news** items (`headline`,
-`summary`) in the job's `normalized_content`. The result is `{topics, news, input_truncated, usage}`; empty
+`summary`) and checkable **claims** in the job's `normalized_content`. The result is `{topics, news, claims, input_truncated, usage}`; empty
 lists are a success. Copy the file next to your analyzers and set (independent of the finalizer's variables):
 
 | Variable | |
@@ -66,7 +66,7 @@ lists are a success. Copy the file next to your analyzers and set (independent o
 
 Settings: `base_url`, `api_key`, `model` (required), `prompt_file` (default
 `/etc/orchestrator/extractor/prompt.md`, shipped in the image from `config/extractor/prompt.md`; it asks for at
-most 10 topics and 10 news items in the input's language and treats the text as data), `max_input_chars`
+most 10 topics, 10 news items and 5 claims in the input's language and treats the text as data), `max_input_chars`
 (default `20000`; longer input is cut at the last whitespace before the limit and the result has
 `input_truncated: true`), `temperature` (default 0), `max_tokens` (default 2000), `timeout` (default `30s`),
 `response_format` (`json_schema` default, `json_object` or `none`; the schema goes in the user message in the
@@ -75,6 +75,32 @@ analyzer with an empty `base_url`, `api_key` or `model`, or an unreadable `promp
 input fails with `adapter_error` without an LLM call; a reply that is not the expected shape fails only this
 analyzer (`invalid_output`). One 429/5xx answer is retried once. Add `llm: {include: true, description: ...}` to
 let the LLM finalizer see the extraction. Every job that runs it makes one paid LLM call.
+
+Claims: the reply also holds `claims` (`text`, `language`, `query` of 3-8 words, `query_en`, `entities`,
+`check_worthiness` 0..1): checkable statements of fact only (no opinions, predictions, questions), ordered by
+`check_worthiness` and capped by `max_claims` (default 5). A reply without `claims` fails with `invalid_output`;
+`claims: []` is a success.
+
+## Fact check analyzer
+
+`docs/examples/fact_check.yaml` (analyzer `fact_check`, adapter `fact_check`, `depends_on: [topic_extraction]`)
+searches the claims of the extraction in [Google Fact Check Tools](https://developers.google.com/fact-check/tools/api)
+(`GET {base_url}/claims:search`) and returns `{queries, fact_checks, requests_used, cached}`. No LLM is called.
+
+| Variable | |
+|---|---|
+| `GOOGLE_FACTCHECK_API_KEY` | API key, sent only as the `key=` query parameter; never logged, returned or put in errors. The **Fact Check Tools API must be enabled** on the key's Google Cloud project, otherwise the analyzer fails with `adapter_error` (HTTP 403) |
+
+Claims with `check_worthiness` of at least `min_check_worthiness` (default 0.4) are searched, at most
+`max_claims` (default 3): the claim's `query` in its language and, unless it is English, `query_en` in English
+(at most 2 requests per claim; equal pairs are sent once), `max_concurrency` (default 4) at a time. Other
+settings: `page_size` (5), `max_age_days` (1825), `max_results` (10, newest review first), `cache_ttl` (24h,
+in memory only, successful answers per query), `timeout` (15s), `base_url`. A 429 or 5xx is retried once; a query
+that still fails is reported in `queries` and the analyzer succeeds unless every query failed. HTTP 400/401/403
+fails the analyzer at once. Without a qualifying claim (or an extraction without `claims`) the analyzer is
+`skipped` with reason `no_checkable_claims` and sends no request. `rating_normalized` (`false`, `misleading`,
+`mixed`, `true`, `unrated`) comes from a built-in term table; `rating` is the provider's text. A match is a
+similar checked claim: compare `claim` with `for_claim`.
 
 ## News coverage analyzer
 

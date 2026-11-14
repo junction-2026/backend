@@ -1,0 +1,29 @@
+# Example registry entry: looks up existing fact-checks (Google Fact Check Tools, ClaimReview) for the claims that
+# topic_extraction found. It needs topic_extraction (topic_extraction.yaml) and makes no LLM or translation call.
+# Get a key in the Google Cloud Console and ENABLE the "Fact Check Tools API" on that key's project; otherwise
+# every request fails with 403 and the analyzer fails with adapter_error. Without a qualifying claim the
+# analyzer settles as skipped (no_checkable_claims) and sends no request.
+analyzers:
+  - id: fact_check
+    name: Fact check lookup
+    category: fact_check
+    trigger: on_dependencies_succeeded
+    depends_on: [topic_extraction]
+    input:
+      bindings:
+        extraction: $analyzers.topic_extraction
+    execution:
+      adapter: fact_check
+      base_url: https://factchecktools.googleapis.com/v1alpha1   # default; /claims:search is appended
+      api_key: ${GOOGLE_FACTCHECK_API_KEY}       # sent only as the key= query parameter; never logged or returned
+      min_check_worthiness: 0.4                  # claims below this are not searched
+      max_claims: 3                              # claims searched, in claims order
+      page_size: 5                               # provider results per query
+      max_age_days: 1825                         # only fact-checks published in the last N days
+      max_results: 10                            # fact_checks kept, newest review first
+      max_concurrency: 4                         # requests in flight
+      cache_ttl: 24h                             # in-memory answers per (query, languageCode); failures are not cached
+      timeout: 15s
+    llm:
+      include: true
+      description: Existing fact-checks by fact-checking organisations for claims found in the text (Google Fact Check Tools). A match is a similar checked claim, not necessarily this one; compare claim with for_claim. Empty fact_checks means none was found, not that the claim is true.

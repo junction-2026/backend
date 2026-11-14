@@ -27,7 +27,8 @@ type Executor struct {
 	Client   *http.Client // defaults to http.DefaultClient (no client timeout; ctx governs)
 	Handlers *Handlers
 
-	news newsCache // news_search: in-memory Serper answers of this process
+	news      newsCache // news_search: in-memory Serper answers of this process
+	factCache factCache // fact_check: in-memory Fact Check answers; the zero value is ready
 }
 
 func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Request) (json.RawMessage, error) {
@@ -42,6 +43,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.propaganda(ctx, def, req)
 	case registry.AdapterMistralTranslation:
 		return x.mistralTranslation(ctx, def, req)
+	case registry.AdapterFactCheck:
+		return x.factCheck(ctx, def, req)
 	case registry.AdapterNewsSearch:
 		return x.newsSearch(ctx, def, req)
 	case registry.AdapterLLM:
