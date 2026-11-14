@@ -387,9 +387,11 @@ the page's own registered domain, otherwise the final URL, so `source_info` can 
 
 | Variable | Default | |
 |---|---|---|
-| `OXYLABS_API` | `web_api` | `web_api` (Oxylabs Web API) or `web_scraper_api` (Web Scraper API, `source: universal`) |
+| `OXYLABS_API` | `web_api` | `web_api` (Oxylabs Web API), `web_scraper_api` (Web Scraper API, `source: universal`) or `ai_studio` (Oxylabs AI Studio AI Scraper) |
 | `OXYLABS_WEB_API_KEY` | | required for `web_api` (sent as a bearer token) |
 | `OXYLABS_USERNAME`, `OXYLABS_PASSWORD` | | required for `web_scraper_api` (HTTP Basic) |
+| `OXYLABS_AI_STUDIO_API_KEY` | | required for `ai_studio` (sent as the `x-api-key` header; without it a scrape fails with `platform_not_configured`) |
+| `OXYLABS_AI_STUDIO_URL` | `https://api-aistudio.oxylabs.io` | optional AI Studio base URL; an absolute http(s) URL |
 | `OXYLABS_LOCATION` | | optional two-letter country code the page is fetched from |
 | `WEB_MIN_TEXT_CHARS` | `300` | extracted text shorter than this triggers a rendered fetch, the Markdown fallback or the login-wall check |
 | `WEB_CACHE_TTL` | `1h` | Go duration; successful pages are cached in memory by normalized URL (failures never) |
@@ -403,7 +405,12 @@ Cost controls: a scrape first fetches without JavaScript and fetches once more w
 text is shorter than `WEB_MIN_TEXT_CHARS`; a 429 or 5xx answer of the provider is retried at most once; so a scrape
 sends at most 3 provider requests. The result records `rendered`, `cached` and `oxylabs_requests`; a cached page sends
 none. Login walls fail with `login_required`, an empty page with `no_text_content`, a page that answered 4xx/5xx
-with `upstream_error` and `details.target_status`; login walls are never bypassed. **Tests never call Oxylabs:** they
+with `upstream_error` and `details.target_status`; login walls are never bypassed. With `ai_studio` a scrape starts one rendered JSON run (metadata, `page_kind`, main body; polled every 1-3 s and
+bounded by `WEB_TIMEOUT_SECONDS`) and, when it fails or yields too little text, one rendered Markdown run;
+`oxylabs_requests` counts runs (at most 2), `provider` is `oxylabs_ai_studio`. The model's output is treated as
+untrusted: control and zero-width characters are removed and metadata is capped at 500 characters. A failed run
+gives `upstream_error` with `details.provider_error_code`, an HTTP 401/403 from AI Studio `upstream_error` at once,
+a login wall or a short consent/paywall page `login_required`. **Tests never call Oxylabs:** they
 use a stub provider and recorded HTML fixtures (`internal/socialscraper/web/testdata`).
 
 Other settings of the scraper:
