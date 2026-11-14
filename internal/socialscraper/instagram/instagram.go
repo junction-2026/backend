@@ -169,6 +169,27 @@ func loginWall(body []byte) bool {
 		(bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) && bytes.Contains(body, []byte("/accounts/login")))
 }
 
+// loginRequired is the answer to a login wall or an anonymous refusal; without a session it names the setting that helps.
+func (m *Module) loginRequired() *ss.Error {
+	const msg = "Instagram requires a logged-in session for this request"
+	if m.session == nil {
+		return ss.LoginRequired(platform, msg, "INSTAGRAM_SESSION_FILE")
+	}
+	return ss.LoginRequired(platform, msg)
+}
+
+// notFound is a 404 or an empty answer: it means non-existence only with a session, an anonymous caller cannot
+// tell a missing account from a refused one. what is "account" or "post".
+func (m *Module) notFound(what string) *ss.Error {
+	switch {
+	case m.session == nil:
+		return m.loginRequired()
+	case what == "post":
+		return ss.PostNotFound(platform, "the Instagram post does not exist or was deleted")
+	}
+	return ss.AccountNotFound(platform, "the Instagram account does not exist or was deleted")
+}
+
 // get fetches one URL and maps failures to typed errors. what is "account" or "post" (the meaning of a 404).
 func (m *Module) get(ctx context.Context, u, what string) ([]byte, *ss.Error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -194,16 +215,13 @@ func (m *Module) get(ctx context.Context, u, what string) ([]byte, *ss.Error) {
 		return nil, ss.RateLimited(platform, retryAfter(resp.Header))
 	case code >= 300 && code < 400:
 		if strings.Contains(resp.Header.Get("Location"), "/accounts/login") {
-			return nil, ss.RateLimited(platform, -1)
+			return nil, m.loginRequired()
 		}
 		return nil, ss.UpstreamError(platform, fmt.Sprintf("Instagram answered %d", code))
 	case code == http.StatusUnauthorized, code != http.StatusNotFound && code >= 400 && loginWall(body):
-		return nil, ss.RateLimited(platform, -1)
+		return nil, m.loginRequired()
 	case code == http.StatusNotFound:
-		if what == "post" {
-			return nil, ss.PostNotFound(platform, "the Instagram post does not exist or was deleted")
-		}
-		return nil, ss.AccountNotFound(platform, "the Instagram account does not exist or was deleted")
+		return nil, m.notFound(what)
 	case code >= 400:
 		return nil, ss.UpstreamError(platform, fmt.Sprintf("Instagram answered %d", code))
 	}
@@ -211,7 +229,7 @@ func (m *Module) get(ctx context.Context, u, what string) ([]byte, *ss.Error) {
 		return nil, ss.UpstreamError(platform, "could not read the Instagram answer")
 	}
 	if loginWallOK(body) {
-		return nil, ss.RateLimited(platform, -1)
+		return nil, m.loginRequired()
 	}
 	return body, nil
 }
@@ -248,7 +266,7 @@ func (m *Module) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*ss.R
 			return nil, err
 		}
 		if len(info.Items) == 0 {
-			return nil, ss.PostNotFound(platform, "the Instagram post does not exist or was deleted")
+			return nil, m.notFound("post")
 		}
 		item = &info.Items[0]
 		if username = item.User.Username; username == "" {
@@ -265,7 +283,7 @@ func (m *Module) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*ss.R
 	}
 	u := pr.Data.User
 	if u == nil {
-		return nil, ss.AccountNotFound(platform, "the Instagram account does not exist or was deleted")
+		return nil, m.notFound("account")
 	}
 	if u.Private {
 		return nil, ss.AccountPrivate(platform, "the Instagram account is private")

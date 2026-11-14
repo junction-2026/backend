@@ -63,6 +63,16 @@ func PlatformNotConfigured(platform string, missing ...string) *Error {
 	return e
 }
 
+// LoginRequired: the platform refused an anonymous request or showed a login wall. missing lists the names (never
+// values) of the server settings that would fix it, when known.
+func LoginRequired(platform, msg string, missing ...string) *Error {
+	e := newError("login_required", http.StatusServiceUnavailable, msg, platform)
+	if len(missing) > 0 {
+		e.Details["missing_settings"] = missing
+	}
+	return e
+}
+
 func UpstreamError(platform, msg string) *Error {
 	return newError("upstream_error", http.StatusBadGateway, msg, platform)
 }
