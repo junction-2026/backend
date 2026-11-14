@@ -286,6 +286,12 @@ func TestLongTextTruncated(t *testing.T) {
 	cut, tr := capText(strings.Repeat("é", 20000) + " tail")
 	assert.True(t, tr)
 	assert.Equal(t, strings.Repeat("é", 20000), cut)
+	// no usable whitespace boundary: hard cut instead of emptying the text
+	for _, in := range []string{strings.Repeat("字", 25000), strings.Repeat("字", 100) + " " + strings.Repeat("字", 25000)} {
+		cut, tr = capText(in)
+		assert.True(t, tr)
+		assert.Len(t, []rune(cut), 20000)
+	}
 	cut, tr = capText(strings.Repeat("é", 100))
 	assert.False(t, tr)
 	assert.Len(t, []rune(cut), 100)

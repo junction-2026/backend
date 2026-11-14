@@ -69,7 +69,8 @@ func joinParagraphs(lines []string) string {
 	return strings.Join(out, "\n")
 }
 
-// capText cuts text at the last whitespace at or before character maxTextChars.
+// capText cuts text at the last whitespace at or before character maxTextChars. Without a boundary in the
+// second half of the text (unspaced CJK or minified text) it cuts hard at maxTextChars, so text is never emptied.
 func capText(text string) (string, bool) {
 	if utf8.RuneCountInString(text) <= maxTextChars {
 		return text, false
@@ -82,6 +83,9 @@ func capText(text string) (string, bool) {
 	}
 	for cut > 0 && unicode.IsSpace(r[cut-1]) {
 		cut--
+	}
+	if cut < maxTextChars/2 {
+		cut = maxTextChars
 	}
 	return string(r[:cut]), true
 }

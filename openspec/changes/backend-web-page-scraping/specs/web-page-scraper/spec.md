@@ -63,6 +63,10 @@ The module SHALL extract the main text of the returned HTML with `github.com/mar
 - **WHEN** the recorded news article is extracted
 - **THEN** the text holds the article paragraphs on separate lines and neither the navigation, the footer, the related links nor the reader comments
 
+#### Scenario: No whitespace boundary
+- **WHEN** the main content is 25,000 characters without whitespace (for example CJK text)
+- **THEN** the text is cut at exactly 20,000 characters, is not empty and `truncated` is true
+
 #### Scenario: Cut at a word boundary
 - **WHEN** the main content has 37,000 characters
 - **THEN** the text has at most 20,000 characters, ends with a complete word and `truncated` is true
