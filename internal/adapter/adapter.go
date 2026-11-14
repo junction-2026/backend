@@ -1,5 +1,6 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
-// propaganda_detection and custom (in-process handlers), following analyzer-service-protocol.
+// propaganda_detection and custom (in-process handlers), following analyzer-service-protocol,
+// plus llm (OpenAI-compatible chat completions) for the finalizer.
 package adapter
 
 import (
@@ -37,6 +38,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.custom(ctx, def, req)
 	case registry.AdapterPropagandaDetection:
 		return x.propaganda(ctx, def, req)
+	case registry.AdapterLLM:
+		return nil, adapterErr("the llm adapter runs only as the finalizer")
 	}
 	return nil, adapterErr("unknown adapter %q", def.Execution.Adapter)
 }

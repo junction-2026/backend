@@ -212,3 +212,78 @@ func TestPropagandaDetectionDocsExample(t *testing.T) {
 	_, err = Load("../../docs/examples/propaganda_detection.yaml", opts(nil))
 	require.ErrorContains(t, err, "PROPAGANDA_DETECTION_URL")
 }
+
+const llmKey = "sk-registry-SECRET"
+
+// llmReg is an enabled llm finalizer (fields overridable through env) plus one analyzer.
+func llmReg(t *testing.T, finExtra, analyzerExtra string, env map[string]string) (*Registry, error) {
+	t.Helper()
+	e := map[string]string{"URL": "http://llm", "KEY": llmKey, "MODEL": "m", "V": "x",
+		"PROMPT": write(t, "prompt.md", "You are a test prompt.\n")}
+	for k, v := range env {
+		e[k] = v
+	}
+	p := write(t, "r.yaml", "analyzers:\n  - id: a\n"+custom+analyzerExtra+
+		"  - id: fin\n    trigger: after_all_analyzers_settled\n    execution:\n      adapter: llm\n"+
+		"      base_url: ${URL}\n      api_key: ${KEY}\n      model: ${MODEL}\n      prompt_file: ${PROMPT}\n"+finExtra)
+	return Load(p, opts(e))
+}
+
+func TestLLMDefaultsAndExpansion(t *testing.T) {
+	r, err := llmReg(t, "      headers: {X-Title: \"${V}\"}\n      extra_body: {top_p: 0.5, provider: {order: [\"${V}\"]}}\n",
+		"    llm: {include: true, description: Reads labels.}\n", nil)
+	require.NoError(t, err)
+	e := r.Finalizer().Execution
+	require.Equal(t, "http://llm", e.BaseURL)
+	require.Equal(t, llmKey, e.APIKey)
+	require.Equal(t, "m", e.Model)
+	require.Equal(t, "You are a test prompt.\n", e.Prompt)
+	require.Equal(t, 0.0, e.Temperature)
+	require.Equal(t, 600, e.MaxTokens)
+	require.Equal(t, 30*time.Second, e.Timeout)
+	require.Equal(t, FormatJSONSchema, e.ResponseFormat)
+	require.Equal(t, "x", e.Headers["X-Title"])
+	require.Equal(t, map[string]any{"top_p": 0.5, "provider": map[string]any{"order": []any{"x"}}}, e.ExtraBody)
+	require.Equal(t, &LLMInput{Include: true, Description: "Reads labels."}, r.Get("a").LLM)
+
+	// defaults of the optional members
+	p := write(t, "r.yaml", "analyzers:\n  - id: fin\n    trigger: after_all_analyzers_settled\n    enabled: false\n    execution: {adapter: llm}\n")
+	r, err = Load(p, opts(nil))
+	require.NoError(t, err, "a disabled llm finalizer is not checked")
+	e = r.Get("fin").Execution
+	require.Equal(t, DefaultPromptFile, e.PromptFile)
+	require.Equal(t, map[string]any{}, e.ExtraBody)
+	require.Empty(t, e.Headers)
+}
+
+func TestLLMRejects(t *testing.T) {
+	type env = map[string]string
+	cases := []struct {
+		name, fin, analyzer, want string
+		env                       env
+	}{
+		{"empty base_url", "", "", "execution.base_url is empty", env{"URL": ""}},
+		{"empty api_key", "", "", "execution.api_key is empty", env{"KEY": " "}},
+		{"empty model", "", "", "execution.model is empty", env{"MODEL": ""}},
+		{"unreadable prompt", "", "", "execution.prompt_file cannot be read", env{"PROMPT": "/nonexistent/prompt.md"}},
+		{"unknown response_format", "      response_format: xml\n", "", "execution.response_format must be", nil},
+		{"extra_body model", "      extra_body: {model: other}\n", "", "execution.extra_body.model is not allowed", nil},
+		{"extra_body messages", "      extra_body: {messages: []}\n", "", "execution.extra_body.messages is not allowed", nil},
+		{"include without description", "", "    llm: {include: true}\n", "llm.description is required", nil},
+		{"include with blank description", "", "    llm: {include: true, description: \"  \"}\n", "llm.description is required", nil},
+		{"llm block on finalizer", "    llm: {include: true, description: x}\n", "", "llm block is not allowed", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := llmReg(t, c.fin, c.analyzer, c.env)
+			require.Error(t, err)
+			require.ErrorContains(t, err, c.want)
+			require.Regexp(t, `analyzer "(a|fin)"`, err.Error())
+			require.NotContains(t, err.Error(), llmKey)
+		})
+	}
+	p := write(t, "r.yaml", "analyzers:\n  - id: a\n    execution: {adapter: llm, base_url: http://x, api_key: k, model: m}\n")
+	_, err := Load(p, opts(nil))
+	require.ErrorContains(t, err, "execution.adapter llm is only allowed on after_all_analyzers_settled analyzers")
+	require.ErrorContains(t, err, `analyzer "a"`)
+}

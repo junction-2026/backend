@@ -29,13 +29,19 @@ type server struct {
 // start runs the whole process (run) on a free port.
 func start(t *testing.T, vars map[string]string) *server {
 	t.Helper()
+	return startLog(t, vars, io.Discard)
+}
+
+// startLog is start with the process log written to logOut.
+func startLog(t *testing.T, vars map[string]string, logOut io.Writer) *server {
+	t.Helper()
 	if vars["LISTEN_ADDR"] == "" {
 		vars["LISTEN_ADDR"] = "127.0.0.1:0"
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	s := &server{stop: stop, done: make(chan error, 1)}
 	ready := make(chan string, 1)
-	go func() { s.done <- run(ctx, env(vars), io.Discard, func(a string) { ready <- a }) }()
+	go func() { s.done <- run(ctx, env(vars), logOut, func(a string) { ready <- a }) }()
 	select {
 	case addr := <-ready:
 		s.base = "http://" + addr

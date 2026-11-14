@@ -26,7 +26,7 @@ import (
 	"github.com/junction-2026/backend/internal/registry"
 )
 
-const okBody = `{"verdict":"high_risk","overall_score":82,"categories":[{"id":"misleading_claims","score":70,"x":1}],"explanation":"because","extra":{"b":2,"a":[1.50]}}`
+const okBody = `{"verdict":"detected","confidence":0.86,"user_text":"because","reasoning":{"b":2},"usage":{"total_tokens":1},"produced_by":"orchestrator"}`
 
 // stub is the finalizer service.
 type stub struct {
@@ -198,21 +198,14 @@ func run(t *testing.T, s *stub, extraFin string, r engine.CreateRequest) (job.Jo
 	return j, evs
 }
 
-func TestSuccessNormalizesAndKeepsUnknownMembers(t *testing.T) {
+func TestSuccessNormalizesAndDropsUnknownMembers(t *testing.T) {
 	s := newStub(t, reply(okBody))
 	j, evs := run(t, s, "", req("Hello  world"))
 	require.Equal(t, job.StatusCompleted, j.Status)
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
 	require.EqualValues(t, 1, s.calls.Load())
-	var res map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(j.Finalization.Result, &res))
-	require.JSONEq(t, `"finalizer"`, string(res["produced_by"]))
-	require.JSONEq(t, `[]`, string(res["evidence"]))
-	require.JSONEq(t, `[]`, string(res["limitations"]))
-	require.JSONEq(t, `{"b":2,"a":[1.50]}`, string(res["extra"]))
-	require.JSONEq(t, `[{"id":"misleading_claims","score":70,"x":1}]`, string(res["categories"]))
-	require.JSONEq(t, `82`, string(res["overall_score"]))
-	require.Contains(t, string(res["extra"]), "1.50", "numbers stay verbatim")
+	// extra members dropped; usage only from the adapter (none for http_sync)
+	require.JSONEq(t, `{"verdict":"detected","confidence":0.86,"user_text":"because","produced_by":"finalizer","usage":null}`, string(j.Finalization.Result))
 	require.Equal(t, []string{"job.snapshot", "job.started"}, types(evs)[:2])
 	require.Less(t, idx(evs, "analysis.finalized"), idx(evs, "job.completed"))
 	require.Equal(t, 1, count(evs, "analysis.finalizing"))
@@ -224,9 +217,9 @@ func TestSuccessNormalizesAndKeepsUnknownMembers(t *testing.T) {
 }
 
 func TestMinimalResponseDefaults(t *testing.T) {
-	s := newStub(t, reply(`{"verdict":"low_risk","categories":[],"explanation":"No signs found.","produced_by":"orchestrator"}`))
+	s := newStub(t, reply(`{"verdict":"uncertain","user_text":"The analyzers disagree."}`))
 	j, _ := run(t, s, "", req("x"))
-	require.JSONEq(t, `{"verdict":"low_risk","overall_score":null,"categories":[],"explanation":"No signs found.","evidence":[],"limitations":[],"produced_by":"finalizer"}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"uncertain","confidence":null,"user_text":"The analyzers disagree.","produced_by":"finalizer","usage":null}`, string(j.Finalization.Result))
 }
 
 func TestRequestInputsAndHeaders(t *testing.T) {
@@ -294,25 +287,21 @@ func TestDefaultTimeoutIs60s(t *testing.T) {
 }
 
 func TestInvalidOutputCases(t *testing.T) {
-	schema := "    output:\n      schema: {type: object, properties: {explanation: {minLength: 10}}}\n"
+	schema := "    output:\n      schema: {type: object, properties: {user_text: {minLength: 10}}}\n"
 	cases := []struct {
 		name, body, schema, member string
 	}{
-		{"missing members", `{"verdict":"low_risk"}`, "", "categories"},
-		{"missing verdict", `{"categories":[],"explanation":"e"}`, "", "verdict"},
-		{"bad verdict", `{"verdict":"scary","categories":[],"explanation":"e"}`, "", "verdict"},
-		{"categories not array", `{"verdict":"low_risk","categories":{},"explanation":"e"}`, "", "categories"},
-		{"explanation null", `{"verdict":"low_risk","categories":[],"explanation":null}`, "", "explanation"},
-		{"explanation missing", `{"verdict":"low_risk","categories":[]}`, "", "explanation"},
-		{"categories null", `{"verdict":"low_risk","categories":null,"explanation":"e"}`, "", "categories"},
-		{"explanation not string", `{"verdict":"low_risk","categories":[],"explanation":3}`, "", "explanation"},
-		{"score too high", `{"verdict":"low_risk","overall_score":101,"categories":[],"explanation":"e"}`, "", "overall_score"},
-		{"score not number", `{"verdict":"low_risk","overall_score":"9","categories":[],"explanation":"e"}`, "", "overall_score"},
-		{"category score negative", `{"verdict":"low_risk","categories":[{"id":"a","score":-1}],"explanation":"e"}`, "", "categories[0].score"},
-		{"insufficient with score", `{"verdict":"insufficient_evidence","overall_score":40,"categories":[],"explanation":"e"}`, "", "overall_score"},
-		{"evidence not array", `{"verdict":"low_risk","categories":[],"explanation":"e","evidence":{}}`, "", "evidence"},
-		{"schema violation", `{"verdict":"low_risk","categories":[],"explanation":"short"}`, schema, "/explanation"},
-		{"builtin before schema", `{"verdict":"bad","categories":[],"explanation":"short"}`, schema, "verdict"},
+		{"missing user_text", `{"verdict":"detected"}`, "", "user_text"},
+		{"missing verdict", `{"user_text":"e"}`, "", "verdict"},
+		{"old shape", `{"verdict":"insufficient_evidence","overall_score":40,"categories":[],"explanation":"..."}`, "", "verdict"},
+		{"user_text null", `{"verdict":"detected","user_text":null}`, "", "user_text"},
+		{"user_text blank", `{"verdict":"detected","user_text":"  "}`, "", "user_text"},
+		{"user_text not string", `{"verdict":"detected","user_text":3}`, "", "user_text"},
+		{"confidence too high", `{"verdict":"detected","confidence":86,"user_text":"e"}`, "", "confidence"},
+		{"confidence negative", `{"verdict":"detected","confidence":-0.1,"user_text":"e"}`, "", "confidence"},
+		{"confidence not number", `{"verdict":"detected","confidence":"0.9","user_text":"e"}`, "", "confidence"},
+		{"schema violation", `{"verdict":"detected","user_text":"short"}`, schema, "/user_text"},
+		{"builtin before schema", `{"verdict":"bad","user_text":"short"}`, schema, "verdict"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -331,6 +320,8 @@ func TestInvalidOutputCases(t *testing.T) {
 	}
 }
 
+const shortCircuit = `{"verdict":"uncertain","confidence":null,"user_text":"No analyzer produced a usable result, so no verdict can be given.","produced_by":"orchestrator","usage":null}`
+
 func TestInsufficientEvidenceShortCircuit(t *testing.T) {
 	s := newStub(t, reply(okBody))
 	e := newEngine(t, an("bad1", "fail")+an("bad2", "fail")+an("ok1", "ok")+finYAML(""), s,
@@ -342,23 +333,16 @@ func TestInsufficientEvidenceShortCircuit(t *testing.T) {
 	require.Zero(t, s.calls.Load())
 	require.Equal(t, job.RunSkipped, got.Analyzers[0].Status)
 	require.Equal(t, job.StatusCompleted, got.Finalization.Status)
-	require.JSONEq(t, `{"verdict":"insufficient_evidence","overall_score":null,"categories":[],"explanation":"No analyzer produced a usable result; no assessment score can be given.","evidence":[],"limitations":[{"kind":"missing_evidence","message":"No analyzer succeeded, so there is no evidence to assess."}],"produced_by":"orchestrator"}`, string(got.Finalization.Result))
+	require.JSONEq(t, shortCircuit, string(got.Finalization.Result))
 	require.Equal(t, 1, count(evs, "analysis.finalizing"))
 	require.Equal(t, 1, count(evs, "analysis.finalized"))
 	require.Less(t, idx(evs, "analysis.finalized"), idx(evs, "job.completed"))
 
-	// Every analyzer fails: one failed_analyzer limitation each.
+	// Every analyzer fails.
 	e2 := newEngine(t, an("bad1", "fail")+an("bad2", "fail")+finYAML(""), s, map[string]adapter.Handler{"fail": failHandler}, engine.Config{})
 	got = runsOf(t, e2, req("x"))
 	require.Zero(t, s.calls.Load())
-	var a job.FinalAssessment
-	require.NoError(t, json.Unmarshal(got.Finalization.Result, &a))
-	require.Equal(t, "orchestrator", a.ProducedBy)
-	require.Nil(t, a.OverallScore)
-	require.Len(t, a.Limitations, 3)
-	require.Equal(t, "missing_evidence", a.Limitations[0].Kind)
-	require.Equal(t, []string{"bad1"}, a.Limitations[1].AnalyzerIDs)
-	require.Equal(t, "failed_analyzer", a.Limitations[2].Kind)
+	require.JSONEq(t, shortCircuit, string(got.Finalization.Result))
 	require.Equal(t, job.StatusCompleted, got.Status)
 }
 
@@ -511,27 +495,6 @@ func TestExactlyOnceUnderConcurrentSettles(t *testing.T) {
 		e.Close()
 		s.Close()
 	}
-}
-
-// The shipped example entry loads, defaults and works end to end.
-func TestExampleRegistryEntry(t *testing.T) {
-	s := newStub(t, reply(okBody))
-	dir := t.TempDir()
-	ex, err := os.ReadFile("../../docs/examples/final_synthesis.yaml")
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "final.yaml"), ex, 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "an.yaml"), []byte("analyzers:\n"+an("ok1", "ok")), 0o600))
-	hs := handlers(map[string]adapter.Handler{"ok": okHandler})
-	reg, err := registry.Load(dir, registry.Options{HandlerExists: hs.Has,
-		Getenv: func(k string) (string, bool) { return s.URL, k == "FINALIZER_URL" }})
-	require.NoError(t, err)
-	require.Equal(t, 60*time.Second, reg.Finalizer().Execution.Timeout)
-	exec := &adapter.Executor{Handlers: hs}
-	e := engine.New(reg, engine.Config{Executor: exec, Finalizer: gatedFinalizer{New(reg, exec, nil)}, MaxParallelJobs: 1})
-	defer e.Close()
-	j := runsOf(t, e, req("hello"))
-	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
-	require.EqualValues(t, 1, s.calls.Load())
 }
 
 func TestErrorLogHasOnlyJobIDAndCode(t *testing.T) {
