@@ -30,6 +30,7 @@ type classifierStub struct {
 	scoreFn func(text string) map[string]float64
 	status  int
 	raw     string // when set, the exact answer body
+	wait    func() // when set, runs after the request is recorded and before answering
 }
 
 func newClassifierStub(t *testing.T) *classifierStub {
@@ -41,6 +42,9 @@ func newClassifierStub(t *testing.T) *classifierStub {
 		s.mu.Lock()
 		s.bodies, s.hdr = append(s.bodies, in.Text), r.Header
 		s.mu.Unlock()
+		if s.wait != nil {
+			s.wait()
+		}
 		w.WriteHeader(s.status)
 		if s.raw != "" {
 			io.WriteString(w, s.raw)
@@ -437,6 +441,13 @@ func TestTechniquePartialFailure(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ok, bad := newClassifierStub(t), newClassifierStub(t)
 			bad.status = 503
+			// The failure cancels the other request, so answer only once the healthy model has received its
+			// request: both calls then overlap, which is what the call counts below check.
+			bad.wait = func() {
+				for deadline := time.Now().Add(2 * time.Second); ok.calls() == 0 && time.Now().Before(deadline); {
+					time.Sleep(time.Millisecond)
+				}
+			}
 			d := techDef(ok.URL, bad.URL)
 			if fail == "technique" {
 				d = techDef(bad.URL, ok.URL)
@@ -450,6 +461,7 @@ func TestTechniquePartialFailure(t *testing.T) {
 			require.Equal(t, 1, bad.calls())
 
 			// the failure does not wait for the other, slow model
+			bad.wait = nil
 			d = techDef(slow.URL, bad.URL)
 			if fail == "technique" {
 				d = techDef(bad.URL, slow.URL)
