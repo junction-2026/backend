@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/junction-2026/backend/internal/outlets"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -109,6 +110,10 @@ type Execution struct {
 	MaxClaims          *int     `yaml:"max_claims"`
 	PageSize           *int     `yaml:"page_size"`
 	MaxAgeDays         *int     `yaml:"max_age_days"`
+
+	// source_info only: the outlet table file; Outlets is read from it at load when the analyzer is enabled.
+	OutletsFile string         `yaml:"outlets_file"`
+	Outlets     *outlets.Table `yaml:"-"`
 }
 
 // NewsTranslate configures the Mistral translation of news_search queries.
@@ -241,6 +246,8 @@ type Options struct {
 	Getenv func(string) (string, bool)
 	// HandlerExists tells whether an in-process custom handler exists.
 	HandlerExists func(string) bool
+
+	outlets map[string]*outlets.Table // tables loaded by this Load, shared by file
 }
 
 // Registry is an immutable, validated set of analyzers.
@@ -314,6 +321,7 @@ func Load(path string, opt Options) (*Registry, error) {
 	if opt.HandlerExists == nil {
 		opt.HandlerExists = func(string) bool { return false }
 	}
+	opt.outlets = map[string]*outlets.Table{}
 	files, err := listFiles(path)
 	if err != nil {
 		return nil, err
@@ -354,6 +362,9 @@ func Load(path string, opt Options) (*Registry, error) {
 	}
 	sort.Slice(reg.all, func(i, j int) bool { return reg.all[i].ID < reg.all[j].ID })
 	if err := reg.validateGraph(); err != nil {
+		return nil, err
+	}
+	if err := reg.checkSourceInfoGraph(); err != nil {
 		return nil, err
 	}
 	return reg, nil
@@ -426,6 +437,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	if err := a.checkTechnique(); err != nil {
 		return err
 	}
+	if err := a.checkSourceInfo(); err != nil {
+		return err
+	}
 	if e.Adapter == AdapterMistralTranslation {
 		switch {
 		case e.Method != "" || e.Handler != "" || e.PollInterval != 0:
@@ -492,6 +506,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		}
 	case AdapterNewsSearch: // base_url, not endpoint
 	case AdapterTechniqueClassifier: // endpoints are in the short and long blocks
+	case AdapterSourceInfo: // no endpoint; the table file is checked below
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -566,6 +581,11 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Adapter == AdapterTechniqueClassifier {
 			if err := e.expandTechnique(opt.Getenv); err != nil {
 				return err
+			}
+		}
+		if e.Adapter == AdapterSourceInfo {
+			if e.Outlets, err = opt.outletTable(e.OutletsFile); err != nil {
+				return fmt.Errorf("execution.outlets_file: %w", err)
 			}
 		}
 		hdr := make(map[string]string, len(e.Headers))

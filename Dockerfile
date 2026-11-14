@@ -13,6 +13,7 @@ COPY --from=build /out/orchestrator /orchestrator
 COPY config/analyzers /etc/orchestrator/analyzers
 COPY config/finalizer/prompt.md /etc/orchestrator/finalizer/prompt.md
 COPY config/extractor/prompt.md /etc/orchestrator/extractor/prompt.md
+COPY data/outlets.csv /etc/orchestrator/data/outlets.csv
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/orchestrator"]
