@@ -22,12 +22,12 @@ func (f scrapeModule) Scrape(context.Context, ss.Target, ss.Request) (*ss.Result
 func TestFinalizerRulesForScrapeJobs(t *testing.T) {
 	scraperCfg := func(res *ss.Result, err error) engine.Config {
 		reg := ss.NewRegistry()
-		reg.Register(ss.Twitter, scrapeModule(func() (*ss.Result, error) { return res, err }))
+		reg.Register(ss.Mastodon, scrapeModule(func() (*ss.Result, error) { return res, err }))
 		return engine.Config{Scraper: &scraper.Client{Core: ss.New(reg, nil)}}
 	}
 	s := newStub(t, reply(okBody))
-	cfg := scraperCfg(&ss.Result{Platform: "twitter", URLKind: "post", Username: "a", Post: &ss.Post{ID: "1", Text: "hi"}}, nil)
-	scrape := engine.CreateRequest{Scrape: &job.ScrapeRequest{URL: "https://x.com/a/status/1", MaxPosts: 20, MaxComments: 50}}
+	cfg := scraperCfg(&ss.Result{Platform: "mastodon", URLKind: "post", Username: "a", Post: &ss.Post{ID: "1", Text: "hi"}}, nil)
+	scrape := engine.CreateRequest{Scrape: &job.ScrapeRequest{URL: "https://mastodon.social/@a/1", MaxPosts: 20, MaxComments: 50}}
 
 	// every analyzer fails: insufficient-evidence short-circuit, no finalizer call
 	e := newEngine(t, an("bad1", "fail")+an("bad2", "fail")+finYAML(""), s, map[string]adapter.Handler{"fail": failHandler}, cfg)
@@ -49,7 +49,7 @@ func TestFinalizerRulesForScrapeJobs(t *testing.T) {
 
 	// failed scrape: job failed, finalization skipped, finalizer not called
 	e = newEngine(t, an("ok1", "ok")+finYAML(""), s, map[string]adapter.Handler{"ok": okHandler},
-		scraperCfg(nil, ss.AccountPrivate("twitter", "private")))
+		scraperCfg(nil, ss.AccountPrivate("mastodon", "private")))
 	created, sub = create(t, e, scrape)
 	evs := drain(t, sub)
 	j = waitDone(t, e, created.ID)

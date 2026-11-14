@@ -6,7 +6,7 @@ Backend-local structure of the social-media scraper service that implements the 
 ## Requirements
 
 ### Requirement: Platform module interface and registry
-Platform support SHALL be the Go interface `Module` with `Scrape(ctx, Target, Request) (*Result, error)`; `Target` holds `Platform`, `URLKind`, `URL *url.URL` and `IDs`. The registry SHALL be a map from platform to `Module`, built by `cmd/orchestrator` through `Registry.Register(platform, module)`, so adding a platform needs no edit of core files. URL recognition for the five platforms SHALL live in `internal/socialscraper/urls.go`. Typed failures SHALL be `*socialscraper.Error` values.
+Platform support SHALL be the Go interface `Module` with `Scrape(ctx, Target, Request) (*Result, error)`; `Target` holds `Platform`, `URLKind`, `URL *url.URL` and `IDs`. The registry SHALL be a map from platform to `Module`, built by `cmd/orchestrator` through `Registry.Register(platform, module)`, so adding a platform needs no edit of core files. URL recognition for `bluesky` and `mastodon` SHALL live in `internal/socialscraper/urls.go`. Typed failures SHALL be `*socialscraper.Error` values.
 
 #### Scenario: Unrecognized URL
 - **WHEN** no platform recognizes the URL
@@ -21,11 +21,11 @@ Platform support SHALL be the Go interface `Module` with `Scrape(ctx, Target, Re
 - **THEN** URLs of that platform reach its module and no core file is edited
 
 ### Requirement: Platforms without a module
-URL recognition SHALL cover the five platforms `bluesky`, `mastodon`, `instagram`, `threads` and `twitter`. A recognized platform without a registered module SHALL fail with `platform_not_configured` and `details.platform`, never `internal_error`.
+URL recognition SHALL cover the platforms `bluesky` and `mastodon`. A recognized platform without a registered module SHALL fail with `platform_not_configured` and `details.platform`, never `internal_error`.
 
 #### Scenario: Module not installed
-- **WHEN** `https://www.instagram.com/alice` is scraped and no Instagram module is registered
-- **THEN** the scrape fails with `platform_not_configured` and `details.platform` `instagram`
+- **WHEN** `https://mastodon.social/@alice` is scraped with a registry that has no Mastodon module
+- **THEN** the scrape fails with `platform_not_configured` and `details.platform` `mastodon`
 
 ### Requirement: Bluesky module
 The Bluesky module SHALL call the XRPC methods `app.bsky.actor.getProfile`, `app.bsky.feed.getAuthorFeed` and `app.bsky.feed.getPostThread` of `https://public.api.bsky.app` over `net/http`, without an SDK or authentication. It SHALL fill the profile members from the actor profile and `posts` from the author feed (own posts, reposts skipped, newest first, following the cursor until `max_posts`). Error mapping is unchanged: 400 is not found, 429 `rate_limited`, anything else `upstream_error`.
@@ -114,15 +114,19 @@ Scraper tests SHALL run offline: package `internal/socialscraper/scrapertest` SH
 - **THEN** the test fails
 
 ### Requirement: Scraper README
-`README.md` SHALL have a "Scraping" section that describes in-process scraping and documents `SCRAPER_ENABLED`, `SCRAPER_TIMEOUT`, `SCRAPER_UPSTREAM_TIMEOUT_SECONDS`, `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` and `INSTAGRAM_SESSION_FILE` (with the session-file format and the removal of `SCRAPER_X_POOL_DB`), plus a migration note. No text in `README.md` or `docs/` SHALL mention Facebook, a browser binary, `cmd/scraper` or `scraper.Dockerfile`.
+`README.md` SHALL have a "Scraping" section that describes in-process scraping, lists Bluesky and Mastodon as the only scraped platforms with their URL shapes, documents `SCRAPER_ENABLED`, `SCRAPER_TIMEOUT` and `SCRAPER_UPSTREAM_TIMEOUT_SECONDS`, names the scrape error codes a job can end with, and has a migration note. It SHALL document no platform credential setting. No text in `README.md` or `docs/` SHALL mention Facebook, a browser binary, `cmd/scraper` or `scraper.Dockerfile`.
 
 #### Scenario: Operator instructions
 - **WHEN** an operator reads the "Scraping" section
-- **THEN** it lists the six variables with defaults
+- **THEN** it lists the three variables with defaults and the two supported platforms
+
+#### Scenario: Error codes
+- **WHEN** an operator reads how a scrape job fails
+- **THEN** the README names the scrape error codes, including `unsupported_url`, `account_private` and `platform_not_configured`
 
 #### Scenario: Migration note
 - **WHEN** an operator upgrades from the two-container setup
-- **THEN** the note tells them to remove the scraper container and its Traefik route, that `SCRAPER_URL`, `SCRAPER_TOKEN` and `SCRAPER_LISTEN_ADDR` are ignored and that the browser-based platform is no longer supported
+- **THEN** the note tells them to remove the scraper container and its Traefik route, that `SCRAPER_URL`, `SCRAPER_TOKEN` and `SCRAPER_LISTEN_ADDR` are ignored, that only Bluesky and Mastodon are scraped and that the browser-based platform is no longer supported
 
 ### Requirement: Upstream timeout and body cap
 Every outbound `http.Client` of the platform modules SHALL have the `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` timeout and SHALL cap response bodies at 16 MiB; a deadline or network timeout error from a module SHALL become `upstream_timeout` with `details.platform`.
@@ -143,19 +147,19 @@ Every outbound `http.Client` of the platform modules SHALL have the `SCRAPER_UPS
 A panic in a platform module SHALL be recovered and returned as `internal_error` with a fixed message (surfaced to the job as `scraper_unavailable`). The stack trace SHALL appear only in the redacted orchestrator log, never in the error, and the orchestrator SHALL keep serving.
 
 #### Scenario: Panicking module
-- **WHEN** a module panics with a message containing an X cookie value
-- **THEN** the scrape fails with `internal_error`, the error has no stack trace or cookie value, the log line has the stack with the value redacted and the orchestrator keeps serving requests
+- **WHEN** a module panics with a message containing the value of `SCRAPER_TOKEN` and a `Bearer` value
+- **THEN** the scrape fails with `internal_error`, the error has no stack trace or secret value, the log line has the stack with the values redacted and the orchestrator keeps serving requests
 
 ### Requirement: Scraper logging and redaction
-The orchestrator SHALL log JSON lines with `log/slog` through the redacting handler of `internal/socialscraper`, which replaces `Bearer <...>` values and the values of `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` and the path and contents of the file named by `INSTAGRAM_SESSION_FILE` with `[redacted]` in messages, attributes and panic traces. Scrape error messages SHALL pass through the same redaction.
+The orchestrator SHALL log JSON lines with `log/slog` through the redacting handler of `internal/socialscraper`, which replaces `Bearer <...>` values (including `Authorization: Bearer ...` headers) and the value of the secret environment variable `SCRAPER_TOKEN` with `[redacted]` in messages, attributes and panic traces. The redactor SHALL read secrets from the environment only and SHALL NOT read any file. Scrape error messages SHALL pass through the same redaction.
 
 #### Scenario: Secret in an error
-- **WHEN** a module error text contains the value of `TWITTER_AUTH_TOKEN`
+- **WHEN** a module error text contains the value of `SCRAPER_TOKEN`
 - **THEN** the emitted log line contains `[redacted]` and not the value
 
 #### Scenario: Sentinel token
-- **WHEN** scrapes with sentinel X cookies and a sentinel Instagram session succeed, fail and panic
-- **THEN** no sentinel appears in any log line, job, event or API response
+- **WHEN** scrapes run with a sentinel `SCRAPER_TOKEN` value and succeed, fail and panic
+- **THEN** no sentinel appears in any log line or scrape error
 
 ### Requirement: Plain-text normalization helper
 `socialscraper.PlainText` SHALL use `golang.org/x/net/html` to remove tags, decode entities, turn `<br>` and `</p>` into `\n`, keep link text and trim the result.
@@ -165,14 +169,14 @@ The orchestrator SHALL log JSON lines with `log/slog` through the redacting hand
 - **THEN** the output is `Hello & welcome\nBye`
 
 ### Requirement: Scraper fixtures
-Recorded fixtures SHALL live in `internal/socialscraper/<platform>/testdata/` for `bluesky`, `mastodon`, `instagram`, `threads` and `x`.
+Recorded fixtures SHALL live in `internal/socialscraper/<platform>/testdata/` for `bluesky` and `mastodon`.
 
 #### Scenario: Fixture location
 - **WHEN** the repository is checked out
 - **THEN** each platform directory above has its fixtures in `testdata/` and no fixture directory exists for any other platform
 
 ### Requirement: In-process scraper runtime
-The scraper core SHALL run inside the orchestrator process. At startup `cmd/orchestrator` SHALL build a platform registry with the `bluesky`, `mastodon`, `instagram`, `threads` and `twitter` modules, all using one shared `*http.Client` from `socialscraper.NewClient`, and SHALL pass an in-process scraper to the engine. A scrape SHALL call `socialscraper.Scraper.Scrape` directly: no HTTP request, no bearer token and no separate process are involved.
+The scraper core SHALL run inside the orchestrator process. At startup `cmd/orchestrator` SHALL build a platform registry with only the `bluesky` and `mastodon` modules, both using one shared `*http.Client` from `socialscraper.NewClient`, and SHALL pass an in-process scraper to the engine. A scrape SHALL call `socialscraper.Scraper.Scrape` directly: no HTTP request, no bearer token and no separate process are involved.
 
 #### Scenario: Scrape without a scraper service
 - **WHEN** the orchestrator starts without `SCRAPER_URL` and a job is created with `{"scrape": {"url": "https://bsky.app/profile/alice.bsky.social"}}`
@@ -180,7 +184,7 @@ The scraper core SHALL run inside the orchestrator process. At startup `cmd/orch
 
 #### Scenario: One shared client
 - **WHEN** the orchestrator builds the registry
-- **THEN** every registered module uses the same `*http.Client`, bounded by `SCRAPER_UPSTREAM_TIMEOUT_SECONDS`
+- **THEN** the Bluesky and Mastodon modules use the same `*http.Client`, bounded by `SCRAPER_UPSTREAM_TIMEOUT_SECONDS`, and no other platform has a module
 
 ### Requirement: Scrape and upstream timeouts
 Each scrape SHALL run under the orchestrator's `SCRAPER_TIMEOUT` (default 120 s), which yields `timeout` (analysis-engine "Scraper error mapping"), also when a module ignores its context. Every outbound platform request SHALL be bounded by `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` (default 30, a positive number, decimals allowed), which yields `upstream_timeout` with `details.platform`.
@@ -200,23 +204,8 @@ The repository SHALL NOT contain `cmd/scraper`, `scraper.Dockerfile`, `internal/
 - **WHEN** the repository is checked out
 - **THEN** `cmd/scraper`, `scraper.Dockerfile` and `internal/socialscraper/facebook` do not exist and `go mod tidy` leaves `go.mod` and `go.sum` unchanged
 
-### Requirement: Facebook URLs unsupported
-URL recognition SHALL treat `facebook.com`, `fb.com` and `fb.watch`, with or without a `www.`, `m.` or `mobile.` prefix, as unsupported: such URLs SHALL fail with `unsupported_url` without any network request and SHALL NOT be probed as Mastodon instances. There SHALL be no `unsupported_account_type` helper.
-
-#### Scenario: Facebook page
-- **WHEN** `https://www.facebook.com/examplenews` is scraped
-- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
-
-#### Scenario: Facebook personal profile
-- **WHEN** `https://www.facebook.com/profile.php?id=100000000000001` is scraped
-- **THEN** the scrape fails with `unsupported_url`, not `unsupported_account_type`
-
-#### Scenario: Short hosts
-- **WHEN** `https://fb.watch/abc123/` or `https://m.fb.com/examplenews` is scraped
-- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
-
 ### Requirement: In-process scraper configuration
-The orchestrator SHALL read `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` (default 30, a positive number, decimals allowed) and the platform credentials `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` and `INSTAGRAM_SESSION_FILE` from the environment only, with the same names and meaning as the standalone service had. An invalid timeout SHALL abort startup with a message that names the variable and never its value. No setting value SHALL be logged; redaction is specified by "Scraper logging and redaction".
+For the platform modules the orchestrator SHALL read only `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` (default 30, a positive number, decimals allowed) from the environment. There SHALL be no platform credential setting. An invalid timeout SHALL abort startup with a message that names the variable and never its value. No setting value SHALL be logged; redaction is specified by "Scraper logging and redaction".
 
 #### Scenario: Invalid timeout
 - **WHEN** `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` is `abc`, `0` or `-3`
@@ -226,6 +215,44 @@ The orchestrator SHALL read `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` (default 30, a po
 - **WHEN** `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` is `2.5`
 - **THEN** each outbound platform request is bounded by 2.5 seconds
 
+#### Scenario: Default timeout
+- **WHEN** `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` is unset
+- **THEN** each outbound platform request is bounded by 30 seconds
+
 #### Scenario: Authorization header in a log line
 - **WHEN** a log message contains `Authorization: Bearer abc.def`
 - **THEN** the emitted line contains `[redacted]` and not `abc.def`
+
+### Requirement: Hosts excluded from Mastodon recognition
+URL recognition SHALL exclude only `bsky.app` (with an optional `www.`, `m.` or `mobile.` prefix) from Mastodon recognition. Every other hostname that passes the hostname check SHALL be a Mastodon candidate when its path has a Mastodon shape (`/@<user>`, `/@<user>/<digits>`, `/users/<user>`, `/users/<user>/statuses/<digits>`), with no special case for any other host. A URL without a Bluesky or Mastodon shape SHALL fail with `unsupported_url` without any network request.
+
+#### Scenario: Facebook page
+- **WHEN** `https://www.facebook.com/examplenews` is scraped
+- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
+
+#### Scenario: Short video host
+- **WHEN** `https://fb.watch/abc123/` is scraped
+- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
+
+#### Scenario: X status
+- **WHEN** `https://x.com/alice/status/1790000000000000000` is scraped
+- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
+
+#### Scenario: Instagram reel
+- **WHEN** `https://www.instagram.com/reel/C1a2b3c4d5/` is scraped
+- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
+
+#### Scenario: Mastodon-shaped path on a former platform host
+- **WHEN** `https://www.threads.net/@zuck` is recognized
+- **THEN** it is a Mastodon candidate with `url_kind` `profile` and host `threads.net`, the same as `https://example.com/@zuck`, and an HTML 404 or a redirect from that host gives `unsupported_url`
+
+#### Scenario: Bluesky host never probed as Mastodon
+- **WHEN** `https://bsky.app/@alice` is scraped
+- **THEN** the scrape fails with `unsupported_url` and no outbound request is made
+
+### Requirement: Closed-platform modules removed
+`internal/socialscraper` SHALL contain no platform module package other than `bluesky` and `mastodon` (`scrapertest` is the test helper). `internal/socialscraper/errors.go` SHALL define helpers only for the error codes the core and these modules produce: `unsupported_url`, `account_not_found`, `post_not_found`, `account_private`, `rate_limited`, `platform_not_configured`, `upstream_error`, `upstream_timeout` and `internal_error`.
+
+#### Scenario: Repository check
+- **WHEN** the repository is checked out
+- **THEN** the only subpackages of `internal/socialscraper` are `bluesky`, `mastodon` and `scrapertest`, and `go mod tidy` leaves `go.mod` and `go.sum` unchanged

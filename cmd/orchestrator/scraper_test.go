@@ -15,10 +15,7 @@ import (
 	"github.com/junction-2026/backend/internal/socialscraper/scrapertest"
 )
 
-const (
-	sentinelAuth = "SENTINEL-auth-6f1c9d2b"
-	sentinelCt0  = "SENTINEL-ct0-8a7e3b5d"
-)
+const sentinelToken = "SENTINEL-tok-6f1c9d2b"
 
 func TestScraperConfig(t *testing.T) {
 	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -110,40 +107,7 @@ func platforms(t *testing.T) *scrapertest.Router {
 	mastodon := serve("mastodon", func(r *http.Request) string {
 		return map[string]string{"/api/v1/accounts/lookup": "account_alice.json", "/api/v1/accounts/1001/statuses": "statuses_page1.json"}[r.URL.Path]
 	})
-	instagram := serve("instagram", func(r *http.Request) string {
-		switch p := r.URL.Path; {
-		case strings.HasSuffix(p, "/web_profile_info/"):
-			return "web_profile_info_alice.json"
-		case strings.Contains(p, "/feed/user/"):
-			return "feed_alice_page1.json"
-		case strings.HasSuffix(p, "/child_comments/"):
-			return "child_comments_9002.json"
-		case strings.HasSuffix(p, "/comments/"):
-			return "comments_CpB222.json"
-		case strings.HasSuffix(p, "/info/"):
-			return "media_CpB222.json"
-		}
-		return ""
-	})
-	threads := serve("threads", func(r *http.Request) string {
-		return map[string]string{"/@alice": "profile.html"}[r.URL.Path]
-	})
-	x := serve("x", func(r *http.Request) string {
-		var vars map[string]any
-		_ = json.Unmarshal([]byte(r.URL.Query().Get("variables")), &vars)
-		switch op := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]; {
-		case op == "UserByScreenName":
-			return "user_alice.json"
-		case op == "UserTweets" && vars["cursor"] == "TWEETS_P2":
-			return "usertweets_alice_2.json"
-		case op == "UserTweets":
-			return "usertweets_alice_1.json"
-		}
-		return ""
-	})
-	return scrapertest.New(t).Handle("public.api.bsky.app", bluesky).Handle("mastodon.example", mastodon).
-		Handle("www.instagram.com", instagram).Handle("i.instagram.com", instagram).
-		Handle("www.threads.com", threads).Handle("x.com", x)
+	return scrapertest.New(t).Handle("public.api.bsky.app", bluesky).Handle("mastodon.example", mastodon)
 }
 
 type rtFunc func(*http.Request) (*http.Response, error)
@@ -181,14 +145,11 @@ func TestEndToEndScrapeJobs(t *testing.T) {
 	useTransport(t, router)
 	logs := &syncBuf{}
 	s := startLog(t, map[string]string{"ANALYZERS_CONFIG": "../../config/analyzers",
-		"TWITTER_AUTH_TOKEN": sentinelAuth, "TWITTER_CT0": sentinelCt0}, logs)
+		"SCRAPER_TOKEN": sentinelToken}, logs)
 
 	for url, platform := range map[string]string{
 		"https://bsky.app/profile/alice.bsky.social": "bluesky",
 		"https://mastodon.example/@alice":            "mastodon",
-		"https://www.instagram.com/reel/C1a2b3c4d5/": "instagram",
-		"https://www.threads.net/@alice":             "threads",
-		"https://x.com/alice":                        "twitter",
 	} {
 		t.Run(platform, func(t *testing.T) {
 			j := s.scrapeJob(t, url)
@@ -205,32 +166,31 @@ func TestEndToEndScrapeJobs(t *testing.T) {
 	}
 
 	before := len(router.Requests())
-	for _, url := range []string{"https://www.facebook.com/examplenews", "https://www.facebook.com/profile.php?id=100000000000001"} {
+	for _, url := range []string{"https://x.com/alice", "https://x.com/alice/status/1790000000000000000",
+		"https://www.facebook.com/examplenews", "https://www.facebook.com/profile.php?id=100000000000001"} {
 		j := s.scrapeJob(t, url)
 		require.Equal(t, "failed", j["status"])
 		require.Equal(t, "unsupported_url", j["scrape"].(map[string]any)["error"].(map[string]any)["code"])
 	}
-	require.Len(t, router.Requests(), before, "Facebook URLs reach no host")
+	require.Len(t, router.Requests(), before, "unsupported social network URLs reach no host")
 
-	for _, secret := range []string{sentinelAuth, sentinelCt0} {
-		require.NotContains(t, logs.String(), secret)
-	}
+	require.NotContains(t, logs.String(), sentinelToken)
 }
 
 // A panic in a platform module fails that job with scraper_unavailable; the server keeps serving.
 func TestModulePanicKeepsServing(t *testing.T) {
 	router := platforms(t)
 	useTransport(t, rtFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host == "x.com" {
-			panic("transport exploded with " + sentinelAuth + " and " + sentinelCt0)
+		if r.URL.Host == "mastodon.example" {
+			panic("transport exploded with " + sentinelToken + " and Bearer abc.def")
 		}
 		return router.RoundTrip(r)
 	}))
 	logs := &syncBuf{}
 	s := startLog(t, map[string]string{"ANALYZERS_CONFIG": "../../config/analyzers",
-		"TWITTER_AUTH_TOKEN": sentinelAuth, "TWITTER_CT0": sentinelCt0}, logs)
+		"SCRAPER_TOKEN": sentinelToken}, logs)
 
-	j := s.scrapeJob(t, "https://x.com/alice")
+	j := s.scrapeJob(t, "https://mastodon.example/@alice")
 	require.Equal(t, "failed", j["status"])
 	e := j["scrape"].(map[string]any)["error"].(map[string]any)
 	require.Equal(t, "scraper_unavailable", e["code"])
@@ -241,7 +201,7 @@ func TestModulePanicKeepsServing(t *testing.T) {
 	require.Contains(t, logs.String(), "module panicked")
 	require.Contains(t, logs.String(), "[redacted]")
 	body, _ := json.Marshal(e)
-	for _, secret := range []string{sentinelAuth, sentinelCt0} {
+	for _, secret := range []string{sentinelToken, "abc.def"} {
 		require.NotContains(t, logs.String(), secret)
 		require.NotContains(t, string(body), secret)
 	}
@@ -249,7 +209,7 @@ func TestModulePanicKeepsServing(t *testing.T) {
 
 func TestScrapeDisabled(t *testing.T) {
 	s := start(t, map[string]string{"ANALYZERS_CONFIG": "../../config/analyzers", "SCRAPER_ENABLED": "false"})
-	code, body := s.json(t, "POST", "/api/v1/jobs", `{"scrape":{"url":"https://x.com/alice"}}`)
+	code, body := s.json(t, "POST", "/api/v1/jobs", `{"scrape":{"url":"https://mastodon.example/@alice"}}`)
 	require.Equal(t, 503, code)
 	require.Equal(t, "scrape_unavailable", body["error"].(map[string]any)["code"])
 	_, page := s.json(t, "GET", "/api/v1/jobs", "")
