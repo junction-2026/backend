@@ -166,11 +166,10 @@ async def _load(request: ScrapeRequest, path: str) -> tuple[list[dict], str]:
                     seen = have
                     await page.mouse.wheel(0, 6000)
                 text = ""
-                if not docs:
-                    try:
-                        text = await page.inner_text("body", timeout=2000)
-                    except PlaywrightError:
-                        pass
+                try:  # always: an unavailable or login-wall page still fires unrelated GraphQL calls
+                    text = await page.inner_text("body", timeout=2000)
+                except PlaywrightError:
+                    pass
                 return docs, text
             finally:
                 try:
@@ -214,7 +213,8 @@ async def scrape(request: ScrapeRequest) -> ScrapeResult:
     if followers is None:
         warnings.append(ScrapeWarning(code="partial_parse", message="the follower count was not in the page data"))
     # a Story with an "owner" belongs to that profile only; related stories on a post page are dropped
-    own = [s for s in stories.values() if _first(s, "owner.id") in (None, profile["id"])]
+    pid = profile.get("id")  # without a profile id the owner filter cannot apply
+    own = [s for s in stories.values() if pid is None or _first(s, "owner.id") in (None, pid)]
     posts = sorted((_post(s) for s in own), key=lambda p: p.created_at or "", reverse=True)[: request.max_posts]
     if kind == "profile" and len(posts) < request.max_posts:
         warnings.append(ScrapeWarning(code="history_truncated", message="fewer posts than requested were loaded"))

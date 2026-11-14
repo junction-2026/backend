@@ -87,6 +87,14 @@ def api(monkeypatch):
     return a
 
 
+def test_unfaked_x_api_fails_the_test(client, monkeypatch, violations):
+    monkeypatch.setenv("TWITTER_AUTH_TOKEN", SENTINEL_AUTH)
+    monkeypatch.setenv("TWITTER_CT0", SENTINEL_CT0)
+    assert scrape(client, "https://x.com/alice").status_code == 500
+    assert violations == ["x"]
+    violations.clear()
+
+
 def test_profile(client, api):
     r = scrape(client, "https://x.com/alice", max_posts=2)
     assert r.status_code == 200

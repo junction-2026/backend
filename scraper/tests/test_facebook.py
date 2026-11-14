@@ -186,6 +186,28 @@ def test_commenter_user_nodes_are_not_the_profile(client, fake):
     assert scrape(client, f"{PAGE}/posts/9003").status_code == 200
 
 
+def test_unavailable_text_wins_over_unrelated_graphql(client, fake):
+    other = [{"data": {"viewer": {"__typename": "User", "id": "1"}}}]  # a real unavailable page still fires GraphQL
+    fake(batches=[other], body="This content isn't available right now")
+    assert scrape(client, PAGE).json()["error"]["code"] == "account_not_found"
+    fake(batches=[other], body="This content isn't available right now")
+    assert scrape(client, f"{PAGE}/posts/1").json()["error"]["code"] == "post_not_found"
+
+
+def test_page_node_without_id_is_not_a_500(client, fake):
+    docs = fx("facebook/page_graphql_1.json")
+    del docs[0]["data"]["page"]["id"]
+    fake(batches=[docs])
+    r = scrape(client, PAGE, max_posts=2)
+    assert r.status_code == 200 and len(r.json()["posts"]) == 2
+
+
+def test_unfaked_browser_fails_the_test(client, violations):
+    assert scrape(client, PAGE).status_code == 500  # the core hides the assertion behind the envelope...
+    assert violations == ["browser"]                # ...so the guard records it and would fail the test
+    violations.clear()
+
+
 @pytest.mark.parametrize("url,status,body,code", [
     (PAGE, 404, "", "account_not_found"),
     (PAGE, 200, "This content isn't available right now", "account_not_found"),
