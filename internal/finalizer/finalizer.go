@@ -119,7 +119,7 @@ func normalize(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, errors.New(`finalizer response member "categories" is missing or not an array`)
 	}
 	var expl string
-	if json.Unmarshal(m["explanation"], &expl) != nil {
+	if isAbsent(m["explanation"]) || json.Unmarshal(m["explanation"], &expl) != nil { // null unmarshals into a string without error
 		return nil, errors.New(`finalizer response member "explanation" is missing or not a string`)
 	}
 	hasScore, ok := scoreOK(m["overall_score"])
