@@ -19,6 +19,7 @@ import (
 	"github.com/junction-2026/backend/internal/httpapi"
 	"github.com/junction-2026/backend/internal/registry"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
+	"github.com/junction-2026/backend/internal/store"
 	"github.com/junction-2026/backend/internal/ws"
 )
 
@@ -63,8 +64,25 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	if cfg.ScraperEnabled { // nil Scraper: jobs with scrape answer 503 scrape_unavailable
 		ecfg.Scraper = newScraper(cfg.Upstream, log, redactor)
 	}
+	if cfg.JobStore == "sqlite" {
+		st, err := store.OpenSQLite(cfg.JobStorePath)
+		if err != nil {
+			return fmt.Errorf("JOB_STORE_PATH: %w", err)
+		}
+		defer st.Close() // after eng.Close (deferred later): no job writes after the database closed
+		ecfg.Store = st
+	}
+	ecfg.Warn = func(msg string, args ...any) { log.Warn(msg, args...) }
 	eng := engine.New(reg, ecfg)
 	defer eng.Close()
+	// Jobs that were not done when the server stopped end failed before any request is served.
+	n, err := eng.Recover()
+	if err != nil {
+		return fmt.Errorf("recovering jobs: %w", err)
+	}
+	if n > 0 {
+		log.Info("interrupted jobs ended", "count", n)
+	}
 
 	events := ws.New(eng, ws.Options{Logger: log})
 	srv := &http.Server{

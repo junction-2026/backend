@@ -13,13 +13,14 @@ import (
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 // Service is the part of the engine the API needs; *engine.Engine implements it.
 type Service interface {
 	Create(req engine.CreateRequest) (job.Job, error)
 	Get(id string) (job.Job, error)
-	List(status string) []job.Job
+	Page(status string, after *store.Cursor, limit int) ([]job.Job, error)
 	Cancel(id string) (job.Job, error)
 	Subscribe(id string) (*events.Subscription, error)
 }

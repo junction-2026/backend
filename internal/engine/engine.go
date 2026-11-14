@@ -66,20 +66,22 @@ type Executor interface {
 }
 
 type Config struct {
-	MaxParallelAnalyzers int             // per job, default 8
-	MaxParallelJobs      int             // global, default 16; further jobs stay queued
-	JobRetention         time.Duration   // default 24h
-	SweepInterval        time.Duration   // eviction period, default 1m
-	EventBuffer          int             // per subscriber, default 256
-	Finalizer            Finalizer       // nil: finalization is skipped / not_configured
-	Executor             Executor        // default: adapter.Executor with built-in handlers
-	Store                store.Store     // default: in memory
-	Scraper              *scraper.Client // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
-	ScrapeTimeout        time.Duration   // default 360s: an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry
+	MaxParallelAnalyzers int                           // per job, default 8
+	MaxParallelJobs      int                           // global, default 16; further jobs stay queued
+	JobRetention         time.Duration                 // default 24h; drops finished jobs from the in-memory working set only
+	HistoryRetention     time.Duration                 // 0: persisted history is kept; else done jobs finished longer ago are deleted
+	SweepInterval        time.Duration                 // eviction period, default 1m
+	EventBuffer          int                           // per subscriber, default 256
+	Finalizer            Finalizer                     // nil: finalization is skipped / not_configured
+	Executor             Executor                      // default: adapter.Executor with built-in handlers
+	Store                store.Store                   // default: in memory; the engine's only persistence boundary
+	Warn                 func(msg string, args ...any) // optional: store write failures
+	Scraper              *scraper.Client               // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
+	ScrapeTimeout        time.Duration                 // default 360s: an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry
 	Now                  func() time.Time
 }
 
-// ConfigFromEnv reads MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS and JOB_RETENTION.
+// ConfigFromEnv reads MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION and JOB_HISTORY_RETENTION.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	var c Config
 	for name, dst := range map[string]*int{"MAX_PARALLEL_ANALYZERS": &c.MaxParallelAnalyzers, "MAX_PARALLEL_JOBS": &c.MaxParallelJobs} {
@@ -97,6 +99,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("JOB_RETENTION must be a positive duration")
 		}
 		c.JobRetention = d
+	}
+	if v := getenv("JOB_HISTORY_RETENTION"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, fmt.Errorf("JOB_HISTORY_RETENTION must be a positive duration")
+		}
+		c.HistoryRetention = d
 	}
 	return c, nil
 }
@@ -153,6 +162,9 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	if cfg.ScrapeTimeout <= 0 {
 		cfg.ScrapeTimeout = 360 * time.Second
 	}
+	if cfg.Warn == nil {
+		cfg.Warn = func(string, ...any) {}
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -177,9 +189,17 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 // finished; the process is shutting down.
 func (e *Engine) Close() { e.stop() }
 
-// Sweep evicts jobs finished more than JobRetention before now.
+// Sweep drops jobs finished more than JobRetention before now from the in-memory working set (never from the
+// persisted history) and, when HistoryRetention is set, deletes persisted done jobs finished longer ago than that.
 func (e *Engine) Sweep(now time.Time) {
-	ids := e.store.EvictFinished(now.Add(-e.cfg.JobRetention))
+	retention := e.cfg.JobRetention
+	if h := e.cfg.HistoryRetention; h > 0 {
+		retention = min(retention, h) // a pruned job must not stay readable from memory
+		if err := e.store.Prune(now.Add(-h)); err != nil {
+			e.cfg.Warn("pruning job history failed", "err", err)
+		}
+	}
+	ids := e.store.EvictFinished(now.Add(-retention))
 	e.mu.Lock()
 	for _, id := range ids {
 		delete(e.runs, id)
@@ -191,6 +211,36 @@ func (e *Engine) Sweep(now time.Time) {
 }
 
 func (e *Engine) now() time.Time { return e.cfg.Now().UTC() }
+
+// persistLocked writes j to the store; the caller holds j's lock, so the state written is consistent. A failure is
+// logged and never fails the job. Nothing is written once the engine is closed: aborted analyzers of a shutting-down
+// process must not turn into persisted results, the job stays as it was and is interrupted at the next start.
+func (e *Engine) persistLocked(j *job.Record) {
+	if e.ctx.Err() != nil {
+		return
+	}
+	if err := e.store.Save(j); err != nil {
+		e.cfg.Warn("saving job failed", "job_id", j.ID, "err", err)
+	}
+}
+
+// Recover ends every persisted job that was not done when the server stopped (job.Record.Interrupt): it becomes
+// failed, is written back and emits no event. Call it once at startup, before serving requests. It returns the
+// number of jobs ended.
+func (e *Engine) Recover() (int, error) {
+	recs, err := e.store.Unfinished()
+	if err != nil {
+		return 0, fmt.Errorf("loading unfinished jobs: %w", err)
+	}
+	now := e.now()
+	for _, r := range recs {
+		r.Interrupt(now)
+		if err := e.store.Save(r); err != nil {
+			return 0, fmt.Errorf("saving interrupted job %s: %w", r.ID, err)
+		}
+	}
+	return len(recs), nil
+}
 
 // Create stores a new job (status queued), starts it asynchronously and
 // returns its initial state.
@@ -252,6 +302,7 @@ func (e *Engine) Create(req CreateRequest) (job.Job, error) {
 	e.store.Put(j)
 	j.Lock()
 	snap := j.Clone()
+	e.persistLocked(j)
 	j.Unlock()
 	e.mu.Lock()
 	e.runs[j.ID] = r
@@ -357,55 +408,83 @@ func (e *Engine) lookup(id string) (*run, error) {
 	return nil, ErrNotFound
 }
 
-// Get returns a consistent copy of the job.
+// Get returns a consistent copy of the job: from the working set, else from the persisted history.
 func (e *Engine) Get(id string) (job.Job, error) {
-	j, ok := e.store.Get(id)
-	if !ok {
-		return job.Job{}, ErrNotFound
+	if j, ok := e.store.Get(id); ok {
+		j.Lock()
+		defer j.Unlock()
+		return j.Clone(), nil
 	}
-	j.Lock()
-	defer j.Unlock()
-	return j.Clone(), nil
+	r, err := e.persisted(id)
+	if err != nil {
+		return job.Job{}, err
+	}
+	return r.Job, nil
 }
 
-// List returns jobs newest first (created_at, ties by id), optionally only
-// those with the given status.
-func (e *Engine) List(status string) []job.Job {
-	var out []job.Job
-	for _, j := range e.store.All() {
-		j.Lock()
-		if status == "" || j.Status == status {
-			out = append(out, j.Clone())
-		}
-		j.Unlock()
+// persisted loads a job that is not in the working set (ErrNotFound when unknown).
+func (e *Engine) persisted(id string) (*job.Record, error) {
+	r, ok, err := e.store.Load(id)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("loading job: %w", err)
+	case !ok:
+		return nil, ErrNotFound
 	}
-	sort.Slice(out, func(a, b int) bool {
-		if !out[a].CreatedAt.Equal(out[b].CreatedAt) {
-			return out[a].CreatedAt.After(out[b].CreatedAt)
-		}
-		return out[a].ID < out[b].ID
-	})
+	return r, nil
+}
+
+// Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with the
+// given status, starting after the cursor (nil: from the newest).
+func (e *Engine) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
+	return e.store.Page(status, after, limit)
+}
+
+// List returns all jobs newest first, optionally only those with the given status.
+func (e *Engine) List(status string) []job.Job {
+	out, _ := e.Page(status, nil, 0)
 	return out
 }
 
+// snapshotData is the data of a job.snapshot event. Caller holds r's lock (or owns r).
+func snapshotData(r *job.Record) map[string]any {
+	s := r.Snapshot()
+	return map[string]any{"job": r.Clone(), "plan": s.Plan, "progress": s.Progress, "previews": s.Previews, "activities": s.Activities}
+}
+
 // Subscribe returns a snapshot (seq = last emitted) followed by every later
-// event of the job. For a finished job only the snapshot is delivered.
+// event of the job. For a finished job only the snapshot is delivered; so it is
+// for a persisted job, whose seq is the last one emitted before the restart.
 func (e *Engine) Subscribe(id string) (*events.Subscription, error) {
 	r, err := e.lookup(id)
+	if errors.Is(err, ErrNotFound) {
+		p, perr := e.persisted(id)
+		if perr != nil {
+			return nil, perr
+		}
+		return e.bus.Closed(id, p.LastSeq, snapshotData(p)), nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	r.j.Lock()
 	defer r.j.Unlock()
-	return e.bus.Subscribe(id, func() any {
-		s := r.j.Snapshot()
-		return map[string]any{"job": r.j.Clone(), "plan": s.Plan, "progress": s.Progress, "previews": s.Previews, "activities": s.Activities}
-	}), nil
+	return e.bus.Subscribe(id, func() any { return snapshotData(r.j) }), nil
 }
 
 // Cancel cancels a job and returns its final state (status cancelled).
 func (e *Engine) Cancel(id string) (job.Job, error) {
 	r, err := e.lookup(id)
+	if errors.Is(err, ErrNotFound) {
+		p, perr := e.persisted(id)
+		if perr != nil {
+			return job.Job{}, perr
+		}
+		if !p.Done { // cannot happen after Recover: a persisted job that is not live is done
+			return job.Job{}, ErrNotFound
+		}
+		return job.Job{}, ErrJobFinished
+	}
 	if err != nil {
 		return job.Job{}, err
 	}

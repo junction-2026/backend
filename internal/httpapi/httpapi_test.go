@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 // fakeSvc is the fake analyzer service behind the handlers.
@@ -63,25 +65,29 @@ func (f *fakeSvc) Cancel(id string) (job.Job, error) {
 	return j, nil
 }
 
-func (f *fakeSvc) List(status string) []job.Job {
+func (f *fakeSvc) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []job.Job
 	for _, j := range f.jobs {
-		if status == "" || j.Status == status {
+		if status != "" && j.Status != status {
+			continue
+		}
+		// newest first, ties by id (the engine's contract for Page)
+		if after == nil || j.CreatedAt.Before(after.CreatedAt) || (j.CreatedAt.Equal(after.CreatedAt) && j.ID > after.ID) {
 			out = append(out, j)
 		}
 	}
-	// newest first, ties by id (the engine's contract for List)
-	for i := range out {
-		for k := i + 1; k < len(out); k++ {
-			a, b := out[i], out[k]
-			if b.CreatedAt.After(a.CreatedAt) || (b.CreatedAt.Equal(a.CreatedAt) && b.ID < a.ID) {
-				out[i], out[k] = out[k], out[i]
-			}
+	sort.Slice(out, func(a, b int) bool {
+		if !out[a].CreatedAt.Equal(out[b].CreatedAt) {
+			return out[a].CreatedAt.After(out[b].CreatedAt)
 		}
+		return out[a].ID < out[b].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
 func (f *fakeSvc) Subscribe(id string) (*events.Subscription, error) {

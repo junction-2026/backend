@@ -6,7 +6,31 @@ Analysis orchestrator HTTP server (`cmd/orchestrator`).
 |---|---|---|
 | `LISTEN_ADDR` | `:8080` | listen address |
 | `ANALYZERS_CONFIG` | `/etc/orchestrator/analyzers` | registry file or directory |
-| `MAX_PARALLEL_ANALYZERS`, `MAX_PARALLEL_JOBS`, `JOB_RETENTION` | 8, 16, 24h | engine limits |
+| `MAX_PARALLEL_ANALYZERS`, `MAX_PARALLEL_JOBS`, `JOB_RETENTION` | 8, 16, 24h | engine limits; `JOB_RETENTION` drops finished jobs from memory only |
+| `JOB_STORE` | `memory` | `memory` (jobs are lost on restart) or `sqlite` (persistent job history) |
+| `JOB_STORE_PATH` | `data/jobs.db` | SQLite database file (`JOB_STORE=sqlite`); its directory is created |
+| `JOB_HISTORY_RETENTION` | unset (keep forever) | Go duration, e.g. `720h`: with `sqlite`, done jobs finished longer ago are deleted |
+
+## Job history
+
+With `JOB_STORE=sqlite` every job (each analyzer result, the scrape and the final assessment, verbatim) is written to
+a SQLite file (pure Go driver, no CGO, WAL mode) when it is created and on every state change. After a restart
+`GET /api/v1/jobs`, `GET /api/v1/jobs/{id}` and the event stream still serve it: the stream sends one `job.snapshot`
+with the last `seq` emitted before the restart, then closes with 1000, and cancelling it answers 409 `job_finished`.
+`JOB_RETENTION` only frees memory; history is kept until `JOB_HISTORY_RETENTION` removes it (checked once a minute;
+a value below `JOB_RETENTION` also shortens the time a job stays in memory). The schema is migrated automatically at
+startup; a database written by a newer server is refused.
+
+**Interrupted jobs.** A job that was not done when the server stopped is not resumed. At the next start, before the
+server accepts requests, it ends `failed` with `finished_at` the start time: a `pending` analyzer (and finalization)
+becomes `skipped` with reason `interrupted`, a `running` analyzer or finalization and a pending or running scrape
+`failed` with `error.code: interrupted` (`availability: unavailable`); settled analyzers keep their results, `coverage`
+is recomputed and no event is emitted for this.
+
+Docker: the image runs as uid 65532 and its container filesystem is not kept, so put the database on a volume that
+uid can write instead of the default relative path `data/jobs.db`, e.g.
+`-e JOB_STORE=sqlite -e JOB_STORE_PATH=/data/jobs.db -v junction-jobs:/data` (a named volume, or a host directory
+owned by uid 65532). One server per database file; sharing it between instances is not supported.
 
 Optional analyzers: `docs/examples/propaganda_detection.yaml` defines two analyzers. `translation`
 (adapter `mistral_translation`) translates the job's `normalized_content` into English through the Mistral

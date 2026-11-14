@@ -13,12 +13,15 @@ import (
 const (
 	defaultListenAddr      = ":8080"
 	defaultAnalyzersConfig = "/etc/orchestrator/analyzers"
+	defaultJobStorePath    = "data/jobs.db"
 )
 
 type config struct {
 	ListenAddr      string
 	AnalyzersConfig string
 	Engine          engine.Config
+	JobStore        string    // JOB_STORE: "memory" (default) or "sqlite"
+	JobStorePath    string    // JOB_STORE_PATH (sqlite only)
 	ScraperEnabled  bool      // SCRAPER_ENABLED, default true
 	Upstream        ss.Config // SCRAPER_UPSTREAM_TIMEOUT_SECONDS
 	Ignored         []string  // obsolete scraper variables that are set: warned about, never read
@@ -42,10 +45,31 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if c.Engine, err = engine.ConfigFromEnv(getenv); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
+	if err := loadStore(getenv, &c); err != nil {
+		return c, fmt.Errorf("configuration error: %w", err)
+	}
 	if err := loadScraper(getenv, &c); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
 	return c, nil
+}
+
+// loadStore reads JOB_STORE and JOB_STORE_PATH. JOB_HISTORY_RETENTION (read with the engine settings) only applies
+// to the sqlite store, which is the only one with history.
+func loadStore(getenv func(string) string, c *config) error {
+	switch v := strings.ToLower(getenv("JOB_STORE")); v {
+	case "", "memory":
+		c.JobStore = "memory"
+		c.Engine.HistoryRetention = 0
+	case "sqlite":
+		c.JobStore, c.JobStorePath = "sqlite", getenv("JOB_STORE_PATH")
+		if c.JobStorePath == "" {
+			c.JobStorePath = defaultJobStorePath
+		}
+	default:
+		return errors.New("JOB_STORE must be memory or sqlite")
+	}
+	return nil
 }
 
 func loadScraper(getenv func(string) string, c *config) error {

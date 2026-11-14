@@ -82,3 +82,16 @@ func TestConcurrentSubscribeHasNoGapOrDuplicate(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestClosedDeliversOnlyTheSnapshotAndKeepsNoState(t *testing.T) {
+	b := New(4)
+	sub := b.Closed("j", 42, "snap")
+	ev, ok := <-sub.Events()
+	require.True(t, ok)
+	require.Equal(t, Event{Type: "job.snapshot", JobID: "j", Seq: 42, EmittedAt: ev.EmittedAt, Data: "snap"}, ev)
+	_, ok = <-sub.Events()
+	require.False(t, ok)
+	require.NoError(t, sub.Err())
+	sub.Close()
+	require.Empty(t, b.st)
+}
