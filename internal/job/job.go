@@ -162,9 +162,21 @@ type Job struct {
 	Input        *Input        `json:"input"`  // null for a scrape job until its scrape succeeded; immutable once set
 	Scrape       *Scrape       `json:"scrape"` // null for a job created with input
 	Options      Options       `json:"options"`
+	Public       bool          `json:"public"` // listed in GET /jobs; fixed at creation
 	Analyzers    []AnalyzerRun `json:"analyzers"`
 	Coverage     Coverage      `json:"coverage"`
 	Finalization Finalization  `json:"finalization"`
+}
+
+// UnmarshalJSON reads a Job stored before `public` existed as public.
+func (j *Job) UnmarshalJSON(b []byte) error {
+	type plain Job
+	p := plain{Public: true}
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*j = Job(p)
+	return nil
 }
 
 // Record is a stored Job. Its embedded mutex serializes every state
@@ -204,7 +216,7 @@ func (r *Record) Snapshot() Snapshot {
 func (j *Job) Clone() Job {
 	c := Job{
 		ID: j.ID, Status: j.Status, Done: j.Done, CreatedAt: j.CreatedAt,
-		StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Input: j.Input, Options: j.Options,
+		StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Input: j.Input, Options: j.Options, Public: j.Public,
 		Analyzers: append([]AnalyzerRun(nil), j.Analyzers...), Coverage: j.Coverage,
 		Finalization: j.Finalization,
 	}

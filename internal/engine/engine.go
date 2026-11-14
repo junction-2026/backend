@@ -119,6 +119,7 @@ type CreateRequest struct {
 	Scrape    *job.ScrapeRequest
 	Analyzers []string
 	Finalize  *bool
+	Private   bool // the job is not listed by GET /jobs (zero value: public)
 }
 
 type Engine struct {
@@ -262,7 +263,7 @@ func (e *Engine) Create(req CreateRequest) (job.Job, error) {
 	finalize := req.Finalize == nil || *req.Finalize
 
 	j := &job.Record{Job: job.Job{ID: uuid.NewString(), Status: job.StatusQueued, CreatedAt: e.now(), Input: in,
-		Scrape: scrape, Options: job.Options{Finalize: finalize}, Analyzers: []job.AnalyzerRun{},
+		Scrape: scrape, Options: job.Options{Finalize: finalize}, Public: !req.Private, Analyzers: []job.AnalyzerRun{},
 		Finalization: job.Finalization{Status: job.RunPending}}}
 	r := &run{e: e, j: j, idx: map[string]int{}, sem: make(chan struct{}, e.cfg.MaxParallelAnalyzers)}
 	r.ctx, r.cancel = context.WithCancel(e.ctx)
