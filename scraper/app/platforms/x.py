@@ -1,4 +1,5 @@
 """X (Twitter) through twscrape with a one-account cookie pool built from TWITTER_AUTH_TOKEN and TWITTER_CT0."""
+import asyncio
 import html
 import logging
 import os
@@ -24,6 +25,7 @@ _USER = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 _RESERVED = {"explore", "home", "i", "search", "settings", "notifications", "messages", "compose",
              "hashtag", "intent", "share", "login", "signup", "tos", "privacy", "about", "account"}
 _api: API | None = None
+_api_lock = asyncio.Lock()  # first use only: two scrapes arriving together must share one pool and one lock domain
 
 
 def recognize(u) -> Recognized | None:
@@ -42,12 +44,14 @@ async def _get_api() -> API:
     temp dir unless SCRAPER_X_POOL_DB names a path on a volume; it is never inside the repository."""
     global _api
     if _api is None:
-        db = os.environ.get("SCRAPER_X_POOL_DB") or os.path.join(tempfile.mkdtemp(prefix="scraper-x-"), "pool.db")
-        # wait_timeout: a pool account is locked while another scrape uses it; wait briefly instead of failing
-        pool = AccountsPool(db, raise_when_no_account=True, wait_timeout=5.0, wait_interval=0.5)
-        await pool.add_account_cookies(
-            _ACCOUNT, f"auth_token={os.environ['TWITTER_AUTH_TOKEN']}; ct0={os.environ['TWITTER_CT0']}")
-        _api = API(pool)
+        async with _api_lock:
+            if _api is None:
+                db = os.environ.get("SCRAPER_X_POOL_DB") or os.path.join(tempfile.mkdtemp(prefix="scraper-x-"), "pool.db")
+                # wait_timeout: a pool account is locked while another scrape uses it; wait briefly instead of failing
+                pool = AccountsPool(db, raise_when_no_account=True, wait_timeout=5.0, wait_interval=0.5)
+                await pool.add_account_cookies(
+                    _ACCOUNT, f"auth_token={os.environ['TWITTER_AUTH_TOKEN']}; ct0={os.environ['TWITTER_CT0']}")
+                _api = API(pool)
     return _api
 
 

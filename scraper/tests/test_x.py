@@ -1,5 +1,6 @@
 """X module with a fake twscrape API built from recorded fixtures; the real pool is only touched for its sqlite file."""
 import logging
+import tempfile
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -225,3 +226,16 @@ def test_credentials_never_reach_responses_or_logs(client, api, caplog, capfd):
     everything = "".join(bodies) + caplog.text + out.out + out.err
     assert SENTINEL_AUTH not in everything and SENTINEL_CT0 not in everything
     assert "upstream_error" in bodies[-1]
+
+
+async def test_concurrent_first_use_builds_one_pool(monkeypatch, tmp_path):
+    import asyncio
+    monkeypatch.setenv("TWITTER_AUTH_TOKEN", SENTINEL_AUTH)
+    monkeypatch.setenv("TWITTER_CT0", SENTINEL_CT0)
+    monkeypatch.delenv("SCRAPER_X_POOL_DB", raising=False)
+    monkeypatch.setattr(x, "_api", None)
+    made = []
+    real = tempfile.mkdtemp
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda **kw: made.append(real(**kw)) or made[-1])
+    a, b = await asyncio.gather(x._get_api(), x._get_api())
+    assert a is b and len(made) == 1 and len(await a.pool.get_all()) == 1
