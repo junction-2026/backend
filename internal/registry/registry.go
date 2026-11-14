@@ -33,6 +33,9 @@ const (
 
 	AdapterPropagandaDetection = "propaganda_detection"
 	AdapterMistralTranslation  = "mistral_translation"
+	AdapterFactCheck           = "fact_check"
+
+	DefaultFactCheckBaseURL = "https://factchecktools.googleapis.com/v1alpha1"
 
 	DefaultMistralEndpoint = "https://api.mistral.ai/v1/chat/completions"
 	DefaultMistralModel    = "mistral-small-latest"
@@ -80,6 +83,64 @@ type Execution struct {
 	Prompt         string         `yaml:"-"` // prompt_file content, read once at load
 
 	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
+
+	// fact_check (BaseURL and APIKey above); MaxClaims is also the topic_extraction cap
+	MinCheckWorthiness *float64      `yaml:"min_check_worthiness"`
+	MaxClaims          *int          `yaml:"max_claims"`
+	PageSize           *int          `yaml:"page_size"`
+	MaxAgeDays         *int          `yaml:"max_age_days"`
+	MaxResults         *int          `yaml:"max_results"`
+	MaxConcurrency     *int          `yaml:"max_concurrency"`
+	CacheTTL           time.Duration `yaml:"cache_ttl"`
+}
+
+func intOr(p *int, d int) int {
+	if p == nil {
+		return d
+	}
+	return *p
+}
+
+// Defaults of the optional settings; tests build Executions without Load.
+func (e Execution) ExtractorMaxClaims() int { return intOr(e.MaxClaims, 5) }
+func (e Execution) FactCheckMaxClaims() int { return intOr(e.MaxClaims, 3) }
+func (e Execution) PageSizeN() int          { return intOr(e.PageSize, 5) }
+func (e Execution) MaxAgeDaysN() int        { return intOr(e.MaxAgeDays, 1825) }
+func (e Execution) MaxResultsN() int        { return intOr(e.MaxResults, 10) }
+func (e Execution) MaxConcurrencyN() int    { return intOr(e.MaxConcurrency, 4) }
+func (e Execution) MinWorthiness() float64 {
+	if e.MinCheckWorthiness == nil {
+		return 0.4
+	}
+	return *e.MinCheckWorthiness
+}
+func (e Execution) CacheTTLD() time.Duration {
+	if e.CacheTTL <= 0 {
+		return 24 * time.Hour
+	}
+	return e.CacheTTL
+}
+
+// checkFactCheck validates the fact_check settings of one analyzer.
+func (a *Analyzer) checkFactCheck() error {
+	e := &a.Execution
+	switch {
+	case e.Method != "" || e.Handler != "" || e.PollInterval != 0 || e.Endpoint != "":
+		return fmt.Errorf("execution.method, execution.handler, execution.poll_interval and execution.endpoint are not allowed for adapter %s", e.Adapter)
+	case len(a.Input.Bindings) != 1 || !strings.HasPrefix(a.Input.Bindings["extraction"], "$analyzers."):
+		return fmt.Errorf("input.bindings for adapter %s must be exactly extraction: $analyzers.<id>", e.Adapter)
+	case e.MinCheckWorthiness != nil && (*e.MinCheckWorthiness < 0 || *e.MinCheckWorthiness > 1):
+		return fmt.Errorf("execution.min_check_worthiness must be between 0 and 1")
+	case e.CacheTTL < 0:
+		return fmt.Errorf("execution.cache_ttl must be positive")
+	}
+	for name, p := range map[string]*int{"max_claims": e.MaxClaims, "page_size": e.PageSize, "max_age_days": e.MaxAgeDays,
+		"max_results": e.MaxResults, "max_concurrency": e.MaxConcurrency} {
+		if p != nil && *p < 1 {
+			return fmt.Errorf("execution.%s must be a positive integer", name)
+		}
+	}
+	return nil
 }
 
 // MaxChars is max_input_chars with its default.
@@ -351,6 +412,20 @@ func (a *Analyzer) normalize(opt Options) error {
 			e.Timeout = 60 * time.Second
 		}
 	}
+	if e.Adapter == AdapterFactCheck {
+		if err := a.checkFactCheck(); err != nil {
+			return err
+		}
+		if e.Timeout == 0 {
+			e.Timeout = 15 * time.Second
+		}
+	} else if e.MinCheckWorthiness != nil || e.PageSize != nil || e.MaxAgeDays != nil || e.MaxResults != nil ||
+		e.MaxConcurrency != nil || e.CacheTTL != 0 {
+		return fmt.Errorf("execution.min_check_worthiness, page_size, max_age_days, max_results, max_concurrency and cache_ttl are only allowed for adapter %s", AdapterFactCheck)
+	}
+	if e.MaxClaims != nil && !e.TopicExtraction() && e.Adapter != AdapterFactCheck {
+		return fmt.Errorf("execution.max_claims is only allowed for adapter %s and execution.task %s", AdapterFactCheck, TaskTopicExtraction)
+	}
 	if e.Task != "" && e.Adapter != AdapterLLM {
 		return fmt.Errorf("execution.task is only allowed for adapter %s", AdapterLLM)
 	}
@@ -373,6 +448,10 @@ func (a *Analyzer) normalize(opt Options) error {
 	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection, AdapterMistralTranslation:
 		if e.Endpoint == "" {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
+		}
+	case AdapterFactCheck:
+		if e.BaseURL == "" {
+			e.BaseURL = DefaultFactCheckBaseURL
 		}
 	case AdapterCustom:
 		if !opt.HandlerExists(e.Handler) {
@@ -398,6 +477,8 @@ func (a *Analyzer) normalize(opt Options) error {
 				return fmt.Errorf("input.bindings are not allowed for execution.task %s (it analyzes the job input)", e.Task)
 			case e.MaxInputChars != nil && *e.MaxInputChars <= 0:
 				return fmt.Errorf("execution.max_input_chars must be a positive integer")
+			case e.MaxClaims != nil && *e.MaxClaims < 1:
+				return fmt.Errorf("execution.max_claims must be a positive integer")
 			}
 		}
 		if e.PromptFile == "" {
@@ -444,6 +525,20 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Adapter == AdapterLLM {
 			if err := e.loadLLM(opt.Getenv); err != nil {
 				return err
+			}
+		}
+		if e.Adapter == AdapterFactCheck {
+			if e.BaseURL, err = expand(e.BaseURL, opt.Getenv); err != nil {
+				return fmt.Errorf("execution.base_url: %w", err)
+			}
+			if e.APIKey, err = expand(e.APIKey, opt.Getenv); err != nil {
+				return fmt.Errorf("execution.api_key: %w", err)
+			}
+			if strings.TrimSpace(e.APIKey) == "" {
+				return fmt.Errorf("execution.api_key is empty; it is required for an enabled %s analyzer", e.Adapter)
+			}
+			if strings.TrimSpace(e.BaseURL) == "" {
+				return fmt.Errorf("execution.base_url is empty")
 			}
 		}
 	}

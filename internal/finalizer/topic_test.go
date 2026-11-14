@@ -38,7 +38,7 @@ func extractorStub(t *testing.T, extraction string) *stub {
 }
 
 func TestTopicExtractionReachesFinalizerWhenOptedIn(t *testing.T) {
-	s := extractorStub(t, `{"topics":[{"title":"T","query":"q"}],"news":[]}`)
+	s := extractorStub(t, `{"topics":[{"title":"T","query":"q"}],"news":[],"claims":[]}`)
 	x := newLLMEngine(t, llmAnalyzers()+topicYAML()+llmFinYAML(""), s)
 	j := runsOf(t, x.e, engine.CreateRequest{Input: job.Input{Content: "text"}, Analyzers: []string{"pd", "topic_extraction"}})
 	require.Equal(t, job.StatusCompleted, j.Status)
@@ -47,7 +47,7 @@ func TestTopicExtractionReachesFinalizerWhenOptedIn(t *testing.T) {
 
 	r, _ := lastReq(t, s)
 	user := r.Messages[1].Content
-	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"input_truncated":false,"usage":`+stubUsage+`}}`)
+	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"claims":[],"input_truncated":false,"usage":`+stubUsage+`}}`)
 	require.Contains(t, user, `"id":"pd"`)
 }
 
@@ -70,7 +70,7 @@ func TestInvalidExtractionFailsOnlyThatAnalyzer(t *testing.T) {
 }
 
 func TestTopicExtractionNotOptedInIsHidden(t *testing.T) {
-	s := extractorStub(t, `{"topics":[],"news":[]}`)
+	s := extractorStub(t, `{"topics":[],"news":[],"claims":[]}`)
 	y := strings.Replace(topicYAML(), "    llm: {include: true, description: \""+topicDesc+"\"}\n", "", 1)
 	x := newLLMEngine(t, llmAnalyzers()+y+llmFinYAML(""), s)
 	j := runsOf(t, x.e, engine.CreateRequest{Input: job.Input{Content: "text"}, Analyzers: []string{"pd", "topic_extraction"}})

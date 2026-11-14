@@ -481,3 +481,117 @@ func TestTopicExtractionExample(t *testing.T) {
 	_, err = Load(f, opts(env))
 	require.ErrorContains(t, err, "EXTRACTOR_MODEL")
 }
+
+const fcHead = "analyzers:\n  - id: topic_extraction\n    enabled: false\n    execution: {adapter: llm, task: topic_extraction}\n" +
+	"  - id: fact_check\n    depends_on: [topic_extraction]\n    input: {bindings: {extraction: $analyzers.topic_extraction}}\n    execution:\n      adapter: fact_check\n"
+
+func fcLoad(t *testing.T, exec string, env map[string]string) (*Registry, error) {
+	t.Helper()
+	return Load(write(t, "f.yaml", fcHead+exec), opts(env))
+}
+
+func TestFactCheckDefaults(t *testing.T) {
+	r, err := fcLoad(t, "      api_key: ${K}\n", map[string]string{"K": "secret-key"})
+	require.NoError(t, err)
+	e := r.Get("fact_check").Execution
+	require.Equal(t, "secret-key", e.APIKey)
+	require.Equal(t, DefaultFactCheckBaseURL, e.BaseURL)
+	require.Equal(t, 0.4, e.MinWorthiness())
+	require.Equal(t, 3, e.FactCheckMaxClaims())
+	require.Equal(t, 5, e.PageSizeN())
+	require.Equal(t, 1825, e.MaxAgeDaysN())
+	require.Equal(t, 10, e.MaxResultsN())
+	require.Equal(t, 4, e.MaxConcurrencyN())
+	require.Equal(t, 24*time.Hour, e.CacheTTLD())
+	require.Equal(t, 15*time.Second, e.Timeout)
+
+	r, err = fcLoad(t, "      api_key: k\n      base_url: ${B}\n      min_check_worthiness: 0\n      max_claims: 2\n      page_size: 7\n      max_age_days: 30\n"+
+		"      max_results: 4\n      max_concurrency: 1\n      cache_ttl: 1h\n      timeout: 3s\n", map[string]string{"B": "http://fc/v1"})
+	require.NoError(t, err)
+	e = r.Get("fact_check").Execution
+	require.Equal(t, "http://fc/v1", e.BaseURL)
+	require.Equal(t, 0.0, e.MinWorthiness())
+	require.Equal(t, 2, e.FactCheckMaxClaims())
+	require.Equal(t, time.Hour, e.CacheTTLD())
+	require.Equal(t, 3*time.Second, e.Timeout)
+}
+
+func TestFactCheckRejects(t *testing.T) {
+	for name, c := range map[string]struct{ exec, want string }{
+		"no key":          {"      base_url: http://x\n", "execution.api_key"},
+		"empty key":       {"      api_key: ${E}\n", "execution.api_key"},
+		"worthiness high": {"      api_key: k\n      min_check_worthiness: 1.5\n", "min_check_worthiness"},
+		"worthiness neg":  {"      api_key: k\n      min_check_worthiness: -0.1\n", "min_check_worthiness"},
+		"max_claims 0":    {"      api_key: k\n      max_claims: 0\n", "max_claims"},
+		"page_size 0":     {"      api_key: k\n      page_size: 0\n", "page_size"},
+		"max_age_days 0":  {"      api_key: k\n      max_age_days: 0\n", "max_age_days"},
+		"max_results 0":   {"      api_key: k\n      max_results: 0\n", "max_results"},
+		"concurrency 0":   {"      api_key: k\n      max_concurrency: 0\n", "max_concurrency"},
+		"cache_ttl neg":   {"      api_key: k\n      cache_ttl: -1h\n", "cache_ttl"},
+		"timeout neg":     {"      api_key: k\n      timeout: -1s\n", "timeout"},
+		"unset variable":  {"      api_key: ${NOPE}\n", "NOPE"},
+		"endpoint":        {"      api_key: k\n      endpoint: http://x\n", "execution.endpoint"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := fcLoad(t, c.exec, map[string]string{"E": ""})
+			require.ErrorContains(t, err, c.want)
+			require.ErrorContains(t, err, `analyzer "fact_check"`)
+		})
+	}
+	// bindings
+	for name, b := range map[string]string{"none": "", "wrong name": "{bindings: {text: $analyzers.topic_extraction}}", "input": "{bindings: {extraction: $input}}",
+		"extra": "{bindings: {extraction: $analyzers.topic_extraction, text: $input}}"} {
+		y := "analyzers:\n  - id: topic_extraction\n    enabled: false\n    execution: {adapter: llm, task: topic_extraction}\n  - id: fact_check\n    depends_on: [topic_extraction]\n"
+		if b != "" {
+			y += "    input: " + b + "\n"
+		}
+		_, err := Load(write(t, "b.yaml", y+"    execution: {adapter: fact_check, api_key: k}\n"), opts(nil))
+		require.ErrorContains(t, err, "input.bindings", name)
+	}
+	// the key never leaks into a message
+	_, err := fcLoad(t, "      api_key: secret-key\n      max_claims: 0\n", nil)
+	require.NotContains(t, err.Error(), "secret-key")
+	// fact_check keys on other adapters
+	_, err = Load(write(t, "o.yaml", "analyzers:\n  - id: a\n    execution: {adapter: custom, handler: text_stats, page_size: 3}\n"), opts(nil))
+	require.ErrorContains(t, err, "only allowed for adapter fact_check")
+	_, err = Load(write(t, "o2.yaml", "analyzers:\n  - id: a\n    execution: {adapter: custom, handler: text_stats, max_claims: 3}\n"), opts(nil))
+	require.ErrorContains(t, err, "max_claims")
+}
+
+func TestTopicExtractionMaxClaims(t *testing.T) {
+	r, err := topicReg(t, "      max_claims: 7\n", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 7, r.Get("topic_extraction").Execution.ExtractorMaxClaims())
+	r, err = topicReg(t, "", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 5, r.Get("topic_extraction").Execution.ExtractorMaxClaims())
+	_, err = topicReg(t, "      max_claims: 0\n", "", nil)
+	require.ErrorContains(t, err, `analyzer "topic_extraction"`)
+	require.ErrorContains(t, err, "execution.max_claims")
+}
+
+func TestFactCheckDocsExample(t *testing.T) {
+	prompt, err := filepath.Abs("../../config/extractor/prompt.md")
+	require.NoError(t, err)
+	env := map[string]string{"EXTRACTOR_BASE_URL": "http://x/v1", "EXTRACTOR_API_KEY": "k", "EXTRACTOR_MODEL": "m", "GOOGLE_FACTCHECK_API_KEY": "gk"}
+	dir := t.TempDir()
+	for _, n := range []string{"topic_extraction", "fact_check"} {
+		b, err := os.ReadFile("../../docs/examples/" + n + ".yaml")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, n+".yaml"), []byte(strings.ReplaceAll(string(b), "/etc/orchestrator/extractor/prompt.md", prompt)), 0o600))
+	}
+	r, err := Load(dir, opts(env))
+	require.NoError(t, err)
+	fc := r.Get("fact_check")
+	require.Equal(t, "gk", fc.Execution.APIKey)
+	require.Equal(t, []string{"topic_extraction"}, fc.DependsOn)
+	require.Equal(t, "fact_check", fc.Category)
+	require.True(t, fc.LLM.Include)
+	require.Contains(t, fc.LLM.Description, "fact-checks")
+	require.Equal(t, 5, r.Get("topic_extraction").Execution.ExtractorMaxClaims())
+	b, _ := os.ReadFile("../../docs/examples/topic_extraction.yaml")
+	require.Contains(t, string(b), "max_claims: 5")
+	delete(env, "GOOGLE_FACTCHECK_API_KEY")
+	_, err = Load(dir, opts(env))
+	require.ErrorContains(t, err, "GOOGLE_FACTCHECK_API_KEY")
+}

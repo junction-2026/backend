@@ -80,6 +80,10 @@ func (x *Executor) custom(ctx context.Context, def *registry.Analyzer, req Reque
 			if errors.As(r.err, &re) {
 				return nil, re
 			}
+			var sk *SkipError
+			if errors.As(r.err, &sk) {
+				return nil, sk
+			}
 			if e := ContextError(ctx); e != nil {
 				return nil, e
 			}

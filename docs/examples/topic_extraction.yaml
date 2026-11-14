@@ -1,4 +1,4 @@
-# Example registry entry: an LLM that extracts fact-checkable topics (with a search query) and the news
+# Example registry entry: an LLM that extracts fact-checkable topics (with a search query), checkable claims and the news
 # items a text refers to. Any OpenAI-compatible chat completions API works (OpenAI, OpenRouter, vLLM, Ollama,
 # ...). Its variables are independent of the finalizer's (final_synthesis.yaml). The API key is never logged
 # or returned.
@@ -14,6 +14,7 @@ analyzers:
       api_key: ${EXTRACTOR_API_KEY}              # sent as "Authorization: Bearer <key>"; never logged or returned
       model: ${EXTRACTOR_MODEL}                  # required, no default, e.g. gpt-4o-mini
       prompt_file: /etc/orchestrator/extractor/prompt.md   # system prompt; image default from config/extractor/prompt.md
+      max_claims: 5                              # at most this many claims, most check-worthy first (default 5)
       max_input_chars: 20000                     # longer input is cut (at whitespace) and reported input_truncated: true
       temperature: 0
       max_tokens: 2000

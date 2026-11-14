@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/junction-2026/backend/internal/job"
@@ -33,8 +34,21 @@ var TopicExtractionSchema = map[string]any{
 			"required":             []string{"headline", "summary"},
 			"additionalProperties": false,
 		}},
+		"claims": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text":             map[string]any{"type": "string"},
+				"language":         map[string]any{"type": "string"},
+				"query":            map[string]any{"type": "string"},
+				"query_en":         map[string]any{"type": "string"},
+				"entities":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"check_worthiness": map[string]any{"type": "number"},
+			},
+			"required":             []string{"text", "language", "query", "query_en", "entities", "check_worthiness"},
+			"additionalProperties": false,
+		}},
 	},
-	"required":             []string{"topics", "news"},
+	"required":             []string{"topics", "news", "claims"},
 	"additionalProperties": false,
 }
 
@@ -47,6 +61,15 @@ type topic struct {
 type newsItem struct {
 	Headline string  `json:"headline"`
 	Summary  *string `json:"summary"`
+}
+
+type claim struct {
+	Text            string   `json:"text"`
+	Language        string   `json:"language"`
+	Query           string   `json:"query"`
+	QueryEN         string   `json:"query_en"`
+	Entities        []string `json:"entities"`
+	CheckWorthiness float64  `json:"check_worthiness"`
 }
 
 // topicExtraction asks the llm for the fact-checkable topics and news of the
@@ -71,19 +94,26 @@ func (x *Executor) topicExtraction(ctx context.Context, def *registry.Analyzer, 
 	var in struct {
 		Topics *[]struct{ Title, Query, Description *string } `json:"topics"`
 		News   *[]struct{ Headline, Summary *string }         `json:"news"`
+		Claims *[]*struct {
+			Text, Language, Query *string
+			QueryEN               *string   `json:"query_en"`
+			Entities              *[]string `json:"entities"`
+			CheckWorthiness       *float64  `json:"check_worthiness"`
+		} `json:"claims"`
 	}
 	if json.Unmarshal(raw, &in) != nil {
 		return invalidTopics("topics, news and their members must be an array, objects and strings")
 	}
-	if in.Topics == nil || in.News == nil {
-		return invalidTopics("topics and news must be arrays")
+	if in.Topics == nil || in.News == nil || in.Claims == nil {
+		return invalidTopics("topics, news and claims must be arrays")
 	}
 	res := struct {
 		Topics         []topic         `json:"topics"`
 		News           []newsItem      `json:"news"`
+		Claims         []claim         `json:"claims"`
 		InputTruncated bool            `json:"input_truncated"`
 		Usage          json.RawMessage `json:"usage"`
-	}{[]topic{}, []newsItem{}, truncated, usage}
+	}{[]topic{}, []newsItem{}, []claim{}, truncated, usage}
 	blank := func(s *string) bool { return s == nil || strings.TrimSpace(*s) == "" }
 	for i, t := range *in.Topics {
 		if blank(t.Title) || blank(t.Query) {
@@ -96,6 +126,20 @@ func (x *Executor) topicExtraction(ctx context.Context, def *registry.Analyzer, 
 			return invalidTopics(fmt.Sprintf("news[%d] needs a non-empty headline", i))
 		}
 		res.News = append(res.News, newsItem{*n.Headline, n.Summary})
+	}
+	for i, c := range *in.Claims {
+		if c == nil || blank(c.Text) || blank(c.Language) || blank(c.Query) || blank(c.QueryEN) || c.CheckWorthiness == nil {
+			return invalidTopics(fmt.Sprintf("claims[%d] needs non-empty text, language, query and query_en and a numeric check_worthiness", i))
+		}
+		ents := []string{}
+		if c.Entities != nil {
+			ents = *c.Entities
+		}
+		res.Claims = append(res.Claims, claim{*c.Text, *c.Language, *c.Query, *c.QueryEN, ents, min(max(*c.CheckWorthiness, 0), 1)})
+	}
+	sort.SliceStable(res.Claims, func(a, b int) bool { return res.Claims[a].CheckWorthiness > res.Claims[b].CheckWorthiness })
+	if n := def.Execution.ExtractorMaxClaims(); len(res.Claims) > n {
+		res.Claims = res.Claims[:n]
 	}
 	out, err := json.Marshal(res)
 	if err != nil {

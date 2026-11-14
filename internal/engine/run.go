@@ -175,6 +175,11 @@ func (r *run) exec(i int, inputs map[string]any) {
 	ctx, cancel := context.WithTimeout(r.ctx, def.Execution.Timeout)
 	defer cancel()
 	raw, err := r.e.cfg.Executor.Execute(ctx, def, adapter.Request{JobID: r.j.ID, AnalyzerID: def.ID, Inputs: inputs})
+	var skip *adapter.SkipError
+	if errors.As(err, &skip) {
+		r.skipRun(i, skip.Reason)
+		return
+	}
 	rerr := classify(ctx, err)
 	if rerr == nil {
 		if verr := def.ValidateOutput(raw); verr != nil {
@@ -211,6 +216,18 @@ func (r *run) finishRun(i int, raw json.RawMessage, rerr *job.RunError) {
 	} else {
 		r.settleLocked(i, job.RunSucceeded, nil, nil, raw)
 	}
+	r.advanceLocked()
+}
+
+// skipRun settles a running analyzer as skipped (adapter-reported reason).
+func (r *run) skipRun(i int, reason string) {
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	if r.j.Done || r.j.Analyzers[i].Status != job.RunRunning { // cancelled meanwhile
+		return
+	}
+	r.settleLocked(i, job.RunSkipped, job.Str(reason), nil, nil)
 	r.advanceLocked()
 }
 

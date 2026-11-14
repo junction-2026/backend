@@ -26,6 +26,8 @@ type Request struct {
 type Executor struct {
 	Client   *http.Client // defaults to http.DefaultClient (no client timeout; ctx governs)
 	Handlers *Handlers
+
+	factCache factCache // fact_check answers; the zero value is ready
 }
 
 func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Request) (json.RawMessage, error) {
@@ -40,6 +42,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.propaganda(ctx, def, req)
 	case registry.AdapterMistralTranslation:
 		return x.mistralTranslation(ctx, def, req)
+	case registry.AdapterFactCheck:
+		return x.factCheck(ctx, def, req)
 	case registry.AdapterLLM:
 		if def.Execution.TopicExtraction() {
 			return x.topicExtraction(ctx, def, req)
@@ -48,6 +52,12 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 	}
 	return nil, adapterErr("unknown adapter %q", def.Execution.Adapter)
 }
+
+// SkipError is returned by an adapter that has nothing to do: the engine settles
+// the run as skipped with Reason (after analyzer.started) instead of failing it.
+type SkipError struct{ Reason string }
+
+func (e *SkipError) Error() string { return "skipped: " + e.Reason }
 
 func adapterErr(format string, args ...any) *job.RunError {
 	return &job.RunError{Code: job.CodeAdapterError, Message: fmt.Sprintf(format, args...)}
