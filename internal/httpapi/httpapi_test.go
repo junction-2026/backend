@@ -103,7 +103,12 @@ func newFake() *fakeSvc {
 	f := &fakeSvc{jobs: map[string]job.Job{}, subbed: make(chan struct{})}
 	f.create = func(r engine.CreateRequest) (job.Job, error) {
 		j := mkJob("job-1", 0, job.StatusQueued)
-		j.Input = r.Input
+		if r.Scrape != nil {
+			j.Scrape = &job.Scrape{Status: job.RunPending, ScrapeRequest: *r.Scrape}
+			return j, nil
+		}
+		in := r.Input
+		j.Input = &in
 		if j.Input.ContentType == "" {
 			j.Input.ContentType = "text/plain"
 		}
@@ -282,6 +287,19 @@ func TestCreateJobValidation(t *testing.T) {
 		{"analyzers wrong type", `{"input":{"content":"x"},"analyzers":"a"}`, "analyzers"},
 		{"options wrong type", `{"input":{"content":"x"},"options":1}`, "options"},
 		{"finalize wrong type", `{"input":{"content":"x"},"options":{"finalize":"yes"}}`, "options.finalize"},
+		{"input and scrape", `{"input":{"content":"x"},"scrape":{"url":"https://x.com/alice"}}`, "input"},
+		{"scrape wrong type", `{"scrape":"https://x.com/alice"}`, "scrape"},
+		{"scrape url missing", `{"scrape":{}}`, "scrape.url"},
+		{"scrape url wrong type", `{"scrape":{"url":5}}`, "scrape.url"},
+		{"scrape url ftp", `{"scrape":{"url":"ftp://example.com/a"}}`, "scrape.url"},
+		{"scrape url relative", `{"scrape":{"url":"/alice"}}`, "scrape.url"},
+		{"scrape url too long", `{"scrape":{"url":"https://x.com/` + strings.Repeat("a", 2048) + `"}}`, "scrape.url"},
+		{"max_posts zero", `{"scrape":{"url":"https://x.com/a","max_posts":0}}`, "scrape.max_posts"},
+		{"max_posts too large", `{"scrape":{"url":"https://x.com/a","max_posts":101}}`, "scrape.max_posts"},
+		{"max_posts fraction", `{"scrape":{"url":"https://x.com/a","max_posts":1.5}}`, "scrape.max_posts"},
+		{"max_comments negative", `{"scrape":{"url":"https://x.com/a","max_comments":-1}}`, "scrape.max_comments"},
+		{"max_comments too large", `{"scrape":{"url":"https://x.com/a","max_comments":201}}`, "scrape.max_comments"},
+		{"max_comments wrong type", `{"scrape":{"url":"https://x.com/a","max_comments":"5"}}`, "scrape.max_comments"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -293,6 +311,30 @@ func TestCreateJobValidation(t *testing.T) {
 		e := wantError(t, x.do("POST", "/api/v1/jobs", `{"input":{"content":" ","content_type":"x/y"},"options":{"finalize":1}}`), 422, "validation_failed")
 		require.Len(t, e.Error.Details["fields"], 3)
 	})
+}
+
+func TestCreateScrapeJob(t *testing.T) {
+	x := newHarness(t)
+	rec := x.do("POST", "/api/v1/jobs", `{"scrape":{"url":"https://bsky.app/profile/alice.bsky.social/post/3kxyz"},"input":null}`)
+	require.Equal(t, 201, rec.Code, rec.Body.String())
+	require.Equal(t, &job.ScrapeRequest{URL: "https://bsky.app/profile/alice.bsky.social/post/3kxyz", MaxPosts: 20, MaxComments: 50}, x.svc.last.Scrape)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Nil(t, got["input"])
+	require.Equal(t, "pending", got["scrape"].(map[string]any)["status"])
+	require.EqualValues(t, 20, got["scrape"].(map[string]any)["max_posts"])
+
+	x.do("POST", "/api/v1/jobs", `{"scrape":{"url":"https://x.com/a","max_posts":100,"max_comments":0}}`)
+	require.Equal(t, &job.ScrapeRequest{URL: "https://x.com/a", MaxPosts: 100, MaxComments: 0}, x.svc.last.Scrape)
+
+	rec = x.do("POST", "/api/v1/jobs", `{"input":{"content":"hello"}}`)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Contains(t, got, "scrape")
+	require.Nil(t, got["scrape"], "text jobs carry scrape: null")
+
+	x.svc.create = func(engine.CreateRequest) (job.Job, error) { return job.Job{}, engine.ErrScrapeUnavailable }
+	wantError(t, x.do("POST", "/api/v1/jobs", `{"scrape":{"url":"https://x.com/alice"}}`), 503, "scrape_unavailable")
+	require.Equal(t, 200, x.do("GET", "/api/v1/jobs?status=scraping", "").Code)
 }
 
 func TestCreateJobTooLarge(t *testing.T) {
