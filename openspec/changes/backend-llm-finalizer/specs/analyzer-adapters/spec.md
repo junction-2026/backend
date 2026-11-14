@@ -48,7 +48,7 @@ HTTP 429, 5xx and connection errors before a response SHALL get exactly one retr
 - **THEN** finalization is `failed` with `adapter_error` after two requests
 
 ### Requirement: LLM provider errors
-A non-2xx answer SHALL fail with `adapter_error` and the message `llm provider HTTP <status>`, followed by `: <provider error.message>` when present, with every occurrence of the API key replaced by `[REDACTED]` before truncation to 300 characters. Messages SHALL NOT contain `base_url`.
+A non-2xx answer SHALL fail with `adapter_error` and the message `llm provider HTTP <status>`, followed by `: <provider error.message>` when present, with every occurrence of the API key and of each configured header value of 4 or more bytes replaced by `[REDACTED]` before truncation to 300 characters. Messages SHALL NOT contain `base_url`.
 
 #### Scenario: 400
 - **WHEN** the provider answers 400 with `{"error":{"message":"bad model"}}`
@@ -57,6 +57,10 @@ A non-2xx answer SHALL fail with `adapter_error` and the message `llm provider H
 #### Scenario: Key echoed
 - **WHEN** the provider answers 401 with a message that repeats the API key
 - **THEN** `error.message` has `[REDACTED]` in place of each occurrence
+
+#### Scenario: Header value echoed
+- **WHEN** the finalizer has `headers: {X-Proxy-Token: proxy-SECRET-42}` and the provider's error message repeats that value
+- **THEN** `error.message`, logs and Job and event JSON do not contain it
 
 ### Requirement: LLM timeout and cancellation
 The adapter SHALL run under the finalizer context, including the retry backoff. Expiry SHALL give `timeout` and job cancellation `cancelled`.

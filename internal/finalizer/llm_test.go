@@ -263,20 +263,21 @@ func TestLLMRetry429ThenSuccess(t *testing.T) {
 func TestLLMKeyNeverExposed(t *testing.T) {
 	s := newStub(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		io.WriteString(w, `{"error":{"message":"Incorrect API key provided: `+testKey+`. Check `+testKey+`"}}`)
+		io.WriteString(w, `{"error":{"message":"Incorrect API key provided: `+testKey+`. Check `+testKey+` and proxy-SECRET-42"}}`)
 	})
-	x := newLLMEngine(t, llmAnalyzers()+llmFinYAML(""), s)
+	x := newLLMEngine(t, llmAnalyzers()+llmFinYAML("      headers: {X-Proxy-Token: proxy-SECRET-42}\n"), s)
 	created, sub := create(t, x.e, selected("x"))
 	evs := drain(t, sub)
 	j, err := x.e.Get(created.ID)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, s.calls.Load(), "401 is not retried")
 	require.Equal(t, job.CodeAdapterError, j.Finalization.Error.Code)
-	require.Equal(t, "llm provider HTTP 401: Incorrect API key provided: [REDACTED]. Check [REDACTED]", j.Finalization.Error.Message)
+	require.Equal(t, "llm provider HTTP 401: Incorrect API key provided: [REDACTED]. Check [REDACTED] and [REDACTED]", j.Finalization.Error.Message)
 	jb, _ := json.Marshal(j)
 	eb, _ := json.Marshal(evs)
 	for _, out := range []string{string(jb), string(eb), x.log.String()} {
 		require.NotContains(t, out, testKey)
+		require.NotContains(t, out, "proxy-SECRET-42")
 		require.NotContains(t, out, s.URL)
 	}
 	require.Contains(t, x.log.String(), "job_id="+j.ID)

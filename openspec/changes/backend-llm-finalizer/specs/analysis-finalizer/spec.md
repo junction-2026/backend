@@ -87,7 +87,7 @@ Finalizer errors SHALL be logged with the job id and the error code only. The AP
 
 #### Scenario: Provider echoes the key
 - **WHEN** the LLM provider answers HTTP 401 with a message that repeats the API key
-- **THEN** no log line, Job or event JSON and no `finalization.error.message` contains the key
+- **THEN** no log line, Job or event JSON and no `finalization.error.message` contains the key or a configured header value
 
 ## ADDED Requirements
 

@@ -28,12 +28,15 @@ finalizer in the registry. Shared change `llm-finalizer-verdict` @ 729fe96 defin
   still accepts it absent. Extra members are dropped; `usage` comes only from the provider reply.
 - **Retries**: one retry after 1s (429: `Retry-After` seconds, capped at 5s) for 429, 5xx and
   connection errors before a response, inside the finalizer context. Other statuses fail at once.
-- **Redaction**: the provider's `error.message` has every occurrence of the API key replaced by
-  `[REDACTED]` before truncation to 300 characters, so no key prefix survives the cut. Adapter
+- **Redaction**: the provider's `error.message` has every occurrence of the API key and of each
+  configured header value (4+ bytes; shorter ones are not secrets and redacting them garbles the
+  text) replaced by `[REDACTED]` before truncation to 300 characters, so no prefix survives the
+  cut. This meets the shared "Finalization errors hide credentials" rule for configured values. Adapter
   messages never contain the URL. The runtime logs job id and error code only.
 
 ## Risks
 
 - OpenAI strict mode may not honour `minLength`; validation enforces non-empty `user_text` anyway.
 - A model may ignore the schema in `json_object`/`none` mode; the result is `invalid_output`.
-- Only the literal API key is redacted; a provider echoing a transformed key is not caught.
+- Only literal configured values are redacted; a provider echoing a transformed key is not caught.
+  `extra_body` values are not treated as secrets.

@@ -101,7 +101,7 @@ func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage j
 		return nil, nil, err
 	}
 	if status < 200 || status > 299 {
-		return nil, nil, adapterErr("%s", providerError(status, body, e.APIKey))
+		return nil, nil, adapterErr("%s", providerError(status, body, secrets(e)))
 	}
 	return decodeReply(body)
 }
@@ -142,8 +142,19 @@ func llmSend(ctx context.Context, e *registry.Execution, url string, body []byte
 	return resp.StatusCode, b, retry, wait, nil
 }
 
+// secrets are the configured values a provider might echo: the API key and
+// every header value. Values under 4 bytes are skipped: redacting them would
+// garble the message without hiding a real secret.
+func secrets(e *registry.Execution) []string {
+	out := []string{e.APIKey}
+	for _, v := range e.Headers {
+		out = append(out, v)
+	}
+	return out
+}
+
 // providerError is the redacted adapter_error message of a non-2xx answer.
-func providerError(status int, body []byte, key string) string {
+func providerError(status int, body []byte, secrets []string) string {
 	var p struct {
 		Error struct {
 			Message string `json:"message"`
@@ -152,8 +163,10 @@ func providerError(status int, body []byte, key string) string {
 	json.Unmarshal(body, &p)
 	msg := "llm provider HTTP " + strconv.Itoa(status)
 	if m := strings.TrimSpace(p.Error.Message); m != "" {
-		if key != "" {
-			m = strings.ReplaceAll(m, key, "[REDACTED]") // before truncating, so no key prefix survives
+		for _, s := range secrets { // before truncating, so no secret prefix survives
+			if len(s) >= 4 {
+				m = strings.ReplaceAll(m, s, "[REDACTED]")
+			}
 		}
 		msg += ": " + truncate(m, 300)
 	}

@@ -16,10 +16,13 @@ import (
 func TestProviderErrorRedactsBeforeTruncating(t *testing.T) {
 	key := "sk-" + strings.Repeat("k", 40)
 	// the key straddles the 300-rune cut: truncating first would leak its prefix
-	msg := providerError(401, []byte(`{"error":{"message":"`+strings.Repeat("x", 290)+key+`"}}`), key)
+	msg := providerError(401, []byte(`{"error":{"message":"`+strings.Repeat("x", 290)+key+`"}}`), []string{key})
 	require.NotContains(t, msg, "sk-")
 	require.True(t, strings.HasPrefix(msg, "llm provider HTTP 401: "+strings.Repeat("x", 290)+"[REDACTE"))
-	require.Equal(t, "llm provider HTTP 502", providerError(502, []byte("<html>bad gateway</html>"), key))
+	require.Equal(t, "llm provider HTTP 502", providerError(502, []byte("<html>bad gateway</html>"), []string{key}))
+	// configured header values are secrets too; tiny values are left alone
+	require.Equal(t, "llm provider HTTP 403: bad token [REDACTED] for key [REDACTED] (v1)",
+		providerError(403, []byte(`{"error":{"message":"bad token proxy-tok-9 for key `+key+` (v1)"}}`), []string{key, "proxy-tok-9", "v1"}))
 }
 
 func TestDecodeReply(t *testing.T) {
