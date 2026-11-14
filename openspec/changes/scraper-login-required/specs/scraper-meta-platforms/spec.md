@@ -20,8 +20,12 @@ The Instagram module SHALL map failures to the shared error codes: private profi
 - **THEN** the status is 503 `login_required` with `details.platform` `instagram`, and not `rate_limited`; with no session loaded `details.missing_settings` is `["INSTAGRAM_SESSION_FILE"]`
 
 #### Scenario: Anonymous 404
-- **WHEN** no session file is loaded and `web_profile_info`, the media endpoint or the feed endpoint answers 404, or answers 200 without a user or media item
+- **WHEN** no session file is loaded and `web_profile_info` or the media endpoint answers 404, or answers 200 without a user or media item
 - **THEN** the status is 503 `login_required` with `details.platform` `instagram` and `details.missing_settings` `["INSTAGRAM_SESSION_FILE"]`
+
+#### Scenario: Refused feed read
+- **WHEN** no session file is loaded and the feed endpoint answers 404 after the profile was read
+- **THEN** the response is 200 with the profile, `posts: []` and a `history_unavailable` warning
 
 #### Scenario: Missing account
 - **WHEN** a session file is loaded and Instagram has no such profile
