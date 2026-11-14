@@ -262,6 +262,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	}
 	if e.Timeout == 0 {
 		e.Timeout = 30 * time.Second
+		if a.Trigger == TriggerAfterAll { // synthesis is slower than a single analysis
+			e.Timeout = 60 * time.Second
+		}
 	}
 	if e.PollInterval == 0 {
 		e.PollInterval = time.Second

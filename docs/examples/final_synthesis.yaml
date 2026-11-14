@@ -1,0 +1,33 @@
+# Example finalizer registry entry. FINALIZER_URL is the external synthesis
+# service (its scoring methodology is out of scope for the orchestrator).
+# Omit `timeout` to get the 60s finalizer default.
+analyzers:
+  - id: final_synthesis
+    name: Final synthesis
+    category: synthesis
+    trigger: after_all_analyzers_settled
+    input:
+      bindings:
+        content: $input
+        results: $job.analyzers
+        coverage: $job.coverage
+    execution:
+      adapter: http_sync
+      endpoint: ${FINALIZER_URL}
+      timeout: 60s
+    output:
+      schema:
+        type: object
+        required: [verdict, categories, explanation]
+        properties:
+          verdict: {enum: [low_risk, medium_risk, high_risk, insufficient_evidence]}
+          overall_score: {type: [number, "null"], minimum: 0, maximum: 100}
+          categories:
+            type: array
+            items:
+              type: object
+              required: [id]
+              properties:
+                id: {type: string}
+                score: {type: [number, "null"], minimum: 0, maximum: 100}
+          explanation: {type: string, minLength: 1}
