@@ -237,7 +237,8 @@ func TestObsoleteScraperVariablesWarned(t *testing.T) {
 	for _, name := range obsoleteScraperVars {
 		require.Equal(t, 1, strings.Count(logs.String(), `"variable":"`+name+`"`), name)
 	}
-	for _, value := range []string{"old-scraper-host", "old-s3cret-token", "8099"} {
+	// Whole values only: a bare "8099" also matches log timestamps (e.g. 20:59:58.380995027Z).
+	for _, value := range []string{"old-scraper-host", "old-s3cret-token", "0.0.0.0:8099"} {
 		require.NotContains(t, logs.String(), value)
 	}
 }
