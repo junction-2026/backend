@@ -35,6 +35,8 @@ RECOGNIZED = [
     ("https://www.bsky.app/profile/alice.bsky.social?ref=x#top", "bluesky", "profile"),
     ("http://m.instagram.com/alice?igsh=abc", "instagram", "profile"),
     ("https://MASTODON.social/@alice?foo=1#bar", "mastodon", "profile"),
+    ("https://social.example.xn--p1ai/@alice", "mastodon", "profile"),
+    ("https://my-instance.example.co.uk/@alice", "mastodon", "profile"),
 ]
 
 UNSUPPORTED = [
@@ -52,6 +54,11 @@ UNSUPPORTED = [
     "https://threads.net/search",
     "https://127.0.0.1/@alice",          # IP literals are never contacted
     "https://localhost/@alice",
+    "https://0x7f.0.0.1/@alice",         # hex, octal and short IPv4 spellings
+    "https://0x7f.1/@alice",
+    "https://0177.0.0.1/@alice",
+    "https://2130706433/@alice",
+    "https://[::1]/@alice",
     "https://mastodon.social/about",
 ]
 

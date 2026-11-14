@@ -13,14 +13,15 @@ from .base import Recognized, ScrapeRequest
 NAME = "mastodon"
 _PAGE = 40  # Mastodon caps statuses pages at 40
 _MAX_PAGES = 10
-_IP_LITERAL = re.compile(r"^[\d.]+$|:")
+# A real TLD starts with a letter; this drops every IPv4 spelling (decimal, octal, hex) and IPv6 (":" is not a label char).
+_HOSTNAME = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z][a-z0-9-]*")
 _PARSE_ERRORS = (KeyError, TypeError, ValueError, AttributeError)  # ValueError covers pydantic ValidationError
 
 
 def recognize(u) -> Recognized | None:
     h, s = u.host, u.segments
-    # Any host that is not another listed platform; no IP literals or dotless names (the API call goes there).
-    if h in LISTED_HOSTS or "." not in h or _IP_LITERAL.search(h) or not s:
+    # Any host that is not another listed platform; no IP literals (any spelling) or dotless names (the API call goes there).
+    if h in LISTED_HOSTS or not _HOSTNAME.fullmatch(h) or not s:
         return None
     if s[0].startswith("@") and len(s[0]) > 1:
         user, rest = s[0][1:], s[1:]
