@@ -105,6 +105,7 @@ type Execution struct {
 	MaxSentences  *int            `yaml:"max_sentences"`
 	Short         *TechniqueModel `yaml:"short"`
 	Long          *TechniqueModel `yaml:"long"`
+	Spans         *TechniqueSpans `yaml:"spans"`
 
 	MinCheckWorthiness *float64 `yaml:"min_check_worthiness"`
 	MaxClaims          *int     `yaml:"max_claims"`
@@ -499,6 +500,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	if e.Timeout < 0 || e.PollInterval < 0 {
 		return fmt.Errorf("timeout and poll_interval must be positive")
 	}
+	if e.Spans != nil && e.Spans.Timeout >= e.Timeout {
+		return fmt.Errorf("execution.spans.timeout must be shorter than execution.timeout (%s)", e.Timeout)
+	}
 	switch e.Adapter {
 	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection, AdapterMistralTranslation:
 		if e.Endpoint == "" {
@@ -596,7 +600,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		}
 		e.Headers = hdr
 		if e.Adapter == AdapterLLM {
-			if err := e.loadLLM(opt.Getenv); err != nil {
+			if err := e.loadLLM(opt.Getenv, "execution."); err != nil {
 				return err
 			}
 		}
@@ -639,11 +643,13 @@ func (a *Analyzer) normalize(opt Options) error {
 }
 
 // loadLLM expands the llm settings of an enabled analyzer, checks the required
-// ones and reads the prompt file. Errors name the field, never a value.
-func (e *Execution) loadLLM(getenv func(string) (string, bool)) error {
+// ones and reads the prompt file. Errors name the field (after prefix), never a value.
+func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) error {
 	who := "llm finalizer"
 	if e.TopicExtraction() {
 		who = "topic_extraction analyzer"
+	} else if e.Adapter == AdapterTechniqueClassifier {
+		who = "technique_classifier with spans"
 	}
 	for _, f := range []struct {
 		name     string
@@ -655,25 +661,25 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool)) error {
 	} {
 		var err error
 		if *f.v, err = expand(*f.v, getenv); err != nil {
-			return fmt.Errorf("execution.%s: %w", f.name, err)
+			return fmt.Errorf("%s%s: %w", prefix, f.name, err)
 		}
 		if f.required && strings.TrimSpace(*f.v) == "" {
-			return fmt.Errorf("execution.%s is empty; it is required for an enabled %s", f.name, who)
+			return fmt.Errorf("%s%s is empty; it is required for an enabled %s", prefix, f.name, who)
 		}
 	}
 	switch e.ResponseFormat {
 	case FormatJSONSchema, FormatJSONObject, FormatNone:
 	default:
-		return fmt.Errorf("execution.response_format must be %s, %s or %s", FormatJSONSchema, FormatJSONObject, FormatNone)
+		return fmt.Errorf("%sresponse_format must be %s, %s or %s", prefix, FormatJSONSchema, FormatJSONObject, FormatNone)
 	}
 	body, err := expandAny(e.ExtraBody, getenv)
 	if err != nil {
-		return fmt.Errorf("execution.extra_body: %w", err)
+		return fmt.Errorf("%sextra_body: %w", prefix, err)
 	}
 	e.ExtraBody = body.(map[string]any)
 	b, err := os.ReadFile(e.PromptFile)
 	if err != nil {
-		return fmt.Errorf("execution.prompt_file cannot be read: %w", err)
+		return fmt.Errorf("%sprompt_file cannot be read: %w", prefix, err)
 	}
 	e.Prompt = string(b)
 	return nil
