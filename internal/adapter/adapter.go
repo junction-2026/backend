@@ -1,6 +1,6 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
 // propaganda_detection, mistral_translation and custom (in-process handlers), following analyzer-service-protocol,
-// plus llm (OpenAI-compatible chat completions) for the finalizer.
+// plus llm (OpenAI-compatible chat completions) for the finalizer and the topic_extraction task.
 package adapter
 
 import (
@@ -41,6 +41,9 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 	case registry.AdapterMistralTranslation:
 		return x.mistralTranslation(ctx, def, req)
 	case registry.AdapterLLM:
+		if def.Execution.TopicExtraction() {
+			return x.topicExtraction(ctx, def, req)
+		}
 		return nil, adapterErr("the llm adapter runs only as the finalizer")
 	}
 	return nil, adapterErr("unknown adapter %q", def.Execution.Adapter)

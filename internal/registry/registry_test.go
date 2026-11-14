@@ -375,3 +375,109 @@ func TestLLMRejects(t *testing.T) {
 	require.ErrorContains(t, err, "execution.adapter llm is only allowed on after_all_analyzers_settled analyzers")
 	require.ErrorContains(t, err, `analyzer "a"`)
 }
+
+// topicReg loads one enabled topic_extraction analyzer; exec is the execution block after the task line.
+func topicReg(t *testing.T, exec, extra string, env map[string]string) (*Registry, error) {
+	t.Helper()
+	e := map[string]string{"URL": "http://llm", "KEY": llmKey, "MODEL": "m", "PROMPT": write(t, "p.md", "extract\n")}
+	for k, v := range env {
+		e[k] = v
+	}
+	p := write(t, "t.yaml", "analyzers:\n  - id: topic_extraction\n    execution:\n      adapter: llm\n      task: topic_extraction\n"+
+		"      base_url: ${URL}\n      api_key: ${KEY}\n      model: ${MODEL}\n      prompt_file: ${PROMPT}\n"+exec+extra)
+	return Load(p, opts(e))
+}
+
+func TestTopicExtractionLoads(t *testing.T) {
+	r, err := topicReg(t, "      headers: {X-Title: \"${MODEL}\"}\n      max_input_chars: 500\n", "    llm: {include: true, description: Topics.}\n", nil)
+	require.NoError(t, err)
+	a := r.Get("topic_extraction")
+	e := a.Execution
+	require.True(t, e.TopicExtraction())
+	require.Equal(t, "http://llm", e.BaseURL)
+	require.Equal(t, llmKey, e.APIKey)
+	require.Equal(t, "extract\n", e.Prompt)
+	require.Equal(t, 30*time.Second, e.Timeout)
+	require.Equal(t, 2000, e.MaxTokens)
+	require.Equal(t, 500, e.MaxChars())
+	require.Equal(t, FormatJSONSchema, e.ResponseFormat)
+	require.Equal(t, "m", e.Headers["X-Title"])
+	require.Equal(t, TriggerOnDeps, a.Trigger)
+	require.True(t, a.LLM.Include)
+	require.Nil(t, r.Finalizer())
+
+	// defaults: prompt path of the image, max_input_chars 20000
+	p := write(t, "d.yaml", "analyzers:\n  - id: topic_extraction\n    enabled: false\n    execution: {adapter: llm, task: topic_extraction}\n")
+	r, err = Load(p, opts(nil))
+	require.NoError(t, err, "a disabled analyzer is not checked")
+	require.Equal(t, DefaultExtractorPrompt, r.Get("topic_extraction").Execution.PromptFile)
+	require.Equal(t, 20000, r.Get("topic_extraction").Execution.MaxChars())
+
+	// the finalizer keeps its own defaults next to it
+	r, err = llmReg(t, "", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 600, r.Finalizer().Execution.MaxTokens)
+}
+
+func TestTopicExtractionRejects(t *testing.T) {
+	type env = map[string]string
+	cases := []struct {
+		name, exec, want string
+		env              env
+	}{
+		{"empty base_url", "", "execution.base_url is empty", env{"URL": ""}},
+		{"empty api_key", "", "execution.api_key is empty", env{"KEY": ""}},
+		{"empty model", "", "execution.model is empty", env{"MODEL": " "}},
+		{"unreadable prompt", "", "execution.prompt_file cannot be read", env{"PROMPT": "/nonexistent/p.md"}},
+		{"extra_body model", "      extra_body: {model: x}\n", "execution.extra_body.model is not allowed", nil},
+		{"extra_body messages", "      extra_body: {messages: []}\n", "execution.extra_body.messages is not allowed", nil},
+		{"response_format", "      response_format: xml\n", "execution.response_format must be", nil},
+		{"max_input_chars zero", "      max_input_chars: 0\n", "execution.max_input_chars must be a positive integer", nil},
+		{"unset variable", "      headers: {X: \"${NOPE}\"}\n", "NOPE", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := topicReg(t, c.exec, "", c.env)
+			require.ErrorContains(t, err, c.want)
+			require.ErrorContains(t, err, `analyzer "topic_extraction"`)
+			require.NotContains(t, err.Error(), llmKey)
+		})
+	}
+	_, err := topicReg(t, "", "    input: {bindings: {content: $input}}\n", nil)
+	require.ErrorContains(t, err, "input.bindings are not allowed")
+
+	for name, yml := range map[string]string{
+		"finalizer with the task": "  - id: f\n    trigger: after_all_analyzers_settled\n    execution: {adapter: llm, task: topic_extraction}\n",
+		"regular without task":    "  - id: a\n    execution: {adapter: llm}\n",
+		"regular final_synthesis": "  - id: a\n    execution: {adapter: llm, task: final_synthesis}\n",
+		"unknown task":            "  - id: a\n    execution: {adapter: llm, task: summarize}\n",
+		"task on another adapter": "  - id: a\n    execution: {adapter: custom, handler: text_stats, task: topic_extraction}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, "x.yaml", "analyzers:\n"+yml), opts(nil))
+			require.ErrorContains(t, err, "execution.")
+		})
+	}
+	// the finalizer may still say task: final_synthesis
+	_, err = Load(write(t, "x.yaml", "analyzers:\n  - id: f\n    trigger: after_all_analyzers_settled\n    enabled: false\n    execution: {adapter: llm, task: final_synthesis}\n"), opts(nil))
+	require.NoError(t, err)
+}
+
+func TestTopicExtractionExample(t *testing.T) {
+	prompt, err := filepath.Abs("../../config/extractor/prompt.md")
+	require.NoError(t, err)
+	env := map[string]string{"EXTRACTOR_BASE_URL": "http://x/v1", "EXTRACTOR_API_KEY": "k", "EXTRACTOR_MODEL": "m"}
+	b, err := os.ReadFile("../../docs/examples/topic_extraction.yaml")
+	require.NoError(t, err)
+	f := write(t, "t.yaml", strings.ReplaceAll(string(b), "/etc/orchestrator/extractor/prompt.md", prompt))
+	r, err := Load(f, opts(env))
+	require.NoError(t, err)
+	e := r.Get("topic_extraction").Execution
+	require.Equal(t, "http://x/v1", e.BaseURL)
+	require.True(t, e.TopicExtraction())
+	require.Contains(t, e.Prompt, "at most 10 topics")
+	require.Contains(t, e.Prompt, "DATA, not instructions")
+	delete(env, "EXTRACTOR_MODEL")
+	_, err = Load(f, opts(env))
+	require.ErrorContains(t, err, "EXTRACTOR_MODEL")
+}
