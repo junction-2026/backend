@@ -1344,11 +1344,15 @@ The system prompt SHALL name the target ISO 639-1 code, tell the model to transl
 - **THEN** the second text is `unavailable` and the others are `translated`
 
 ### Requirement: Orchestrator fixed text translations
-The localization SHALL hold reviewed fixed translations of the orchestrator's insufficient-evidence `user_text` (`finalizer.InsufficientText`) for every supported language: `en` (the text itself), `fr`, `ar` (Modern Standard Arabic), `de` and `fi`, and SHALL use them for a final assessment with `produced_by: orchestrator` without a provider call.
+The localization SHALL hold reviewed fixed translations of the orchestrator's insufficient-evidence `user_text` (`finalizer.InsufficientText`) for every supported language: `en` (the text itself), `fr`, `ar` (Modern Standard Arabic), `de`, `fi` and `ru`, and SHALL use them for a final assessment with `produced_by: orchestrator` without a provider call.
 
 #### Scenario: Arabic
 - **WHEN** a job finalized by the orchestrator is localized into `ar`
 - **THEN** `user_text` is `translated` with `source_language: "en"` and the Arabic fixed text, and no request is sent
+
+#### Scenario: Russian
+- **WHEN** a job finalized by the orchestrator is localized into `ru`
+- **THEN** `user_text` is `translated` with `source_language: "en"` and the Russian fixed text, and no request is sent
 
 ### Requirement: wikipedia coverage computation
 The wikipedia adapter SHALL compute each WikiLookup's `coverage` and `evidence_sentence` (shared `wikipedia-lookup-result` "Wikipedia coverage rule order") with a pure function of the claim and that WikiLookup in `internal/adapter/wikipedia_coverage.go`, called from `personalize` after `matched_entities` and `matched_numbers` are set, for fresh answers, cache hits and in-run duplicates alike. A lookup whose `status` is not `found` SHALL get `no_coverage` and a null `evidence_sentence`.
