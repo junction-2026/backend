@@ -31,6 +31,11 @@ const (
 	AdapterCustom    = "custom"
 
 	AdapterPropagandaDetection = "propaganda_detection"
+	AdapterMistralTranslation  = "mistral_translation"
+
+	DefaultMistralEndpoint = "https://api.mistral.ai/v1/chat/completions"
+	DefaultMistralModel    = "mistral-small-latest"
+	DefaultMaxInputChars   = 20000
 )
 
 var (
@@ -56,6 +61,19 @@ type Execution struct {
 	Timeout      time.Duration     `yaml:"timeout"`
 	PollInterval time.Duration     `yaml:"poll_interval"`
 	Handler      string            `yaml:"handler"`
+
+	// mistral_translation only
+	APIKey        string `yaml:"api_key"`
+	Model         string `yaml:"model"`
+	MaxInputChars *int   `yaml:"max_input_chars"`
+}
+
+// MaxChars is max_input_chars with its default.
+func (e Execution) MaxChars() int {
+	if e.MaxInputChars == nil {
+		return DefaultMaxInputChars
+	}
+	return *e.MaxInputChars
 }
 
 type Output struct {
@@ -266,8 +284,32 @@ func (a *Analyzer) normalize(opt Options) error {
 			return fmt.Errorf("execution.method must be POST or absent for adapter %s", e.Adapter)
 		case e.Handler != "" || e.PollInterval != 0:
 			return fmt.Errorf("execution.handler and execution.poll_interval are not allowed for adapter %s", e.Adapter)
+		}
+		for name, src := range a.Input.Bindings { // only `text`, from the job input or a dependency
+			if name != "text" || (src != "$input" && !strings.HasPrefix(src, "$analyzers.")) {
+				return fmt.Errorf("input.bindings for adapter %s accept only text: $input or text: $analyzers.<id>", e.Adapter)
+			}
+		}
+	}
+	if e.Adapter == AdapterMistralTranslation {
+		switch {
+		case e.Method != "" || e.Handler != "" || e.PollInterval != 0:
+			return fmt.Errorf("execution.method, execution.handler and execution.poll_interval are not allowed for adapter %s", e.Adapter)
 		case len(a.Input.Bindings) > 0:
-			return fmt.Errorf("input.bindings are not allowed for adapter %s (its text source is fixed)", e.Adapter)
+			return fmt.Errorf("input.bindings are not allowed for adapter %s (it translates the job input)", e.Adapter)
+		case e.APIKey == "":
+			return fmt.Errorf("execution.api_key is required for adapter %s", e.Adapter)
+		case e.MaxInputChars != nil && *e.MaxInputChars <= 0:
+			return fmt.Errorf("execution.max_input_chars must be a positive integer")
+		}
+		if e.Endpoint == "" {
+			e.Endpoint = DefaultMistralEndpoint
+		}
+		if e.Model == "" {
+			e.Model = DefaultMistralModel
+		}
+		if e.Timeout == 0 {
+			e.Timeout = 60 * time.Second
 		}
 	}
 	if e.Method == "" {
@@ -286,7 +328,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		return fmt.Errorf("timeout and poll_interval must be positive")
 	}
 	switch e.Adapter {
-	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection:
+	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection, AdapterMistralTranslation:
 		if e.Endpoint == "" {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
 		}
@@ -301,6 +343,12 @@ func (a *Analyzer) normalize(opt Options) error {
 		var err error
 		if e.Endpoint, err = expand(e.Endpoint, opt.Getenv); err != nil {
 			return fmt.Errorf("execution.endpoint: %w", err)
+		}
+		if e.APIKey, err = expand(e.APIKey, opt.Getenv); err != nil {
+			return fmt.Errorf("execution.api_key: %w", err)
+		}
+		if e.Model, err = expand(e.Model, opt.Getenv); err != nil {
+			return fmt.Errorf("execution.model: %w", err)
 		}
 		hdr := make(map[string]string, len(e.Headers))
 		for k, v := range e.Headers {

@@ -1,11 +1,26 @@
-# Example registry entry for the IDA-SERICS/PropagandaDetection service.
-# PROPAGANDA_DETECTION_URL is the service's prediction endpoint, e.g.
-# http://propaganda-detection:8000/predict. Add this file to the directory in
-# ANALYZERS_CONFIG (or merge the entry into your registry file) and set the variable.
+# Example registry entries: translate the input to English with Mistral, then run the
+# IDA-SERICS/PropagandaDetection service on the translation (it expects English text).
+# MISTRAL_API_KEY is a Mistral API key; PROPAGANDA_DETECTION_URL is the service's prediction
+# endpoint, e.g. http://propaganda-detection:8000/predict. Add this file to the directory in
+# ANALYZERS_CONFIG (or merge the entries into your registry file) and set both variables.
+# To analyze the original text instead, delete `translation`, `depends_on` and `input`.
 analyzers:
+  - id: translation
+    name: Translation to English
+    category: translation
+    execution:
+      adapter: mistral_translation
+      api_key: ${MISTRAL_API_KEY}
+      model: mistral-small-latest
+      timeout: 60s
+      # max_input_chars: 20000
   - id: propaganda_detection
     name: Propaganda detection
     category: propaganda
+    depends_on: [translation]
+    input:
+      bindings:
+        text: $analyzers.translation
     execution:
       adapter: propaganda_detection
       endpoint: ${PROPAGANDA_DETECTION_URL}
