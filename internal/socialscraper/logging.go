@@ -14,7 +14,7 @@ const redacted = "[redacted]"
 var bearerRe = regexp.MustCompile(`(?i)(bearer\s+)[^\s,;"'}]+`)
 
 // secretEnv are the environment variables whose values never reach a log line.
-var secretEnv = []string{"SCRAPER_TOKEN", "OXYLABS_WEB_API_KEY", "OXYLABS_USERNAME", "OXYLABS_PASSWORD"}
+var secretEnv = []string{"SCRAPER_TOKEN", "OXYLABS_WEB_API_KEY", "OXYLABS_USERNAME", "OXYLABS_PASSWORD", "OXYLABS_AI_STUDIO_API_KEY"}
 
 // Redactor replaces `Bearer <...>` values and the secret values it was built with by [redacted].
 type Redactor struct{ secrets []string }

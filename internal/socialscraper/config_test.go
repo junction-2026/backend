@@ -53,3 +53,29 @@ func TestWebConfig(t *testing.T) {
 		assert.NotContains(t, err.Error(), "s3cret")
 	}
 }
+
+func TestAIStudioConfig(t *testing.T) {
+	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := LoadConfig(get(map[string]string{"OXYLABS_API": "ai_studio"}))
+	require.NoError(t, err, "a missing key does not abort startup")
+	assert.Equal(t, APIAIStudio, c.Web.API)
+	assert.Empty(t, c.Web.AIStudioKey)
+	assert.Empty(t, c.Web.AIStudioURL, "empty means DefaultAIStudioURL")
+
+	c, err = LoadConfig(get(map[string]string{"OXYLABS_API": "ai_studio", "OXYLABS_AI_STUDIO_API_KEY": " k ", "OXYLABS_AI_STUDIO_URL": "http://localhost:9000/"}))
+	require.NoError(t, err)
+	assert.Equal(t, "k", c.Web.AIStudioKey)
+	assert.Equal(t, "http://localhost:9000", c.Web.AIStudioURL)
+
+	for _, bad := range []string{"api-aistudio.oxylabs.io", "ftp://x.example", "/relative", "https://"} {
+		_, err := LoadConfig(get(map[string]string{"OXYLABS_AI_STUDIO_URL": bad}))
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "OXYLABS_AI_STUDIO_URL")
+		assert.NotContains(t, err.Error(), bad)
+	}
+}
+
+func TestRedactorCoversAIStudioKey(t *testing.T) {
+	r := NewRedactor(env(map[string]string{"OXYLABS_AI_STUDIO_API_KEY": "aistudio-key-77"}))
+	assert.NotContains(t, r.Redact("x-api-key aistudio-key-77"), "aistudio-key-77")
+}

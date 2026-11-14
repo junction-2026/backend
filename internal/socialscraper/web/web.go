@@ -1,5 +1,5 @@
 // Package web scrapes any http(s) page that no platform module claims: the page is fetched through the
-// Oxylabs Web API (default) or Web Scraper API, its main text is extracted with go-trafilatura and its
+// Oxylabs Web API (default) or Web Scraper API (HTML, aistudio.go covers Oxylabs AI Studio), its main text is extracted with go-trafilatura and its
 // metadata read from JSON-LD, Open Graph and HTML meta tags. The server never contacts the page itself.
 package web
 
@@ -25,12 +25,16 @@ type Module struct {
 	HTTP *http.Client
 	// WebAPIURL and WebScraperAPIURL override the provider endpoints (tests); empty means Oxylabs.
 	WebAPIURL, WebScraperAPIURL string
+	// AIStudioURL overrides cfg.AIStudioURL (tests).
+	AIStudioURL string
 
 	cfg        ss.WebConfig
 	upstream   time.Duration // bound of an unrendered fetch
 	cache      *cache
 	retryDelay time.Duration
-	now        func() time.Time
+	// AI Studio run polling: first interval and its cap.
+	pollStart, pollMax time.Duration
+	now                func() time.Time
 }
 
 // New returns the module over a copy of hc that never follows redirects (the Authorization header must not
@@ -39,7 +43,7 @@ type Module struct {
 func New(cfg ss.WebConfig, upstream time.Duration, hc *http.Client) *Module {
 	c := *hc
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	m := &Module{HTTP: &c, cfg: cfg, upstream: upstream, retryDelay: time.Second, now: time.Now}
+	m := &Module{HTTP: &c, cfg: cfg, upstream: upstream, retryDelay: time.Second, pollStart: time.Second, pollMax: 3 * time.Second, now: time.Now}
 	m.cache = newCache(cfg.CacheTTL, func() time.Time { return m.now() })
 	return m
 }
@@ -47,7 +51,11 @@ func New(cfg ss.WebConfig, upstream time.Duration, hc *http.Client) *Module {
 // missing names the unset provider settings.
 func (m *Module) missing() []string {
 	var out []string
-	if m.cfg.API == ss.APIWebScraper {
+	if m.cfg.API == ss.APIAIStudio {
+		if m.cfg.AIStudioKey == "" {
+			out = append(out, "OXYLABS_AI_STUDIO_API_KEY")
+		}
+	} else if m.cfg.API == ss.APIWebScraper {
 		if m.cfg.Username == "" {
 			out = append(out, "OXYLABS_USERNAME")
 		}
@@ -106,6 +114,14 @@ func (m *Module) Scrape(ctx context.Context, t ss.Target, _ ss.Request) (*ss.Res
 	}
 	u := *t.URL
 	u.Fragment, u.RawFragment = "", ""
+	if m.cfg.API == ss.APIAIStudio {
+		res, err := m.scrapeAIStudio(ctx, &u)
+		if err != nil {
+			return nil, err
+		}
+		m.cache.put(key, res)
+		return res, nil
+	}
 	s := &session{m: m, target: u.String()}
 
 	min := m.cfg.MinTextChars
@@ -142,11 +158,7 @@ func (m *Module) Scrape(ctx context.Context, t ss.Target, _ ss.Request) (*ss.Res
 	}
 	text, truncated := capText(text)
 	meta := doc.metadata()
-	host := strings.TrimPrefix(strings.ToLower(strings.TrimSuffix(final.Hostname(), ".")), "www.")
-	var domain *string
-	if net.ParseIP(host) == nil {
-		domain = registeredDomain(host)
-	}
+	host, domain := hostDomain(final)
 	res := &ss.Result{
 		Platform: platform, URLKind: ss.KindPage,
 		Page: &ss.Page{
@@ -159,6 +171,15 @@ func (m *Module) Scrape(ctx context.Context, t ss.Target, _ ss.Request) (*ss.Res
 	}
 	m.cache.put(key, res)
 	return res, nil
+}
+
+// hostDomain computes host and registered domain locally from the final URL.
+func hostDomain(final *url.URL) (string, *string) {
+	host := strings.TrimPrefix(strings.ToLower(strings.TrimSuffix(final.Hostname(), ".")), "www.")
+	if net.ParseIP(host) != nil {
+		return host, nil
+	}
+	return host, registeredDomain(host)
 }
 
 func chars(s string) int { return utf8.RuneCountInString(s) }
