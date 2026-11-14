@@ -19,7 +19,7 @@ import (
 )
 
 // Supported are the localization languages (shared "Localization languages").
-var Supported = []string{"en", "fr", "ar", "de", "fi"}
+var Supported = []string{"en", "fr", "ar", "de", "fi", "ru"}
 
 // Language returns the lower-case primary subtag of code and whether it is supported ("DE-at" -> "de").
 func Language(code string) (string, bool) {
@@ -35,6 +35,7 @@ var insufficient = map[string]string{
 	"ar": "لم يُسفر أيٌّ من التحليلات عن نتيجة قابلة للاستخدام، لذا يتعذّر إصدار حكم.",
 	"de": "Keine Analyse hat ein verwertbares Ergebnis geliefert, daher kann kein Urteil abgegeben werden.",
 	"fi": "Mikään analyysi ei tuottanut käyttökelpoista tulosta, joten arviota ei voida antaa.",
+	"ru": "Ни один анализ не дал пригодного результата, поэтому вынести вердикт невозможно.",
 }
 
 // LocalizedText statuses.

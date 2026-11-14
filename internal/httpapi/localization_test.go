@@ -106,7 +106,7 @@ func TestLocalizationErrors(t *testing.T) {
 	} {
 		e := wantError(t, x.do("GET", c.path, ""), c.status, c.code)
 		if c.code == "unsupported_language" {
-			require.Equal(t, []any{"en", "fr", "ar", "de", "fi"}, e.Error.Details["supported"])
+			require.Equal(t, []any{"en", "fr", "ar", "de", "fi", "ru"}, e.Error.Details["supported"])
 		}
 	}
 	rec := x.do("POST", "/api/v1/jobs/done/localization?language=ar", "")
@@ -165,7 +165,7 @@ func TestLocalizationIsReadOnly(t *testing.T) {
 
 	before := x.do("GET", "/api/v1/jobs/j1", "").Body.String()
 	stored := doneJob("j1") // an independent deep copy of what the service holds
-	for _, l := range []string{"ar", "de", "fi", "ar"} {
+	for _, l := range []string{"ar", "de", "fi", "ar", "ru-RU"} {
 		require.Equal(t, 200, x.do("GET", "/api/v1/jobs/j1/localization?language="+l, "").Code)
 	}
 	require.Equal(t, before, x.do("GET", "/api/v1/jobs/j1", "").Body.String())
