@@ -1,5 +1,5 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
-// propaganda_detection, mistral_translation, technique_classifier, news_search and custom (in-process handlers), following analyzer-service-protocol,
+// propaganda_detection, mistral_translation, technique_classifier, llm_techniques, news_search and custom (in-process handlers), following analyzer-service-protocol,
 // plus llm (OpenAI-compatible chat completions) for the finalizer and the topic_extraction task.
 package adapter
 
@@ -51,6 +51,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.newsSearch(ctx, def, req)
 	case registry.AdapterSourceInfo:
 		return x.sourceInfo(ctx, def, req)
+	case registry.AdapterLLMTechniques:
+		return x.llmTechniques(ctx, def, req)
 	case registry.AdapterLLM:
 		if def.Execution.TopicExtraction() {
 			return x.topicExtraction(ctx, def, req)
@@ -105,6 +107,12 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 	}
 	if def.Execution.Adapter == registry.AdapterTechniqueClassifier {
 		out[jobContentKey] = j.Input.Content // for the span step only; never sent to the classification models
+	}
+	if def.Execution.Adapter == registry.AdapterLLMTechniques {
+		out[jobContentKey] = j.Input.Content
+		if j.Scrape == nil { // a scraped job's title is an account display name, not a headline
+			out[jobTitleKey] = j.Input.Source.Title
+		}
 	}
 	return out
 }

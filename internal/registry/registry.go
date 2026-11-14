@@ -92,7 +92,11 @@ type Execution struct {
 	RetryModel         string         `yaml:"retry_model"`
 	RetryMinRemaining  *time.Duration `yaml:"retry_min_remaining"`
 
-	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
+	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation, llm topic_extraction and llm_techniques only
+
+	// llm_techniques only (base_url, api_key, model, prompt_file, temperature, max_tokens and headers are shared)
+	MinConfidence       *float64 `yaml:"min_confidence"`
+	MaxFindingsPerLabel *int     `yaml:"max_findings_per_label"`
 
 	// mistral_translation only: skip the Mistral call for text that is clearly English
 	SkipEnglish     *bool    `yaml:"skip_english"`
@@ -492,6 +496,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	if err := a.checkSourceInfo(); err != nil {
 		return err
 	}
+	if err := a.checkLLMTechniques(); err != nil {
+		return err
+	}
 	if e.Adapter == AdapterMistralTranslation {
 		switch {
 		case e.Method != "" || e.Handler != "" || e.PollInterval != 0:
@@ -569,6 +576,7 @@ func (a *Analyzer) normalize(opt Options) error {
 	case AdapterNewsSearch: // base_url, not endpoint
 	case AdapterTechniqueClassifier: // endpoints are in the short and long blocks
 	case AdapterSourceInfo: // no endpoint; the table file is checked below
+	case AdapterLLMTechniques: // base_url; checked in checkLLMTechniques
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -663,7 +671,7 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 		}
 		e.Headers = hdr
-		if e.Adapter == AdapterLLM {
+		if e.Adapter == AdapterLLM || e.Adapter == AdapterLLMTechniques {
 			if err := e.loadLLM(opt.Getenv, "execution."); err != nil {
 				return err
 			}
@@ -714,6 +722,8 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) e
 		who = "topic_extraction analyzer"
 	} else if e.Adapter == AdapterTechniqueClassifier {
 		who = "technique_classifier with spans"
+	} else if e.Adapter == AdapterLLMTechniques {
+		who = "llm_techniques analyzer"
 	}
 	for _, f := range []struct {
 		name     string

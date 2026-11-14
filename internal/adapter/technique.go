@@ -119,9 +119,14 @@ func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyz
 	if err != nil {
 		return nil, err
 	}
+	expLang := explanationLanguage(lang)
+	for i := range sp.detected {
+		explain(&sp.detected[i], expLang)
+	}
 	out, err := json.Marshal(map[string]any{
 		"words": words, "results": results, "detected": sp.detected,
 		"span_method": sp.method, "span_status": sp.status, "spans_truncated": sp.truncated,
+		"explanation_language": expLang, "glossary_version": techniqueGlossary.Version,
 	})
 	if err != nil {
 		return nil, adapterErr("classifier result is not serializable")

@@ -54,12 +54,24 @@ func phrasesReply(p ...[2]string) string {
 	return topicChat(string(b))
 }
 
-func spansOf(t *testing.T, r techResult, name string) []techniqueSpan {
+// bareSpan is a TechniqueSpan without its why (checked by spansOf).
+type bareSpan struct {
+	Technique, Text string
+	Start, End      int
+}
+
+// spansOf returns the spans of name after checking that each why quotes its text.
+func spansOf(t *testing.T, r techResult, name string) []bareSpan {
 	t.Helper()
 	for _, d := range r.Detected {
 		if d.Name == name {
 			require.NotNil(t, d.Spans, "spans of %s must be an array", name)
-			return d.Spans
+			out := []bareSpan{}
+			for _, s := range d.Spans {
+				require.Contains(t, s.Why, s.Text)
+				out = append(out, bareSpan{s.Technique, s.Text, s.Start, s.End})
+			}
+			return out
 		}
 	}
 	t.Fatalf("%s not detected", name)
@@ -97,9 +109,9 @@ func TestTechniqueSentenceSpans(t *testing.T) {
 	require.Equal(t, "sentence", r.SpanMethod)
 	require.Equal(t, "ok", r.SpanStatus)
 	require.False(t, r.SpansTruncated)
-	require.Equal(t, []techniqueSpan{{ll, "They are LYING to you.", 16, 38}, {ll, "Ünited we stand together.", 39, 64}}, spansOf(t, r, ll))
-	require.Equal(t, []techniqueSpan{{nc, "Wake up now 😡!", 0, 15}}, spansOf(t, r, nc)) // override 0.6 drops the 0.55 sentence
-	require.Len(t, r.Detected, 2)                                                       // Doubt 0.95 in a sentence adds nothing
+	require.Equal(t, []bareSpan{{ll, "They are LYING to you.", 16, 38}, {ll, "Ünited we stand together.", 39, 64}}, spansOf(t, r, ll))
+	require.Equal(t, []bareSpan{{nc, "Wake up now 😡!", 0, 15}}, spansOf(t, r, nc)) // override 0.6 drops the 0.55 sentence
+	require.Len(t, r.Detected, 2)                                                  // Doubt 0.95 in a sentence adds nothing
 	requireSpansValid(t, content, r)
 
 	// max_sentences caps the scored sentences
@@ -107,7 +119,7 @@ func TestTechniqueSentenceSpans(t *testing.T) {
 	def.Execution.Spans.MaxSentences = func(n int) *int { return &n }(2)
 	r = runTech(t, def, techReq("Wake up! They lie to you a lot.", "en", content))
 	require.True(t, r.SpansTruncated)
-	require.Equal(t, []techniqueSpan{{ll, "They are LYING to you.", 16, 38}}, spansOf(t, r, ll))
+	require.Equal(t, []bareSpan{{ll, "They are LYING to you.", 16, 38}}, spansOf(t, r, ll))
 }
 
 func TestTechniquePhraseSpans(t *testing.T) {
@@ -132,8 +144,8 @@ func TestTechniquePhraseSpans(t *testing.T) {
 	require.Equal(t, "phrase", r.SpanMethod)
 	require.Equal(t, "ok", r.SpanStatus)
 	require.False(t, r.SpansTruncated)
-	require.Equal(t, []techniqueSpan{{ll, "LÜGEN euch", 4, 14}, {ll, "😡 Sie", 19, 25}}, spansOf(t, r, ll))
-	require.Equal(t, []techniqueSpan{}, spansOf(t, r, nc))
+	require.Equal(t, []bareSpan{{ll, "LÜGEN euch", 4, 14}, {ll, "😡 Sie", 19, 25}}, spansOf(t, r, ll))
+	require.Equal(t, []bareSpan{}, spansOf(t, r, nc))
 	require.Len(t, r.Detected, 2)
 	requireSpansValid(t, content, r)
 
@@ -157,7 +169,7 @@ func TestTechniquePhraseSpans(t *testing.T) {
 	def.Execution.Spans.MaxPhrasesPerTechnique = func(n int) *int { return &n }(1)
 	r = runTech(t, def, techReq(translation, "de", content))
 	require.True(t, r.SpansTruncated)
-	require.Equal(t, []techniqueSpan{{ll, "😡 Sie", 19, 25}}, spansOf(t, r, ll))
+	require.Equal(t, []bareSpan{{ll, "😡 Sie", 19, 25}}, spansOf(t, r, ll))
 }
 
 func TestTechniqueSpanContentEscaped(t *testing.T) {
@@ -187,7 +199,7 @@ func TestTechniqueWithoutSpansBlock(t *testing.T) {
 		require.Equal(t, "ok", r.SpanStatus)
 		require.False(t, r.SpansTruncated)
 		require.Len(t, r.Detected, 2)
-		require.Equal(t, []techniqueSpan{}, spansOf(t, r, ll))
+		require.Equal(t, []bareSpan{}, spansOf(t, r, ll))
 	}
 	require.Equal(t, 3, doc.calls()) // one document request per job, nothing else
 }
