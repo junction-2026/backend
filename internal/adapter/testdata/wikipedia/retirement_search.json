@@ -1,0 +1,28 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "searchinfo": {
+   "totalhits": 2
+  },
+  "search": [
+   {
+    "ns": 0,
+    "title": "Retirement age",
+    "pageid": 1234,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "the retirement age to <span class=\"searchmatch\">70</span> &amp; more",
+    "timestamp": "2026-10-01T00:00:00Z"
+   },
+   {
+    "ns": 0,
+    "title": "Pension",
+    "pageid": 99,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "a <span class=\"searchmatch\">pension</span>",
+    "timestamp": "2026-10-01T00:00:00Z"
+   }
+  ]
+ }
+}

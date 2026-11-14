@@ -114,6 +114,39 @@ fails the analyzer at once. Without a qualifying claim (or an extraction without
 `mixed`, `true`, `unrated`) comes from a built-in term table; `rating` is the provider's text. A match is a
 similar checked claim: compare `claim` with `for_claim`.
 
+## Wikipedia analyzer
+
+`docs/examples/wikipedia.yaml` (analyzer `wikipedia`, adapter `wikipedia`, category `fact_check`,
+`depends_on: [topic_extraction, translation]`) shows what Wikipedia says about the claims `topic_extraction` found,
+in the post's language and in English (result shape: shared capability `wikipedia-lookup-result`). It calls no LLM
+and no translation service and is not a verdict: `no_page` and `ambiguous` only mean no page was found.
+
+| Setting | |
+|---|---|
+| `user_agent` | **required**: a contact URL or e-mail (`${WIKIPEDIA_CONTACT}` in the example); every request sends `JunctionOrchestrator/1.0 (<user_agent>)` per the [Wikimedia User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) |
+| `min_check_worthiness` / `max_claims` | 0.4 / 3: claims below the minimum or beyond the cap are not searched |
+| `max_hits` / `max_passage_chars` | 5 (1-20) search hits considered / 1500: a longer lead is cut to a prefix |
+| `max_concurrency` | 2 requests in flight per run |
+| `cache_dir` / `cache_ttl` | see below / 168h |
+| `base_url_template` | `https://{lang}.wikipedia.org/w/api.php`; must contain `{lang}` (tests point it at a local server) |
+| `timeout` | 20s |
+
+Each qualifying claim is searched in `{source_language}.wikipedia.org` with its `query` and in `en.wikipedia.org` with
+its `query_en` (once, with `query_en`, when the source language is `en`, unknown or not a two-letter code). A claim
+whose text has a digit, or whose entities contain only digits and punctuation, uses `search_mode: fulltext` (the top
+hit's search snippet is the passage); otherwise `title` (an entity-titled page is preferred and its plain-text lead
+is the passage). A disambiguation page is never chosen unless another entity-titled hit exists (else `ambiguous`).
+`url` pins the revision that was read (`.../w/index.php?title=...&oldid=<revision_id>`). Without a qualifying claim the
+analyzer is `skipped` with reason `no_checkable_claims` and sends no request. Any Wikipedia error (connection,
+non-2xx after one retry of 429/5xx, undecodable answer) fails the analyzer with `adapter_error` and no result.
+
+**Cache.** Successful answers (including `no_page` and `ambiguous`) are kept as one JSON file per
+`(language, normalised query, search_mode)` in `cache_dir`, which defaults to `$DATA_DIR/wikipedia` and to
+`./var/wikipedia` when `DATA_DIR` is unset. Files are written atomically and survive restarts; entries older than
+`cache_ttl` and corrupt files are ignored. The container runs as uid 65532 on a distroless image with no writable data directory:
+**mount a volume at `DATA_DIR` (or `cache_dir`) that is writable by uid 65532** to keep the cache across container
+restarts; without a writable directory the analyzer still works but makes a request per lookup.
+
 ## News coverage analyzer
 
 `docs/examples/news_search.yaml` (analyzer `news_search`, adapter `news_search`) searches news and web coverage of
