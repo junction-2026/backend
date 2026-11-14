@@ -1,0 +1,14 @@
+# Example registry entry for the IDA-SERICS/PropagandaDetection service.
+# PROPAGANDA_DETECTION_URL is the service's prediction endpoint, e.g.
+# http://propaganda-detection:8000/predict. Add this file to the directory in
+# ANALYZERS_CONFIG (or merge the entry into your registry file) and set the variable.
+analyzers:
+  - id: propaganda_detection
+    name: Propaganda detection
+    category: propaganda
+    execution:
+      adapter: propaganda_detection
+      endpoint: ${PROPAGANDA_DETECTION_URL}
+      timeout: 30s
+      # headers:
+      #   Authorization: Bearer ${PROPAGANDA_DETECTION_TOKEN}
