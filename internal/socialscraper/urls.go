@@ -7,11 +7,8 @@ import (
 )
 
 const (
-	Bluesky   = "bluesky"
-	Mastodon  = "mastodon"
-	Instagram = "instagram"
-	Threads   = "threads"
-	Twitter   = "twitter"
+	Bluesky  = "bluesky"
+	Mastodon = "mastodon"
 )
 
 const (
@@ -23,11 +20,7 @@ var (
 	// Mastodon accepts any host that is not a listed platform. A real TLD starts with a letter, which drops every
 	// IPv4 spelling (decimal, octal, hex) and IPv6 (":" is not a label character) as well as dotless names.
 	hostnameRe  = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z][a-z0-9-]*$`)
-	igUserRe    = regexp.MustCompile(`^[A-Za-z0-9._]{1,30}$`)
-	xUserRe     = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
-	igReserved  = set("explore", "accounts", "p", "reel", "reels", "stories", "direct", "tv", "about", "legal", "web", "api")
-	xReserved   = set("explore", "home", "i", "search", "settings", "notifications", "messages", "compose", "hashtag", "intent", "share", "login", "signup", "tos", "privacy", "about", "account")
-	listedHosts = set("bsky.app", "instagram.com", "threads.net", "threads.com", "facebook.com", "fb.com", "fb.watch", "twitter.com", "x.com")
+	listedHosts = set("bsky.app")
 )
 
 func set(v ...string) map[string]bool {
@@ -88,33 +81,6 @@ func Recognize(raw string) (Target, *Error) {
 		}
 		if len(s) == 4 && s[0] == "profile" && s[2] == "post" {
 			return ok(Bluesky, KindPost, map[string]string{"actor": s[1], "rkey": s[3]})
-		}
-	case "instagram.com":
-		if len(s) == 2 && (s[0] == "p" || s[0] == "reel") {
-			return ok(Instagram, KindPost, map[string]string{"shortcode": s[1]})
-		}
-		if len(s) == 1 && !igReserved[s[0]] && igUserRe.MatchString(s[0]) {
-			return ok(Instagram, KindProfile, map[string]string{"username": s[0]})
-		}
-	case "threads.net", "threads.com":
-		if len(s) >= 1 && strings.HasPrefix(s[0], "@") && len(s[0]) > 1 {
-			if len(s) == 1 {
-				return ok(Threads, KindProfile, map[string]string{"username": s[0][1:]})
-			}
-			if len(s) == 3 && s[1] == "post" {
-				return ok(Threads, KindPost, map[string]string{"username": s[0][1:], "code": s[2]})
-			}
-		}
-	case "facebook.com", "fb.com", "fb.watch": // Facebook is not supported (and never probed as Mastodon)
-	case "twitter.com", "x.com":
-		if len(s) == 0 || xReserved[s[0]] || !xUserRe.MatchString(s[0]) {
-			break
-		}
-		if len(s) == 1 {
-			return ok(Twitter, KindProfile, map[string]string{"username": s[0]})
-		}
-		if len(s) == 3 && s[1] == "status" && isDigits(s[2]) {
-			return ok(Twitter, KindPost, map[string]string{"username": s[0], "status_id": s[2]})
 		}
 	default:
 		if t, ok2 := recognizeMastodon(t, host, s); ok2 {

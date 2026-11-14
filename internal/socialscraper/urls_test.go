@@ -17,22 +17,11 @@ func TestRecognized(t *testing.T) {
 		{"https://mastodon.social/@alice/112233445566778899", "mastodon", "post"},
 		{"https://mastodon.social/users/alice/statuses/112233445566778899", "mastodon", "post"},
 		{"https://fosstodon.org/@alice@other.example/123", "mastodon", "post"},
-		{"https://www.instagram.com/alice", "instagram", "profile"},
-		{"https://www.instagram.com/alice/", "instagram", "profile"},
-		{"https://instagram.com/p/C1a2b3c4d5", "instagram", "post"},
-		{"https://www.instagram.com/reel/C1a2b3c4d5/", "instagram", "post"},
-		{"https://www.threads.net/@alice", "threads", "profile"},
-		{"https://threads.com/@alice", "threads", "profile"},
-		{"https://www.threads.net/@alice/post/C1a2b3", "threads", "post"},
-		{"https://threads.com/@alice/post/C1a2b3", "threads", "post"},
-		{"https://twitter.com/alice", "twitter", "profile"},
-		{"https://x.com/alice", "twitter", "profile"},
-		{"https://x.com/alice/status/1790000000000000000", "twitter", "post"},
-		{"https://twitter.com/alice/status/1790000000000000000", "twitter", "post"},
+		// hosts of unsupported networks get no special case: a Mastodon-shaped path is a Mastodon candidate
+		{"https://www.threads.net/@zuck", "mastodon", "profile"},
+		{"https://example.com/@zuck", "mastodon", "profile"},
 		// query string, fragment and the www./m./mobile. prefixes are ignored
-		{"https://mobile.x.com/alice/status/1790000000000000000?s=20", "twitter", "post"},
 		{"https://www.bsky.app/profile/alice.bsky.social?ref=x#top", "bluesky", "profile"},
-		{"http://m.instagram.com/alice?igsh=abc", "instagram", "profile"},
 		{"https://MASTODON.social/@alice?foo=1#bar", "mastodon", "profile"},
 		{"https://m.mastodon.social/@alice", "mastodon", "profile"},
 		{"https://social.example.xn--p1ai/@alice", "mastodon", "profile"},
@@ -52,26 +41,23 @@ func TestUnsupported(t *testing.T) {
 	for _, u := range []string{
 		"https://example.com/some/article",
 		"https://example.com/",
-		"https://x.com/explore",
-		"https://x.com/i/status/1",
-		"https://x.com/i/lists/1",
-		"https://x.com/alice/followers",
-		"https://x.com/alice/status/abc",
-		"https://www.instagram.com/explore/tags/cats",
-		"https://www.instagram.com/explore/",
-		// Facebook is not supported: every Facebook URL, never probed as a Mastodon instance
+		// unsupported social networks: no Bluesky or Mastodon shape
+		"https://x.com/alice",
+		"https://x.com/alice/status/1790000000000000000",
+		"https://twitter.com/alice",
+		"https://www.instagram.com/reel/C1a2b3c4d5/",
+		"https://www.instagram.com/nasa/",
 		"https://www.facebook.com/examplenews",
-		"https://m.facebook.com/examplenews/posts/1234567890",
 		"https://www.facebook.com/profile.php?id=100000000000001",
-		"https://www.facebook.com/@alice",
-		"https://mobile.facebook.com/users/alice",
-		"https://fb.com/@alice",
-		"https://www.fb.watch/@alice/123",
+		"https://fb.watch/abc123/",
+		"https://m.fb.com/examplenews",
+		"https://m.facebook.com/examplenews/posts/1234567890",
 		"https://www.facebook.com/groups/12345",
 		"https://www.facebook.com/",
 		"https://bsky.app/",
 		"https://bsky.app/search?q=x",
-		"https://threads.net/search",
+		"https://bsky.app/@alice", // bsky.app is never a Mastodon candidate
+		"https://www.bsky.app/users/alice",
 		"https://mastodon.social/about",
 		"https://mastodon.social/",
 		"https://127.0.0.1/@alice", // IP literals and dotless hosts are never contacted
@@ -94,12 +80,11 @@ func TestUnsupported(t *testing.T) {
 
 func TestIDs(t *testing.T) {
 	for url, want := range map[string]map[string]string{
-		"https://bsky.app/profile/a.b/post/3k4":    {"actor": "a.b", "rkey": "3k4"},
-		"https://mastodon.social/@alice/1":         {"host": "mastodon.social", "user": "alice", "status_id": "1"},
-		"https://mastodon.social/users/alice":      {"host": "mastodon.social", "user": "alice"},
-		"https://x.com/alice/status/9":             {"username": "alice", "status_id": "9"},
-		"https://threads.net/@alice/post/C1":       {"username": "alice", "code": "C1"},
-		"https://instagram.com/reel/C1a2b3c4d5/?x": {"shortcode": "C1a2b3c4d5"},
+		"https://bsky.app/profile/a.b/post/3k4": {"actor": "a.b", "rkey": "3k4"},
+		"https://mastodon.social/@alice/1":      {"host": "mastodon.social", "user": "alice", "status_id": "1"},
+		"https://mastodon.social/users/alice":   {"host": "mastodon.social", "user": "alice"},
+		"https://www.threads.net/@zuck":         {"host": "threads.net", "user": "zuck"},
+		"https://example.com/@zuck":             {"host": "example.com", "user": "zuck"},
 	} {
 		got, err := Recognize(url)
 		require.Nil(t, err, url)

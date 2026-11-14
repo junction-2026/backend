@@ -405,3 +405,26 @@ func TestIPLiteralAndDotlessHostsAreNotRecognized(t *testing.T) {
 		assert.Equal(t, "unsupported_url", err.Code, u)
 	}
 }
+
+// threads.net has no special case: a Mastodon-shaped path is probed like any host, and a non-Mastodon
+// answer (HTML 404 or a redirect) is unsupported_url.
+func TestFormerlyListedHostIsProbedLikeAnyHost(t *testing.T) {
+	target, rerr := ss.Recognize("https://www.threads.net/@zuck")
+	require.Nil(t, rerr)
+	assert.Equal(t, map[string]string{"host": "threads.net", "user": "zuck"}, target.IDs)
+	for name, h := range map[string]http.HandlerFunc{
+		"404 html": scrapertest.Body(404, []byte(`<html>Not Found</html>`), "Content-Type", "text/html"),
+		"redirect": scrapertest.Body(301, nil, "Location", "https://www.threads.net/@zuck"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var paths []string
+			router := scrapertest.New(t).Handle("threads.net", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				h(w, r)
+			}))
+			_, err := New(router.Client()).Scrape(context.Background(), target, ss.Request{MaxPosts: 20})
+			assert.Equal(t, "unsupported_url", mustErr(t, err).Code)
+			assert.Equal(t, []string{"/api/v1/accounts/lookup"}, paths)
+		})
+	}
+}

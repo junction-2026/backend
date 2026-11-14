@@ -23,11 +23,11 @@ func (f moduleFunc) Scrape(ctx context.Context, t Target, req Request) (*Result,
 // newTestScraper registers mod for every platform and logs through the redactor.
 func newTestScraper(mod Module) (*Scraper, *bytes.Buffer) {
 	reg := NewRegistry()
-	for _, p := range []string{Bluesky, Mastodon, Instagram, Threads, Twitter} {
+	for _, p := range []string{Bluesky, Mastodon} {
 		reg.Register(p, mod)
 	}
 	var logs bytes.Buffer
-	return New(reg, NewLogger(&logs, NewRedactor(env(map[string]string{"TWITTER_AUTH_TOKEN": token}), nil))), &logs
+	return New(reg, NewLogger(&logs, NewRedactor(env(map[string]string{"SCRAPER_TOKEN": token})))), &logs
 }
 
 func scrape(s *Scraper, url string) (*Result, *Error) {
@@ -65,7 +65,8 @@ func TestScrapeUnsupportedWithoutModuleCall(t *testing.T) {
 		return nil, nil
 	}))
 	for _, u := range []string{"https://example.com/some/article", "https://www.facebook.com/examplenews",
-		"https://www.facebook.com/profile.php?id=100000000000001"} {
+		"https://www.facebook.com/profile.php?id=100000000000001", "https://x.com/alice/status/1790000000000000000",
+		"https://bsky.app/@alice"} {
 		_, err := scrape(s, u)
 		require.NotNil(t, err, u)
 		assert.Equal(t, "unsupported_url", err.Code, u)
@@ -75,9 +76,6 @@ func TestScrapeUnsupportedWithoutModuleCall(t *testing.T) {
 func TestPlatformNotConfigured(t *testing.T) {
 	s := New(NewRegistry(), nil)
 	for url, platform := range map[string]string{
-		"https://www.instagram.com/alice":            "instagram",
-		"https://threads.net/@alice":                 "threads",
-		"https://x.com/alice":                        "twitter",
 		"https://bsky.app/profile/alice.bsky.social": "bluesky",
 		"https://mastodon.social/@alice":             "mastodon",
 	} {
@@ -86,6 +84,13 @@ func TestPlatformNotConfigured(t *testing.T) {
 		assert.Equal(t, "platform_not_configured", err.Code, url)
 		assert.Equal(t, platform, err.Details["platform"], url)
 	}
+
+	reg := NewRegistry() // the Mastodon module is missing, Bluesky is registered
+	reg.Register(Bluesky, moduleFunc(func(context.Context, Target, Request) (*Result, error) { return nil, nil }))
+	_, err := scrape(New(reg, nil), "https://mastodon.social/@alice")
+	require.NotNil(t, err)
+	assert.Equal(t, "platform_not_configured", err.Code)
+	assert.Equal(t, map[string]any{"platform": "mastodon"}, err.Details)
 }
 
 func TestModuleTypedErrorGetsPlatformAndSharedErrorIsNotMutated(t *testing.T) {

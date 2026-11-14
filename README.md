@@ -261,8 +261,8 @@ submitted, not `normalized_content` and never the translation) with half-open UT
 `queued` or `scraping`; the orchestrator then scrapes the URL in process (see "Scraping"), maps the
 post text (post URL) or the posting history, newest first (profile URL), to `input.content` and keeps the full
 scrape result in `input.source.metadata.scrape`. A failed scrape ends the job `failed` with `scrape.error.code`
-(for example `account_private`, `login_required`, `unsupported_url`, `scraper_unavailable`, `timeout`,
-`no_text_content`) and
+(for example `account_private`, `account_not_found`, `post_not_found`, `rate_limited`, `platform_not_configured`,
+`upstream_error`, `upstream_timeout`, `unsupported_url`, `scraper_unavailable`, `timeout`, `no_text_content`) and
 skips analyzers and finalization with `input_unavailable`. Requests with `scrape` answer 503
 `scrape_unavailable` only when scraping is disabled (`SCRAPER_ENABLED=false`).
 
@@ -280,44 +280,31 @@ the standard analyzer request, and copy the file into the directory `ANALYZERS_C
 ## Scraping
 
 The scraper runs inside the orchestrator: no separate service, image or token. At startup the orchestrator
-registers the Bluesky, Mastodon, Instagram, Threads and X modules (`internal/socialscraper`) over one shared HTTP
-client, and a job's scrape calls them directly. Bluesky and Mastodon need no credentials. Supported URLs are
-those of these five platforms; any other URL fails with `unsupported_url`.
+registers the Bluesky and Mastodon modules (`internal/socialscraper`) over one shared HTTP client, and a job's
+scrape calls them directly. Both use public APIs and need no credentials. Supported URLs are
+`bsky.app/profile/<handle or DID>[/post/<rkey>]` and the Mastodon shapes `/@<user>[/<status id>]` and
+`/users/<user>[/statuses/<status id>]` on any other host that serves the Mastodon REST API. Any other URL,
+including links to other social networks, fails with `unsupported_url` without a request.
 
 | Variable | Default | |
 |---|---|---|
 | `SCRAPER_ENABLED` | `true` | `true` or `false` (any case); `false`: requests with `scrape` answer 503 `scrape_unavailable`; any other value aborts startup with a message naming the variable |
 | `SCRAPER_TIMEOUT` | `120s` | Go duration; bounds one scrape, a slower scrape fails with `timeout` |
 | `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | `30` | positive number (decimals allowed); bounds every outbound platform request, a slower answer fails with `upstream_timeout` |
-| `INSTAGRAM_SESSION_FILE` | unset | path of a JSON file `{"sessionid": "<value>", "csrftoken": "<value>", "ds_user_id": "<value>"}` with the cookies of an Instagram login; unset: anonymous |
-| `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` | unset | the `auth_token` and `ct0` cookies of an X login; both are needed for X, otherwise X URLs fail with `platform_not_configured` |
-
-Limitations: anonymous Instagram and Threads often need a login. Instagram answers 404 to an anonymous caller even
-for existing accounts, and Threads serves a page without data or with a login wall. The scrape then fails with
-`login_required` (never `account_not_found` or `rate_limited`): `details.platform` names the platform and, when a
-server setting would help, `details.missing_settings` lists its name (never its value), for Instagram without a
-session `["INSTAGRAM_SESSION_FILE"]`. With a session file, an Instagram 404 means `account_not_found` or
-`post_not_found`. Threads has no session setting: it needs a login that this scraper does not support, so its
-`login_required` carries no `missing_settings`. No headless browser is used or planned; requests are plain HTTP.
-Threads is read from `www.threads.com` whatever host (`threads.net` or `threads.com`) the URL names.
 
 All settings come from the environment; no value is ever logged or returned. The orchestrator's JSON log lines
-replace `Bearer ...` values, the X cookies and the session file's path and contents by `[redacted]`. A panic in a
-platform module is logged (redacted, with its stack trace) and the scrape fails with `scraper_unavailable`; the
-server keeps serving.
+replace `Bearer ...` values by `[redacted]`. A panic in a platform module is logged (redacted, with its stack
+trace) and the scrape fails with `scraper_unavailable`; the server keeps serving.
 
 Migration notes:
 
 - The scraper no longer runs as its own container: delete the scraper container and its Traefik route, and move
-  `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`, `INSTAGRAM_SESSION_FILE`, `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` and
-  `SCRAPER_TIMEOUT` to the orchestrator container (same names and meaning).
+  `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` and `SCRAPER_TIMEOUT` to the orchestrator container (same names and meaning).
 - `SCRAPER_URL`, `SCRAPER_TOKEN` and `SCRAPER_LISTEN_ADDR` are ignored; if set, startup logs one warning naming
   each variable (never its value) and continues.
-- The browser-based platform module is removed and no browser ships in the image: URLs of that platform now fail
-  with `unsupported_url`; only the five platforms above are supported.
-- `INSTAGRAM_SESSION_FILE` holds the cookie JSON shown above; a session file in an older format is not read, so
-  create the new file once from a logged-in browser session. `SCRAPER_X_POOL_DB` is not read: X is read with the
-  two cookie variables only and keeps no database.
+- Only Bluesky and Mastodon are scraped (junction-2026/project#24). URLs of other platforms fail with
+  `unsupported_url`, and their former credential variables are no longer read: remove them from deployments.
+  No browser-based platform module exists and no browser ships in the image.
 
 Tests run offline: `go test ./...` serves recorded fixtures (`internal/socialscraper/<platform>/testdata/`) through
 `internal/socialscraper/scrapertest` and reaches no platform.
