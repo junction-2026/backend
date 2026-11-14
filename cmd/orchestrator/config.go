@@ -3,9 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/localization"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
@@ -28,6 +32,8 @@ type config struct {
 	Ignored         []string  // obsolete scraper variables that are set: warned about, never read
 	// LocalizationTimeout (LOCALIZATION_TIMEOUT, default 20s) bounds a localization provider call.
 	LocalizationTimeout time.Duration
+	// Chat is the CHAT_* configuration of POST /api/v1/jobs/{id}/chat; an empty Chat.APIKey disables chat.
+	Chat chat.Config
 }
 
 // obsoleteScraperVars belonged to the former standalone scraper service.
@@ -35,7 +41,7 @@ var obsoleteScraperVars = []string{"SCRAPER_URL", "SCRAPER_TOKEN", "SCRAPER_LIST
 
 // loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG, the engine settings
 // (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_TIMEOUT) and
-// SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT. Errors name variables, never their values.
+// SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT and the CHAT_* variables. Errors name variables, never their values.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{ListenAddr: getenv("LISTEN_ADDR"), AnalyzersConfig: getenv("ANALYZERS_CONFIG")}
 	if c.ListenAddr == "" {
@@ -60,7 +66,59 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return c, errors.New("configuration error: LOCALIZATION_TIMEOUT must be a positive duration")
 		}
 	}
+	if err := loadChat(getenv, &c.Chat); err != nil {
+		return c, fmt.Errorf("configuration error: %w", err)
+	}
 	return c, nil
+}
+
+// loadChat reads the CHAT_* variables. A missing key is not an error (chat answers 503); the file wins over
+// CHAT_API_KEY. Errors name the variable and never its value.
+func loadChat(getenv func(string) string, c *chat.Config) error {
+	c.BaseURL, c.Model = chat.DefaultBaseURL, chat.DefaultModel
+	if v := getenv("CHAT_BASE_URL"); v != "" {
+		if u, err := url.Parse(v); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("CHAT_BASE_URL must be an http or https URL")
+		}
+		c.BaseURL = v
+	}
+	if v := getenv("CHAT_MODEL"); v != "" {
+		c.Model = v
+	}
+	c.APIKey = strings.TrimSpace(getenv("CHAT_API_KEY"))
+	if path := getenv("CHAT_API_KEY_FILE"); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return errors.New("CHAT_API_KEY_FILE cannot be read")
+		}
+		c.APIKey = strings.TrimSpace(string(b))
+	}
+	c.Timeout = chat.DefaultTimeout
+	if v := getenv("CHAT_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return errors.New("CHAT_TIMEOUT must be a positive duration")
+		}
+		c.Timeout = d
+	}
+	var err error
+	if c.RatePerMinute, err = positiveInt(getenv, "CHAT_RATE_PER_MINUTE", chat.DefaultRatePerMinute); err != nil {
+		return err
+	}
+	c.MaxConcurrent, err = positiveInt(getenv, "CHAT_MAX_CONCURRENT", chat.DefaultMaxConcurrent)
+	return err
+}
+
+func positiveInt(getenv func(string) string, name string, def int) (int, error) {
+	v := getenv(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, errors.New(name + " must be a positive integer")
+	}
+	return n, nil
 }
 
 // loadStore reads JOB_STORE and JOB_STORE_PATH. JOB_HISTORY_RETENTION (read with the engine settings) only applies

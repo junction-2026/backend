@@ -11,6 +11,12 @@ Analysis orchestrator HTTP server (`cmd/orchestrator`).
 | `JOB_STORE_PATH` | `data/jobs.db` | SQLite database file (`JOB_STORE=sqlite`); its directory is created |
 | `JOB_HISTORY_RETENTION` | unset (keep forever) | Go duration, e.g. `720h`: with `sqlite`, done jobs finished longer ago are deleted |
 | `LOCALIZATION_TIMEOUT` | `20s` | Go duration bounding one translation request of `GET /api/v1/jobs/{id}/localization` |
+| `CHAT_BASE_URL` | `http://127.0.0.1:8642/v1` | OpenAI-compatible base URL of the agent behind Ask VEIL (`/chat/completions` is appended) |
+| `CHAT_MODEL` | `hermes-agent` | model name sent to the agent |
+| `CHAT_API_KEY` / `CHAT_API_KEY_FILE` | unset | **secret** bearer key of the agent; the file (trimmed) wins when both are set. Without a key chat answers 503 `chat_unavailable` and the server runs normally |
+| `CHAT_TIMEOUT` | `90s` | positive Go duration bounding one upstream call (exceeded: 504 `chat_timeout`) |
+| `CHAT_RATE_PER_MINUTE` | `10` | chat requests per minute per job (token bucket); more: 429 `rate_limited` |
+| `CHAT_MAX_CONCURRENT` | `4` | upstream calls in flight across all jobs; more: 429 `rate_limited` |
 
 ## Job history
 
@@ -105,6 +111,37 @@ with less of the `timeout` left). The result has `attempts` (1 or 2), `retry_rea
 `invalid_json`, `schema` or null) and `usage` summed over both requests. Only analyzers with `llm: {include: true, description: ...}` reach
 the LLM (see `propaganda_detection.yaml`); with none opted in, every job ends `uncertain`. Optional
 `headers` and `extra_body` are sent as configured.
+
+## Ask VEIL (chat about a finished analysis)
+
+`POST /api/v1/jobs/{id}/chat` (shared change `analysis-chat-api`) answers a question about a `completed` job. The
+client sends the whole conversation, `{"messages":[{"role":"user","content":"..."}],"language":"de"}` (1-40 messages,
+last one from the user, `language` optional), and gets `{"job_id","message":{"role":"assistant","content"},
+"history_truncated","created_at"}`. Nothing is streamed or stored; the job and its events are never touched.
+Errors: 404 `not_found`, 409 `job_not_completed` (`details.status`), 422 `validation_failed`, 413
+`payload_too_large`, 429 `rate_limited` (`Retry-After`, `details.retry_after_s`), 503 `chat_unavailable`, 504
+`chat_timeout`.
+
+```sh
+curl -s -X POST localhost:8080/api/v1/jobs/<id>/chat -d '{"messages":[{"role":"user","content":"Why was this flagged?"}]}'
+```
+
+The orchestrator calls an OpenAI-compatible agent (`POST {CHAT_BASE_URL}/chat/completions`, `stream: false`, no
+tools). The assistant is presented as VEIL; an embedded system prompt (`internal/chat/persona.txt`) sets the persona
+and a second server-built message carries the job's input, final assessment and analyzer results as delimited JSON
+data (at most 48000 characters, the largest results trimmed first). The latest 20 messages are forwarded, replies
+are cut to 8000 characters. The log records only the job id, the outcome and the duration; the key and the agent URL
+never appear in a response or a log line.
+
+**Deployment.** The agent listens on loopback (`127.0.0.1:8642`). From the host the default `CHAT_BASE_URL` works. A
+container does not reach the host's loopback, so either run it with `--network host`, or bind the agent to the Docker
+bridge address and start the container with `--add-host=host.docker.internal:host-gateway` and
+`CHAT_BASE_URL=http://host.docker.internal:8642/v1`. Never publish the agent port publicly. Provide the key only as a
+deployment secret, preferably a file: `-v /etc/veil/chat_key:/run/secrets/chat_key:ro -e
+CHAT_API_KEY_FILE=/run/secrets/chat_key`.
+
+**Key rotation.** The agent key was posted in a Discord channel and must be treated as leaked: generate a new key in
+the agent, update the secret file or variable, restart the orchestrator and revoke the old key. Never commit the key.
 
 ## Topic extraction analyzer
 
