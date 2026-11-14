@@ -222,10 +222,6 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 // planFactChecks applies the threshold and cap and returns the deduplicated
 // searches in claims order (a claim's query before its query_en).
 func planFactChecks(rawClaims json.RawMessage, minWorth float64, maxClaims int) []plannedQuery {
-	var claims []claim
-	if json.Unmarshal(rawClaims, &claims) != nil { // missing or malformed claims: nothing to check
-		return nil
-	}
 	var plan []plannedQuery
 	seen := map[[2]string]bool{}
 	add := func(q, lang, text, short string) {
@@ -237,12 +233,7 @@ func planFactChecks(rawClaims json.RawMessage, minWorth float64, maxClaims int) 
 			plan = append(plan, plannedQuery{q, lang, text, short})
 		}
 	}
-	taken := 0
-	for _, c := range claims {
-		if c.CheckWorthiness < minWorth || taken >= maxClaims {
-			continue
-		}
-		taken++
+	for _, c := range qualifyingClaims(rawClaims, minWorth, maxClaims) {
 		add(c.Query, c.Language, c.Text, firstEntities(c.Entities, 2))
 		if !strings.EqualFold(strings.SplitN(c.Language, "-", 2)[0], "en") {
 			add(c.QueryEN, "en", c.Text, strings.Join(firstN(strings.Fields(c.QueryEN), 3), " "))
