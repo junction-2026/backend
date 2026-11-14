@@ -10,6 +10,7 @@ Analysis orchestrator HTTP server (`cmd/orchestrator`).
 | `JOB_STORE` | `memory` | `memory` (jobs are lost on restart) or `sqlite` (persistent job history) |
 | `JOB_STORE_PATH` | `data/jobs.db` | SQLite database file (`JOB_STORE=sqlite`); its directory is created |
 | `JOB_HISTORY_RETENTION` | unset (keep forever) | Go duration, e.g. `720h`: with `sqlite`, done jobs finished longer ago are deleted |
+| `LOCALIZATION_TIMEOUT` | `20s` | Go duration bounding one translation request of `GET /api/v1/jobs/{id}/localization` |
 
 ## Job history
 
@@ -31,6 +32,26 @@ Docker: the image runs as uid 65532 and its container filesystem is not kept, so
 uid can write instead of the default relative path `data/jobs.db`, e.g.
 `-e JOB_STORE=sqlite -e JOB_STORE_PATH=/data/jobs.db -v junction-jobs:/data` (a named volume, or a host directory
 owned by uid 65532). One server per database file; sharing it between instances is not supported.
+
+## Job text localization
+
+`GET /api/v1/jobs/{id}/localization?language=<code>` (shared change `job-text-localization`) returns the
+model-written texts of a done job in a UI language: the finalizer `user_text` and the `llm_techniques` finding
+`explanation`s, each `{"status", "text", "source_language"}` with status `original` (already in that language, no
+provider call), `translated` or `unavailable` (`text: null`). Supported languages: `en`, `fr`, `ar`, `de`, `fi`,
+matched by primary subtag (`DE-at` is `de`). Errors: 400 `invalid_request` (no `language`), 400
+`unsupported_language` (`error.details.supported`), 404 `not_found`, 409 `job_not_finished`.
+
+```sh
+curl -s 'http://localhost:8080/api/v1/jobs/<id>/localization?language=ar'
+```
+
+It only reads the job (persisted jobs too) and emits no event; source material (input, spans, claims, articles,
+reviews, passages) is never translated. Texts are translated in one request per (job, language) through the first
+enabled `mistral_translation` analyzer (its endpoint, model, `api_key` and headers); without one, or when it fails or
+exceeds `LOCALIZATION_TIMEOUT`, texts are `unavailable`. Translations are cached in memory per (job, language) (1000
+entries, LRU; `unavailable` texts are retried on the next request). The orchestrator's insufficient-evidence text
+uses fixed translations, without a provider call.
 
 Optional analyzers: `docs/examples/propaganda_detection.yaml` defines two analyzers. `translation`
 (adapter `mistral_translation`) translates the job's `normalized_content` into English through the Mistral
