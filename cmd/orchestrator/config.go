@@ -12,6 +12,7 @@ import (
 	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/localization"
+	"github.com/junction-2026/backend/internal/risk"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
 )
 
@@ -41,7 +42,7 @@ var obsoleteScraperVars = []string{"SCRAPER_URL", "SCRAPER_TOKEN", "SCRAPER_LIST
 
 // loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG, the engine settings
 // (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_TIMEOUT) and
-// SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT and the CHAT_* variables. Errors name variables, never their values.
+// RISK_SCORE_CONFIG (optional YAML file), SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT and the CHAT_* variables. Errors name variables, never their values.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{ListenAddr: getenv("LISTEN_ADDR"), AnalyzersConfig: getenv("ANALYZERS_CONFIG")}
 	if c.ListenAddr == "" {
@@ -52,6 +53,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	var err error
 	if c.Engine, err = engine.ConfigFromEnv(getenv); err != nil {
+		return c, fmt.Errorf("configuration error: %w", err)
+	}
+	if c.Engine.Risk, err = risk.Load(getenv("RISK_SCORE_CONFIG")); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
 	if err := loadStore(getenv, &c); err != nil {

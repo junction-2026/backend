@@ -1,0 +1,30 @@
+# Manipulation Risk Score configuration (shared capability manipulation-risk-score). Point RISK_SCORE_CONFIG at this
+# file (or a copy). Every member is optional; the values below are the defaults. A RiskScore echoes the values it was
+# computed with in `config`, so changing them never rewrites stored scores. Invalid values stop the server at start-up.
+detection_threshold: 0.3          # a technique counts when its score is strictly above this (0..1)
+reference_technique_count: 6      # density = min(1, counted techniques / this)   (> 0)
+weighted_sum_reference: 5.0       # weighted_intensity = min(1, sum of probability * impact weight / this)   (> 0)
+impact_weights: {high: 1.0, medium: 0.7, lower: 0.4}
+dampening_threshold: 0.2          # confirmation below this is a weak signal (0..1)
+dampening_factor: 0.6             # score = raw_score * this for a weak signal (0..1)
+min_author_posts: 20              # author-level bot score needs at least this many posts   (> 0)
+short_text_max_words: 80          # up to this many words the short-post technique model is read   (> 0)
+driver_min_contribution: 0.05     # the second driver needs at least this contribution (0..1)
+# Each set sums to 1; intensity and confirmation must stay above 0.
+weights_with_amplification: {intensity: 0.4, confirmation: 0.3, amplification: 0.3}
+weights_without_amplification: {intensity: 0.55, confirmation: 0.45}
+# Ascending `min`, the first must be 0, all within 0..1.
+bands:
+  - {band: low, min: 0}
+  - {band: moderate, min: 0.25}
+  - {band: high, min: 0.5}
+  - {band: critical, min: 0.75}
+
+# Where the bot_detection analyzer puts what the amplification dimension needs. Paths are dot-separated member names of
+# the analyzer's result (a number indexes an array), e.g. `author.bot_probability`. Without a mapping, or when a member is
+# absent, amplification is reported unavailable (no_bot_score). Scores must be 0..1, the post count a non-negative integer.
+# This mapping is deployment-only and is not echoed in a RiskScore.
+bot_detection:
+  # author_score: author.bot_probability       # the author-level score, used with at least min_author_posts posts
+  # author_posts: author.posts_analyzed        # how many of the author's posts that score is based on
+  # single_text_score: text.bot_probability    # the score of this single text (low confidence)

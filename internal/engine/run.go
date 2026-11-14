@@ -8,6 +8,7 @@ import (
 	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/risk"
 )
 
 // run is the scheduler state of one job. Everything below the immutable block
@@ -182,7 +183,8 @@ func (r *run) barrierLocked() {
 	}
 	r.barrier = true
 	r.j.Status = job.StatusFinalizing
-	r.emit("analysis.ready_for_finalization", map[string]any{"coverage": r.j.Coverage})
+	r.j.Risk = r.computeRiskLocked() // once, here; a set RiskScore never changes
+	r.emit("analysis.ready_for_finalization", map[string]any{"coverage": r.j.Coverage, "risk": r.j.Risk})
 	if r.finDef == nil { // finalization skipped at creation
 		r.finishLocked(job.StatusCompleted)
 		return
@@ -194,6 +196,15 @@ func (r *run) barrierLocked() {
 	r.j.Activities[r.finDef.ID] = act
 	r.emit("analysis.finalizing", withProgress(map[string]any{"finalization": *f, "activity": act}, r.progressLocked(0)))
 	go r.finalize(FinalizationInput{Job: r.j.Clone(), Analyzer: r.finDef})
+}
+
+// computeRiskLocked is the job's RiskScore as JSON. It cannot fail to marshal (all numbers are validated to be finite).
+func (r *run) computeRiskLocked() json.RawMessage {
+	b, err := json.Marshal(risk.Compute(&r.j.Job, r.e.cfg.Risk))
+	if err != nil {
+		panic(err) // recoverJob ends the job as failed
+	}
+	return b
 }
 
 // exec runs analyzer i once a per-job slot is free.
