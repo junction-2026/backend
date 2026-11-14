@@ -90,12 +90,18 @@ const retryLengthText = "Your previous reply was cut off. Reply again with only 
 // (see the registry's retry_* settings). Errors are *job.RunError and never
 // contain the API key, the URL or reply content.
 func LLM(ctx context.Context, def *registry.Analyzer, user string, check func(json.RawMessage) error) (LLMReply, error) {
+	return llmChat(ctx, def, def.Execution.Prompt, user, nil, "", check)
+}
+
+// llmChat is LLM with an explicit system prompt and, for an analyzer that asks several questions (term_context), the
+// reply schema and its name; a nil schema is the one of the analyzer's adapter.
+func llmChat(ctx context.Context, def *registry.Analyzer, system, user string, schema map[string]any, schemaName string, check func(json.RawMessage) error) (LLMReply, error) {
 	e := &def.Execution
 	msgs := []map[string]string{
-		{"role": "system", "content": e.Prompt},
+		{"role": "system", "content": system},
 		{"role": "user", "content": user},
 	}
-	body, err := llmCall(ctx, e, e.Model, e.MaxTokens, msgs)
+	body, err := llmCall(ctx, e, e.Model, e.MaxTokens, msgs, schema, schemaName)
 	if err != nil {
 		return LLMReply{}, err
 	}
@@ -116,7 +122,7 @@ func LLM(ctx context.Context, def *registry.Analyzer, user string, check func(js
 		text, maxTokens = retryLengthText, e.RetryMaxTokensN()
 	}
 	slog.Info("llm reply retry", "analyzer_id", def.ID, "reason", reason, "model", model)
-	body, err = llmCall(ctx, e, model, maxTokens, append(msgs, map[string]string{"role": "user", "content": text}))
+	body, err = llmCall(ctx, e, model, maxTokens, append(msgs, map[string]string{"role": "user", "content": text}), schema, schemaName)
 	if err != nil {
 		return LLMReply{}, err
 	}
@@ -157,7 +163,7 @@ func judgeReply(body []byte, check func(json.RawMessage) error) (out, usage json
 
 // llmCall sends one chat completion request (retried once on a connection
 // error, 429 or 5xx) and returns the body of the 2xx answer.
-func llmCall(ctx context.Context, e *registry.Execution, model string, maxTokens int, msgs []map[string]string) ([]byte, error) {
+func llmCall(ctx context.Context, e *registry.Execution, model string, maxTokens int, msgs []map[string]string, replySchema map[string]any, replyName string) ([]byte, error) {
 	req := map[string]any{
 		"model":       model,
 		"temperature": e.Temperature,
@@ -166,6 +172,8 @@ func llmCall(ctx context.Context, e *registry.Execution, model string, maxTokens
 	}
 	schema, name := any(FinalizationSchema), "finalization"
 	switch {
+	case replySchema != nil:
+		schema, name = replySchema, replyName
 	case e.TopicExtraction():
 		schema, name = TopicExtractionSchema, "topic_extraction"
 	case e.Adapter == registry.AdapterTechniqueClassifier: // the spans.llm Execution

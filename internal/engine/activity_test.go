@@ -171,3 +171,20 @@ func TestScrapeActivity(t *testing.T) {
 	require.Nil(t, a.Detail)
 	require.Empty(t, a.Params)
 }
+
+func TestActivityTermContext(t *testing.T) {
+	d := def("term_context", registry.AdapterTermContext, nil)
+	for name, c := range map[string]struct{ tr, detail, lang string }{
+		"german":   {`{"source_language":"de"}`, "in the German Wikipedia", "de"},
+		"unlisted": {`{"source_language":"ja"}`, "in the ja Wikipedia", "ja"},
+		"unknown":  {`{}`, "in the English Wikipedia", "en"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := activityFor(d, map[string]any{"translation": raw(c.tr), "extraction": raw(`{"secret":"x"}`)})
+			require.Equal(t, "term_context", a.Key)
+			require.Equal(t, "Looking up unfamiliar terms", a.Text)
+			require.Equal(t, c.detail, *a.Detail)
+			require.Equal(t, map[string]any{"language": c.lang}, a.Params)
+		})
+	}
+}

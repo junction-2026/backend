@@ -1,0 +1,37 @@
+# Example registry entry: for loaded or unfamiliar terms of the post, quote how the post uses the term, the lead sentence
+# of the term's own Wikipedia page and the news_search snippets that contain it (result shape: shared capability
+# term-context-result). One LLM call picks the terms, one compares the quotes; the model's output is only used to find
+# strings in the post and as a same/differs value, so no model-written text reaches the result. Its prompts are part
+# of the backend (no prompt_file). It needs topic_extraction (topic_extraction.yaml), a translation analyzer
+# (propaganda_detection.yaml) and news_search (news_search.yaml) enabled; a job whose news_search is skipped or failed
+# skips it. It sends no news search. A deployment that does not want it simply has no such entry (or `enabled: false`).
+# Set TERM_CONTEXT_BASE_URL, TERM_CONTEXT_API_KEY, TERM_CONTEXT_MODEL and WIKIPEDIA_CONTACT.
+analyzers:
+  - id: term_context
+    name: Term context
+    category: coverage
+    trigger: on_dependencies_succeeded
+    depends_on: [topic_extraction, translation, news_search]
+    input:
+      bindings:
+        extraction: $analyzers.topic_extraction
+        translation: $analyzers.translation
+        news: $analyzers.news_search
+    execution:
+      adapter: term_context
+      timeout: 60s
+      base_url: ${TERM_CONTEXT_BASE_URL}
+      api_key: ${TERM_CONTEXT_API_KEY}
+      model: ${TERM_CONTEXT_MODEL}
+      temperature: 0
+      max_tokens: 1000
+      max_input_chars: 20000        # as topic_extraction: the part of the post searched when its input_truncated is true
+      max_terms: 5                  # terms kept, in the model's order; terms in the result follow the post
+      in_post_max_chars: 300        # a longer sentence is cut to a window containing the term
+      quote_max_chars: 400          # a longer first lead sentence is cut to a leading part
+      elsewhere_max: 3              # news snippets per term
+      user_agent: ${WIKIPEDIA_CONTACT}   # REQUIRED: contact URL or e-mail, as for the wikipedia analyzer
+      max_concurrency: 2            # Wikipedia requests in flight per run
+      cache_ttl: 168h               # answers per (language, term) in the wikipedia cache_dir; failures are not cached
+      # cache_dir: /data/wikipedia # default $DATA_DIR/wikipedia, or ./var/wikipedia when DATA_DIR is unset
+      # base_url_template: https://{lang}.wikipedia.org/w/api.php
