@@ -49,8 +49,15 @@ An enabled `llm` finalizer with an empty `base_url`, `api_key` or `model`, or an
 `config/finalizer/prompt.md`), aborts startup. `response_format` selects how the reply schema is
 enforced: `json_schema` (default, strict structured output), `json_object` (JSON mode, the schema
 goes in the user message) or `none` (no `response_format` member, for servers without JSON mode;
-the schema goes in the user message). Every reply is validated; an invalid one fails only the
-finalization (`invalid_output`). Only analyzers with `llm: {include: true, description: ...}` reach
+the schema goes in the user message). Every reply is validated. A reply that is cut off
+(`finish_reason: length`), not a JSON object or fails the schema/built-in checks is retried once with one
+extra user message (never the failed reply); a second invalid reply fails only the finalization
+(`invalid_output`, message `first: ...; retry: ...`). Refusals, `content_filter`, 4xx other than 429,
+timeouts and cancellation are not retried. Settings (also for `topic_extraction`): `retry_invalid_output`
+(default `true`), `retry_max_tokens` (default 2 x `max_tokens`, used after a cut-off reply), `retry_model`
+(default empty = same model; same `base_url` and `api_key`), `retry_min_remaining` (default `5s`; no retry
+with less of the `timeout` left). The result has `attempts` (1 or 2), `retry_reason` (`length`,
+`invalid_json`, `schema` or null) and `usage` summed over both requests. Only analyzers with `llm: {include: true, description: ...}` reach
 the LLM (see `propaganda_detection.yaml`); with none opted in, every job ends `uncertain`. Optional
 `headers` and `extra_body` are sent as configured.
 
@@ -59,7 +66,7 @@ the LLM (see `propaganda_detection.yaml`); with none opted in, every job ends `u
 `docs/examples/topic_extraction.yaml` (analyzer `topic_extraction`, adapter `llm`, `execution.task:
 topic_extraction`) asks any OpenAI-compatible `POST {base_url}/chat/completions` endpoint for the
 fact-checkable **topics** (`title`, `query` search phrase, `description`) and **news** items (`headline`,
-`summary`) and checkable **claims** in the job's `normalized_content`. The result is `{topics, news, claims, input_truncated, usage}`; empty
+`summary`) and checkable **claims** in the job's `normalized_content`. The result is `{topics, news, claims, input_truncated, usage, attempts, retry_reason}`; empty
 lists are a success. Copy the file next to your analyzers and set (independent of the finalizer's variables):
 
 | Variable | |
@@ -77,7 +84,8 @@ most 10 topics, 10 news items and 5 claims in the input's language and treats th
 last two), `headers` and `extra_body` (not `model`/`messages`); all string values accept `${VAR}`. An enabled
 analyzer with an empty `base_url`, `api_key` or `model`, or an unreadable `prompt_file`, aborts startup. Blank
 input fails with `adapter_error` without an LLM call; a reply that is not the expected shape fails only this
-analyzer (`invalid_output`). One 429/5xx answer is retried once. Add `llm: {include: true, description: ...}` to
+analyzer (`invalid_output`) after one reply retry (the `retry_*` settings of the finalizer above). One 429/5xx
+answer is retried once. Add `llm: {include: true, description: ...}` to
 let the LLM finalizer see the extraction. Every job that runs it makes one paid LLM call.
 
 Claims: the reply also holds `claims` (`text`, `language`, `query` of 3-8 words, `query_en`, `entities`,

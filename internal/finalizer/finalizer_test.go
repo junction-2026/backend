@@ -205,7 +205,7 @@ func TestSuccessNormalizesAndDropsUnknownMembers(t *testing.T) {
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
 	require.EqualValues(t, 1, s.calls.Load())
 	// extra members dropped; usage only from the adapter (none for http_sync)
-	require.JSONEq(t, `{"verdict":"detected","confidence":0.86,"user_text":"because","produced_by":"finalizer","usage":null}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"detected","confidence":0.86,"user_text":"because","produced_by":"finalizer","usage":null,"attempts":null,"retry_reason":null}`, string(j.Finalization.Result))
 	require.Equal(t, []string{"job.snapshot", "job.started"}, types(evs)[:2])
 	require.Less(t, idx(evs, "analysis.finalized"), idx(evs, "job.completed"))
 	require.Equal(t, 1, count(evs, "analysis.finalizing"))
@@ -219,7 +219,7 @@ func TestSuccessNormalizesAndDropsUnknownMembers(t *testing.T) {
 func TestMinimalResponseDefaults(t *testing.T) {
 	s := newStub(t, reply(`{"verdict":"uncertain","user_text":"The analyzers disagree."}`))
 	j, _ := run(t, s, "", req("x"))
-	require.JSONEq(t, `{"verdict":"uncertain","confidence":null,"user_text":"The analyzers disagree.","produced_by":"finalizer","usage":null}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"uncertain","confidence":null,"user_text":"The analyzers disagree.","produced_by":"finalizer","usage":null,"attempts":null,"retry_reason":null}`, string(j.Finalization.Result))
 }
 
 func TestRequestInputsAndHeaders(t *testing.T) {
@@ -320,7 +320,7 @@ func TestInvalidOutputCases(t *testing.T) {
 	}
 }
 
-const shortCircuit = `{"verdict":"uncertain","confidence":null,"user_text":"No analyzer produced a usable result, so no verdict can be given.","produced_by":"orchestrator","usage":null}`
+const shortCircuit = `{"verdict":"uncertain","confidence":null,"user_text":"No analyzer produced a usable result, so no verdict can be given.","produced_by":"orchestrator","usage":null,"attempts":null,"retry_reason":null}`
 
 func TestInsufficientEvidenceShortCircuit(t *testing.T) {
 	s := newStub(t, reply(okBody))

@@ -235,6 +235,9 @@ type FinalAssessment struct {
 	UserText   string          `json:"user_text"`
 	ProducedBy string          `json:"produced_by"`
 	Usage      json.RawMessage `json:"usage"` // provider token usage verbatim; nil marshals as null
+	// set by the orchestrator for the llm finalizer only; null otherwise
+	Attempts    *int    `json:"attempts"`
+	RetryReason *string `json:"retry_reason"`
 }
 
 // Ptr returns a pointer to v.

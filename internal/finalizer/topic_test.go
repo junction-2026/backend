@@ -47,7 +47,7 @@ func TestTopicExtractionReachesFinalizerWhenOptedIn(t *testing.T) {
 
 	r, _ := lastReq(t, s)
 	user := r.Messages[1].Content
-	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","availability":"ran","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"claims":[],"input_truncated":false,"usage":`+stubUsage+`}}`)
+	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","availability":"ran","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"claims":[],"input_truncated":false,"usage":`+stubUsage+`,"attempts":1,"retry_reason":null}}`)
 	require.Contains(t, user, `"id":"pd"`)
 }
 
