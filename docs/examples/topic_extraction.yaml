@@ -1,0 +1,25 @@
+# Example registry entry: an LLM that extracts fact-checkable topics (with a search query) and the news
+# items a text refers to. Any OpenAI-compatible chat completions API works (OpenAI, OpenRouter, vLLM, Ollama,
+# ...). Its variables are independent of the finalizer's (final_synthesis.yaml). The API key is never logged
+# or returned.
+analyzers:
+  - id: topic_extraction
+    name: Topic and news extraction
+    category: extraction
+    trigger: on_dependencies_succeeded
+    execution:
+      adapter: llm
+      task: topic_extraction
+      base_url: ${EXTRACTOR_BASE_URL}            # e.g. https://api.openai.com/v1 (the adapter appends /chat/completions)
+      api_key: ${EXTRACTOR_API_KEY}              # sent as "Authorization: Bearer <key>"; never logged or returned
+      model: ${EXTRACTOR_MODEL}                  # required, no default, e.g. gpt-4o-mini
+      prompt_file: /etc/orchestrator/extractor/prompt.md   # system prompt; image default from config/extractor/prompt.md
+      max_input_chars: 20000                     # longer input is cut (at whitespace) and reported input_truncated: true
+      temperature: 0
+      max_tokens: 2000
+      timeout: 30s
+      response_format: json_schema               # json_schema | json_object | none
+      headers: {}                                # optional extra headers (e.g. OpenRouter's HTTP-Referer)
+      extra_body: {}                             # optional provider-specific fields, merged into the request body
+    # Optional: let the LLM finalizer see the extraction.
+    # llm: {include: true, description: "Fact-checkable topics and news items found in the text; not a verdict."}

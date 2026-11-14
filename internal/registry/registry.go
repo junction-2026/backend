@@ -37,6 +37,10 @@ const (
 	DefaultMistralEndpoint = "https://api.mistral.ai/v1/chat/completions"
 	DefaultMistralModel    = "mistral-small-latest"
 	DefaultMaxInputChars   = 20000
+
+	// execution.task of the llm adapter; absent means final_synthesis.
+	TaskFinalSynthesis  = "final_synthesis"
+	TaskTopicExtraction = "topic_extraction"
 )
 
 var (
@@ -67,6 +71,7 @@ type Execution struct {
 	BaseURL        string         `yaml:"base_url"`
 	APIKey         string         `yaml:"api_key"`
 	Model          string         `yaml:"model"`
+	Task           string         `yaml:"task"` // llm only
 	PromptFile     string         `yaml:"prompt_file"`
 	Temperature    float64        `yaml:"temperature"`
 	MaxTokens      int            `yaml:"max_tokens"`
@@ -74,7 +79,7 @@ type Execution struct {
 	ExtraBody      map[string]any `yaml:"extra_body"`
 	Prompt         string         `yaml:"-"` // prompt_file content, read once at load
 
-	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation only
+	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
 }
 
 // MaxChars is max_input_chars with its default.
@@ -92,7 +97,16 @@ const (
 	FormatNone       = "none"
 )
 
-const DefaultPromptFile = "/etc/orchestrator/finalizer/prompt.md"
+const (
+	DefaultPromptFile        = "/etc/orchestrator/finalizer/prompt.md"
+	DefaultExtractorPrompt   = "/etc/orchestrator/extractor/prompt.md"
+	defaultExtractorMaxToken = 2000
+)
+
+// TopicExtraction reports whether the execution is the llm topic extraction task.
+func (e Execution) TopicExtraction() bool {
+	return e.Adapter == AdapterLLM && e.Task == TaskTopicExtraction
+}
 
 // LLMInput opts an analyzer's run into the llm finalizer's input.
 type LLMInput struct {
@@ -337,6 +351,9 @@ func (a *Analyzer) normalize(opt Options) error {
 			e.Timeout = 60 * time.Second
 		}
 	}
+	if e.Task != "" && e.Adapter != AdapterLLM {
+		return fmt.Errorf("execution.task is only allowed for adapter %s", AdapterLLM)
+	}
 	if e.Method == "" {
 		e.Method = "POST"
 	}
@@ -362,19 +379,38 @@ func (a *Analyzer) normalize(opt Options) error {
 			return fmt.Errorf("unknown custom handler %q", e.Handler)
 		}
 	case AdapterLLM:
-		if a.Trigger != TriggerAfterAll {
-			return fmt.Errorf("execution.adapter llm is only allowed on %s analyzers", TriggerAfterAll)
+		switch {
+		case e.Task != "" && e.Task != TaskFinalSynthesis && e.Task != TaskTopicExtraction:
+			return fmt.Errorf("execution.task must be %s or %s", TaskFinalSynthesis, TaskTopicExtraction)
+		case e.Task == TaskTopicExtraction && a.Trigger != TriggerOnDeps:
+			return fmt.Errorf("execution.task %s is not allowed on %s analyzers", e.Task, a.Trigger)
+		case e.Task != TaskTopicExtraction && a.Trigger != TriggerAfterAll:
+			return fmt.Errorf("execution.adapter llm is only allowed on %s analyzers (or on analyzers with execution.task: %s)", TriggerAfterAll, TaskTopicExtraction)
 		}
 		for _, k := range []string{"model", "messages"} {
 			if _, ok := e.ExtraBody[k]; ok {
 				return fmt.Errorf("execution.extra_body.%s is not allowed (it would replace the request's %s)", k, k)
 			}
 		}
+		if e.TopicExtraction() {
+			switch {
+			case len(a.Input.Bindings) > 0:
+				return fmt.Errorf("input.bindings are not allowed for execution.task %s (it analyzes the job input)", e.Task)
+			case e.MaxInputChars != nil && *e.MaxInputChars <= 0:
+				return fmt.Errorf("execution.max_input_chars must be a positive integer")
+			}
+		}
 		if e.PromptFile == "" {
 			e.PromptFile = DefaultPromptFile
+			if e.TopicExtraction() {
+				e.PromptFile = DefaultExtractorPrompt
+			}
 		}
 		if e.MaxTokens == 0 {
 			e.MaxTokens = 600
+			if e.TopicExtraction() {
+				e.MaxTokens = defaultExtractorMaxToken
+			}
 		}
 		if e.ResponseFormat == "" {
 			e.ResponseFormat = FormatJSONSchema
@@ -437,6 +473,10 @@ func (a *Analyzer) normalize(opt Options) error {
 // loadLLM expands the llm settings of an enabled analyzer, checks the required
 // ones and reads the prompt file. Errors name the field, never a value.
 func (e *Execution) loadLLM(getenv func(string) (string, bool)) error {
+	who := "llm finalizer"
+	if e.TopicExtraction() {
+		who = "topic_extraction analyzer"
+	}
 	for _, f := range []struct {
 		name     string
 		v        *string
@@ -450,7 +490,7 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool)) error {
 			return fmt.Errorf("execution.%s: %w", f.name, err)
 		}
 		if f.required && strings.TrimSpace(*f.v) == "" {
-			return fmt.Errorf("execution.%s is empty; it is required for an enabled llm finalizer", f.name)
+			return fmt.Errorf("execution.%s is empty; it is required for an enabled %s", f.name, who)
 		}
 	}
 	switch e.ResponseFormat {
