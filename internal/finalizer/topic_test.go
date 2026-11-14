@@ -47,7 +47,7 @@ func TestTopicExtractionReachesFinalizerWhenOptedIn(t *testing.T) {
 
 	r, _ := lastReq(t, s)
 	user := r.Messages[1].Content
-	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"claims":[],"input_truncated":false,"usage":`+stubUsage+`}}`)
+	require.Contains(t, user, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"succeeded","availability":"ran","result":{"topics":[{"title":"T","query":"q","description":null}],"news":[],"claims":[],"input_truncated":false,"usage":`+stubUsage+`}}`)
 	require.Contains(t, user, `"id":"pd"`)
 }
 
@@ -66,7 +66,7 @@ func TestInvalidExtractionFailsOnlyThatAnalyzer(t *testing.T) {
 	require.Nil(t, byID["topic_extraction"].Result)
 	require.Equal(t, job.RunSucceeded, byID["pd"].Status)
 	r, _ := lastReq(t, s)
-	require.Contains(t, r.Messages[1].Content, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"failed","reason":"invalid_output"}`)
+	require.Contains(t, r.Messages[1].Content, `{"id":"topic_extraction","description":"`+topicDesc+`","status":"failed","reason":"invalid_output","availability":"unavailable","note":"`+job.NoteUnavailable+`"}`)
 }
 
 func TestTopicExtractionNotOptedInIsHidden(t *testing.T) {

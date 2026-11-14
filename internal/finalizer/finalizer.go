@@ -113,11 +113,13 @@ func (r *Runtime) run(ctx context.Context, in engine.FinalizationInput) (json.Ra
 // input (job order, which is registry id order) and whether any succeeded.
 func (r *Runtime) llmEntries(j *job.Job) (entries []json.RawMessage, anySucceeded bool) {
 	type entry struct {
-		ID          string          `json:"id"`
-		Description string          `json:"description"`
-		Status      string          `json:"status"`
-		Result      json.RawMessage `json:"result,omitempty"`
-		Reason      *string         `json:"reason,omitempty"`
+		ID           string          `json:"id"`
+		Description  string          `json:"description"`
+		Status       string          `json:"status"`
+		Reason       *string         `json:"reason,omitempty"`
+		Availability *string         `json:"availability"`
+		Note         *string         `json:"note,omitempty"`
+		Result       json.RawMessage `json:"result,omitempty"`
 	}
 	for _, run := range j.Analyzers {
 		def := r.Reg.Get(run.ID)
@@ -125,6 +127,7 @@ func (r *Runtime) llmEntries(j *job.Job) (entries []json.RawMessage, anySucceede
 			continue
 		}
 		e := entry{ID: run.ID, Description: def.LLM.Description, Status: run.Status}
+		e.Availability, e.Note = job.Availability(&run, j.Analyzers)
 		switch {
 		case run.Status == job.RunSucceeded:
 			e.Result, anySucceeded = run.Result, true
