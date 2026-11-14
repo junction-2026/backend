@@ -25,6 +25,8 @@ type Service interface {
 	Page(status string, after *store.Cursor, limit int) ([]job.Job, error)
 	Cancel(id string) (job.Job, error)
 	Subscribe(id string) (*events.Subscription, error)
+	MapCountries() ([]store.MapCountry, error)
+	MapAnalyses(code string, after *store.Cursor, limit int) ([]store.MapItem, error)
 }
 
 // Config wires the handler.
@@ -86,6 +88,8 @@ func NewHandler(c Config) http.Handler {
 	route(basePath+"/jobs/{id}", map[string]http.HandlerFunc{"GET": a.getJob})
 	route(basePath+"/jobs/{id}/cancel", map[string]http.HandlerFunc{"POST": a.cancelJob})
 	route(basePath+"/jobs/{id}/localization", map[string]http.HandlerFunc{"GET": a.getLocalization})
+	route(basePath+"/map/countries", map[string]http.HandlerFunc{"GET": a.mapCountries})
+	route(basePath+"/map/countries/{country_code}/analyses", map[string]http.HandlerFunc{"GET": a.mapAnalyses})
 	route(basePath+"/jobs/{id}/chat", map[string]http.HandlerFunc{"POST": a.postChat})
 	route(basePath+"/analyzers", map[string]http.HandlerFunc{"GET": a.listAnalyzers})
 	if c.Events != nil {

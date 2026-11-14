@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/junction-2026/backend/internal/job"
+	"github.com/junction-2026/backend/internal/outlets"
 )
 
 // Cursor is the position after which a page starts (the last job of the previous page).
@@ -40,17 +41,45 @@ type Store interface {
 	Unfinished() ([]*job.Record, error)
 	// Prune deletes persisted done jobs that finished before cutoff.
 	Prune(cutoff time.Time) error
+	// SetOutlets sets the outlet table the map values of jobs that become done afterwards (and the backfill) use.
+	SetOutlets(t *outlets.Table)
+	// BackfillMap determines the map values of persisted done jobs that have none yet (jobs stored before the map).
+	BackfillMap() error
+	// MapCountries returns the per-country aggregates of the map analyses, ordered by country code.
+	MapCountries() ([]MapCountry, error)
+	// MapAnalyses returns up to limit (0: all) map analyses of the country (upper case) newest first (created_at,
+	// ties by id), starting after cursor (nil: from the newest).
+	MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, error)
 	// Close releases the store.
 	Close() error
 }
 
 // Memory is an in-memory Store without history: jobs are lost on restart.
 type Memory struct {
-	mu   sync.RWMutex
-	jobs map[string]*job.Record
+	mu      sync.RWMutex
+	jobs    map[string]*job.Record
+	outlets *outlets.Table
+	vals    map[string]memMap // map values of the done jobs saved so far, fixed at the first save of the done job
 }
 
-func NewMemory() *Memory { return &Memory{jobs: map[string]*job.Record{}} }
+type memMap struct {
+	key mapKey
+	MapValues
+}
+
+func NewMemory() *Memory { return &Memory{jobs: map[string]*job.Record{}, vals: map[string]memMap{}} }
+
+func (m *Memory) SetOutlets(t *outlets.Table) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outlets = t
+}
+
+func (m *Memory) table() *outlets.Table {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.outlets
+}
 
 func (m *Memory) Put(j *job.Record) {
 	m.mu.Lock()
@@ -87,13 +116,26 @@ func (m *Memory) EvictFinished(cutoff time.Time) []string {
 		j.Unlock()
 		if old {
 			delete(m.jobs, id)
+			delete(m.vals, id)
 			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
-func (m *Memory) Save(*job.Record) error                 { return nil }
+// Save only fixes the map values of a job that is done; the Memory store keeps no history.
+func (m *Memory) Save(j *job.Record) error {
+	if !j.Done {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.vals[j.ID]; !ok {
+		m.vals[j.ID] = memMap{mapKey{j.CreatedAt, j.ID}, DeriveMap(&j.Job, m.outlets)}
+	}
+	return nil
+}
+func (m *Memory) BackfillMap() error                     { return nil }
 func (m *Memory) Load(string) (*job.Record, bool, error) { return nil, false, nil }
 func (m *Memory) Unfinished() ([]*job.Record, error)     { return nil, nil }
 func (m *Memory) Prune(time.Time) error                  { return nil }
@@ -123,6 +165,43 @@ func (m *Memory) Page(status string, after *Cursor, limit int) ([]job.Job, error
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (m *Memory) MapCountries() ([]MapCountry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	a := newMapAgg()
+	for _, v := range m.vals {
+		if v.Eligible {
+			a.add(v.key, v.MapValues)
+		}
+	}
+	return a.result(), nil
+}
+
+func (m *Memory) MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, error) {
+	m.mu.RLock()
+	var keys []mapKey
+	vals := map[string]MapValues{}
+	for id, v := range m.vals {
+		if v.Eligible && v.CountryCode == code && (after == nil || mapKey{after.CreatedAt, after.ID}.before(v.key)) {
+			keys, vals[id] = append(keys, v.key), v.MapValues
+		}
+	}
+	m.mu.RUnlock()
+	sort.Slice(keys, func(a, b int) bool { return keys[a].before(keys[b]) })
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	out := make([]MapItem, 0, len(keys))
+	for _, k := range keys {
+		if r, ok := m.Get(k.ID); ok {
+			r.Lock()
+			out = append(out, MapItem{r.Clone(), vals[k.ID]})
+			r.Unlock()
+		}
 	}
 	return out, nil
 }
