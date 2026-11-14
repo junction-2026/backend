@@ -264,6 +264,19 @@ type FinalAssessment struct {
 	// set by the orchestrator for the llm finalizer only; null otherwise
 	Attempts    *int    `json:"attempts"`
 	RetryReason *string `json:"retry_reason"`
+	// verified by the orchestrator; never nil when built by the finalizer runtime
+	WikipediaQuotes []WikipediaQuote `json:"wikipedia_quotes"`
+}
+
+// WikipediaQuote is a verbatim part of a WikiLookup passage; everything but Quote is copied from the WikiLookup.
+type WikipediaQuote struct {
+	Claim      string `json:"claim"`
+	Language   string `json:"language"`
+	Quote      string `json:"quote"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	RevisionID int64  `json:"revision_id"`
+	Coverage   string `json:"coverage"`
 }
 
 // Ptr returns a pointer to v.

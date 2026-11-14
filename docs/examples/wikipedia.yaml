@@ -29,5 +29,8 @@ analyzers:
       include: true
       description: >-
         What Wikipedia says about the claims found in the text, in the text's language and in English: the page,
-        its revision and a verbatim passage, with the claim's entities and numbers found in it. It shows what
-        Wikipedia says and is not a verdict: no_page or ambiguous only means no page was found.
+        its revision and a verbatim passage, with the claim's entities and numbers found in it, and a coverage label
+        per page: no_coverage, mentioned, aligned (evidence_sentence states the claim's numbers or dates) or
+        conflicts (evidence_sentence states a different number or date). It shows what Wikipedia says and is not a
+        verdict: an empty list, no_page, ambiguous or no_coverage means the claim was not found in Wikipedia, not
+        that it is false. Events of the same day are expected to be no_coverage; news_search is where reporting shows.

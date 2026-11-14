@@ -25,19 +25,21 @@ var wikiBackoff = time.Second
 
 // wikiLookup is the shared WikiLookup object; the page members are null unless status is found.
 type wikiLookup struct {
-	Language        string   `json:"language"`
-	Query           string   `json:"query"`
-	Status          string   `json:"status"`
-	Cached          bool     `json:"cached"`
-	Title           *string  `json:"title"`
-	URL             *string  `json:"url"`
-	PageID          *int64   `json:"page_id"`
-	RevisionID      *int64   `json:"revision_id"`
-	RevisedAt       *string  `json:"revised_at"`
-	Passage         *string  `json:"passage"`
-	PassageSource   *string  `json:"passage_source"`
-	MatchedEntities []string `json:"matched_entities"`
-	MatchedNumbers  []string `json:"matched_numbers"`
+	Language         string   `json:"language"`
+	Query            string   `json:"query"`
+	Status           string   `json:"status"`
+	Cached           bool     `json:"cached"`
+	Title            *string  `json:"title"`
+	URL              *string  `json:"url"`
+	PageID           *int64   `json:"page_id"`
+	RevisionID       *int64   `json:"revision_id"`
+	RevisedAt        *string  `json:"revised_at"`
+	Passage          *string  `json:"passage"`
+	PassageSource    *string  `json:"passage_source"`
+	MatchedEntities  []string `json:"matched_entities"`
+	MatchedNumbers   []string `json:"matched_numbers"`
+	Coverage         string   `json:"coverage"`
+	EvidenceSentence *string  `json:"evidence_sentence"`
 }
 
 type claimLookup struct {
@@ -197,6 +199,7 @@ func personalize(l wikiLookup, c claim, query string, cached bool) wikiLookup {
 	if l.Status == "found" {
 		l.MatchedEntities, l.MatchedNumbers = matchedEntities(c.Entities, *l.Passage), matchedNumbers(c.Text, *l.Passage)
 	}
+	l.Coverage, l.EvidenceSentence = wikiCoverage(c, l)
 	return l
 }
 

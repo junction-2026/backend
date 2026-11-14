@@ -29,8 +29,16 @@ var FinalizationSchema = map[string]any{
 		"verdict":    map[string]any{"type": "string", "enum": []string{"detected", "not_detected", "uncertain"}},
 		"confidence": map[string]any{"type": []string{"number", "null"}, "minimum": 0, "maximum": 1},
 		"user_text":  map[string]any{"type": "string", "minLength": 1},
+		"wikipedia_quotes": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"claim": map[string]any{"type": "string"}, "language": map[string]any{"type": "string"}, "quote": map[string]any{"type": "string"},
+			},
+			"required":             []string{"claim", "language", "quote"},
+			"additionalProperties": false,
+		}},
 	},
-	"required":             []string{"verdict", "confidence", "user_text"},
+	"required":             []string{"verdict", "confidence", "user_text", "wikipedia_quotes"},
 	"additionalProperties": false,
 }
 

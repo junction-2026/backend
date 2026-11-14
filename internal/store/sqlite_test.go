@@ -54,7 +54,7 @@ var results = map[string]string{
 	"translation":          `{"source_language":"de","text":"t"}`,
 }
 
-const assessment = `{"verdict":"likely_misleading","confidence":0.8,"user_text":"u","produced_by":"llm","usage":{"input_tokens":3},"attempts":1,"retry_reason":null,"future_member":{"k":[true]}}`
+const assessment = `{"verdict":"likely_misleading","confidence":0.8,"user_text":"u","produced_by":"llm","usage":{"input_tokens":3},"attempts":1,"retry_reason":null,"wikipedia_quotes":[{"claim":"c","language":"en","quote":"q","title":"T","url":"https://en.wikipedia.org/w/index.php?title=T&oldid=1","revision_id":1,"coverage":"aligned"}],"future_member":{"k":[true]}}`
 
 func fullRecord() *job.Record {
 	r := rec("full", 0, job.StatusCompleted)
