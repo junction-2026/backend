@@ -42,6 +42,8 @@ const (
 	DefaultMistralEndpoint = "https://api.mistral.ai/v1/chat/completions"
 	DefaultMistralModel    = "mistral-small-latest"
 	DefaultMaxInputChars   = 20000
+	DefaultEnglishMinWords = 8
+	DefaultEnglishRatio    = 0.25
 
 	// execution.task of the llm adapter; absent means final_synthesis.
 	TaskFinalSynthesis  = "final_synthesis"
@@ -85,6 +87,11 @@ type Execution struct {
 	Prompt         string         `yaml:"-"` // prompt_file content, read once at load
 
 	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
+
+	// mistral_translation only: skip the Mistral call for text that is clearly English
+	SkipEnglish     *bool    `yaml:"skip_english"`
+	EnglishMinWords *int     `yaml:"english_min_words"`
+	EnglishMinRatio *float64 `yaml:"english_min_ratio"`
 
 	// news_search only (api_key and base_url are shared); News holds the validated values with defaults.
 	Languages      []string       `yaml:"languages"`
@@ -192,6 +199,25 @@ func (e Execution) MaxChars() int {
 		return DefaultMaxInputChars
 	}
 	return *e.MaxInputChars
+}
+
+// SkipsEnglish is skip_english with its default (true).
+func (e Execution) SkipsEnglish() bool { return e.SkipEnglish == nil || *e.SkipEnglish }
+
+// EnglishWords is english_min_words with its default.
+func (e Execution) EnglishWords() int {
+	if e.EnglishMinWords == nil {
+		return DefaultEnglishMinWords
+	}
+	return *e.EnglishMinWords
+}
+
+// EnglishRatio is english_min_ratio with its default.
+func (e Execution) EnglishRatio() float64 {
+	if e.EnglishMinRatio == nil {
+		return DefaultEnglishRatio
+	}
+	return *e.EnglishMinRatio
 }
 
 // LLM response_format modes.
@@ -456,6 +482,10 @@ func (a *Analyzer) normalize(opt Options) error {
 			return fmt.Errorf("execution.api_key is required for adapter %s", e.Adapter)
 		case e.MaxInputChars != nil && *e.MaxInputChars <= 0:
 			return fmt.Errorf("execution.max_input_chars must be a positive integer")
+		case e.EnglishMinWords != nil && *e.EnglishMinWords < 1:
+			return fmt.Errorf("execution.english_min_words must be a positive integer")
+		case e.EnglishMinRatio != nil && !(*e.EnglishMinRatio > 0 && *e.EnglishMinRatio <= 1):
+			return fmt.Errorf("execution.english_min_ratio must be greater than 0 and at most 1")
 		}
 		if e.Endpoint == "" {
 			e.Endpoint = DefaultMistralEndpoint
@@ -466,6 +496,9 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Timeout == 0 {
 			e.Timeout = 60 * time.Second
 		}
+	}
+	if e.Adapter != AdapterMistralTranslation && (e.SkipEnglish != nil || e.EnglishMinWords != nil || e.EnglishMinRatio != nil) {
+		return fmt.Errorf("execution.skip_english, english_min_words and english_min_ratio are only allowed for adapter %s", AdapterMistralTranslation)
 	}
 	if e.Adapter == AdapterNewsSearch {
 		if err := a.normalizeNewsSearch(); err != nil {

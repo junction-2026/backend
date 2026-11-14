@@ -128,6 +128,12 @@ func TestLoadRejects(t *testing.T) {
 		{"mistral poll_interval", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, poll_interval: 2s}\n", "poll_interval"},
 		{"mistral bindings", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k}\n    input: {bindings: {text: $input}}\n", "bindings are not allowed"},
 		{"mistral max_input_chars 0", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, max_input_chars: 0}\n", "max_input_chars"},
+		{"mistral english_min_words 0", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, english_min_words: 0}\n", "english_min_words"},
+		{"mistral english_min_ratio 0", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, english_min_ratio: 0}\n", "english_min_ratio"},
+		{"mistral english_min_ratio above 1", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, english_min_ratio: 1.5}\n", "english_min_ratio"},
+		{"skip_english on http_sync", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, skip_english: true}\n", "only allowed for adapter mistral_translation"},
+		{"english_min_words on custom", "analyzers:\n  - id: a\n    execution: {adapter: custom, handler: text_stats, english_min_words: 8}\n", "only allowed for adapter mistral_translation"},
+		{"english_min_ratio on propaganda", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, english_min_ratio: 0.5}\n", "only allowed for adapter mistral_translation"},
 		{"mistral max_input_chars negative", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, max_input_chars: -5}\n", "max_input_chars"},
 		{"propaganda unset env", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: \"${PROPAGANDA_DETECTION_URL}\"}\n", "environment variable PROPAGANDA_DETECTION_URL is not set"},
 		{"empty file", "", "no analyzers defined"},
@@ -244,12 +250,19 @@ func TestPropagandaBindingLoads(t *testing.T) {
 	require.Equal(t, "$input", r.Get("b").Input.Bindings["text"])
 }
 
+func TestMistralSkipEnglishNotExpanded(t *testing.T) { // typed keys: a ${VAR} is a decode error, never expanded
+	p := write(t, "r.yaml", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, skip_english: \"${X}\"}\n")
+	_, err := Load(p, opts(map[string]string{"X": "true"}))
+	require.ErrorContains(t, err, "r.yaml")
+	require.ErrorContains(t, err, "bool")
+}
+
 func TestMistralTranslationLoads(t *testing.T) {
 	p := write(t, "r.yaml", `analyzers:
   - id: a
     execution: {adapter: mistral_translation, api_key: "${K}"}
   - id: b
-    execution: {adapter: mistral_translation, endpoint: "${E}", api_key: k, model: "${M}", timeout: 5s, max_input_chars: 100, headers: {X-Org: "${K}"}}
+    execution: {adapter: mistral_translation, endpoint: "${E}", api_key: k, model: "${M}", timeout: 5s, max_input_chars: 100, headers: {X-Org: "${K}"}, skip_english: false, english_min_words: 3, english_min_ratio: 0.5}
   - id: off
     enabled: false
     execution: {adapter: mistral_translation, api_key: "${UNSET}", model: "${UNSET}"}
@@ -262,11 +275,17 @@ func TestMistralTranslationLoads(t *testing.T) {
 	require.Equal(t, "mistral-small-latest", a.Model)
 	require.Equal(t, 60*time.Second, a.Timeout)
 	require.Equal(t, 20000, a.MaxChars())
+	require.True(t, a.SkipsEnglish())
+	require.Equal(t, 8, a.EnglishWords())
+	require.Equal(t, 0.25, a.EnglishRatio())
 	b := r.Get("b").Execution
 	require.Equal(t, "http://m/v1", b.Endpoint)
 	require.Equal(t, "tiny", b.Model)
 	require.Equal(t, 5*time.Second, b.Timeout)
 	require.Equal(t, 100, b.MaxChars())
+	require.False(t, b.SkipsEnglish())
+	require.Equal(t, 3, b.EnglishWords())
+	require.Equal(t, 0.5, b.EnglishRatio())
 	require.Equal(t, "key", b.Headers["X-Org"])
 	require.False(t, r.Get("off").Enabled)
 
