@@ -89,6 +89,12 @@ func TestLoadDirectory(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate")
 }
 
+func TestSourceLanguageBindingOnAfterAll(t *testing.T) {
+	_, err := Load(write(t, "r.yaml", "analyzers:\n  - id: fin\n    trigger: after_all_analyzers_settled\n"+custom+
+		"    input: {bindings: {language: $job.source_language}}\n"), opts(nil))
+	require.NoError(t, err)
+}
+
 func TestLoadRejects(t *testing.T) {
 	fin := "  - id: fin\n    trigger: after_all_analyzers_settled\n" + custom
 	cases := []struct{ name, yaml, want string }{
@@ -100,6 +106,7 @@ func TestLoadRejects(t *testing.T) {
 		{"finalizer depends_on", "analyzers:\n  - id: a\n" + custom + fin + "    depends_on: [a]\n", "must not use depends_on"},
 		{"depends on finalizer", "analyzers:\n" + fin + "  - id: a\n" + custom + "    depends_on: [fin]\n", "after_all_analyzers_settled analyzer"},
 		{"job.analyzers on regular", "analyzers:\n  - id: a\n" + custom + "    input: {bindings: {x: $job.analyzers}}\n", "only allowed"},
+		{"job.source_language on regular", "analyzers:\n  - id: a\n" + custom + "    input: {bindings: {x: $job.source_language}}\n", "only allowed"},
 		{"job.coverage on regular", "analyzers:\n  - id: a\n" + custom + "    input: {bindings: {x: $job.coverage}}\n", "only allowed"},
 		{"analyzers binding not in depends_on", "analyzers:\n  - id: a\n" + custom + "  - id: b\n" + custom + "    input: {bindings: {x: $analyzers.a}}\n", "not in depends_on"},
 		{"unknown binding", "analyzers:\n  - id: a\n" + custom + "    input: {bindings: {x: $nope}}\n", "unknown binding"},

@@ -100,6 +100,11 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 			out[name] = append([]job.AnalyzerRun(nil), j.Analyzers...)
 		case "$job.coverage":
 			out[name] = job.ComputeCoverage(j.Analyzers)
+		case "$job.source_language":
+			out[name] = nil // member present, null when unknown
+			if l := JobSourceLanguage(j); l != "" {
+				out[name] = l
+			}
 		default: // $analyzers.<id>, validated by the registry
 			id := src[len("$analyzers."):]
 			for i := range j.Analyzers {
@@ -122,6 +127,16 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 		}
 	}
 	return out
+}
+
+// JobSourceLanguage is the normalized source_language of the job's succeeded translation run, "" when unknown.
+func JobSourceLanguage(j *job.Job) string {
+	for i := range j.Analyzers {
+		if r := &j.Analyzers[i]; r.ID == "translation" && r.Status == job.RunSucceeded {
+			return readSourceLanguage(r.Result)
+		}
+	}
+	return ""
 }
 
 func inputObject(j *job.Job) map[string]any {
