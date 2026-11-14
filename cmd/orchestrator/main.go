@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/junction-2026/backend/internal/adapter"
+	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/finalizer"
 	"github.com/junction-2026/backend/internal/httpapi"
@@ -44,8 +45,11 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 		return err
 	}
 	// Bearer values and secret scraper variables never reach a log line.
-	redactor := ss.NewRedactor(getenv)
+	redactor := ss.NewRedactor(getenv, cfg.Chat.APIKey)
 	log := ss.NewLogger(logOut, redactor)
+	if cfg.Chat.APIKey == "" {
+		log.Info("chat disabled: CHAT_API_KEY or CHAT_API_KEY_FILE is not set")
+	}
 	for _, name := range cfg.Ignored {
 		log.Warn("ignoring obsolete scraper variable: scraping runs in process", "variable", name)
 	}
@@ -88,7 +92,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	events := ws.New(eng, ws.Options{Logger: log})
 	loc := localization.New(localization.FromRegistry(reg), cfg.LocalizationTimeout, log)
 	srv := &http.Server{
-		Handler:           httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Localizer: loc, Logger: log}),
+		Handler:           httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Localizer: loc, Chat: chat.New(cfg.Chat, log), Logger: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
