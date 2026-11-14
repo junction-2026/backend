@@ -97,6 +97,7 @@ type techResult struct {
 	Detected []struct {
 		Name, Display, Explanation string
 		Score                      float64
+		Spans                      []techniqueSpan
 	} `json:"detected"`
 	MaxScore  float64 `json:"max_score"`
 	Sentences []struct {
@@ -110,6 +111,9 @@ type techResult struct {
 	OffsetsIn          string   `json:"offsets_in"`
 	SentencesTruncated bool     `json:"sentences_truncated"`
 	LatencyMS          *float64 `json:"latency_ms"`
+	SpanMethod         string   `json:"span_method"`
+	SpanStatus         string   `json:"span_status"`
+	SpansTruncated     bool     `json:"spans_truncated"`
 }
 
 func runTech(t *testing.T, d *registry.Analyzer, r Request) techResult {

@@ -198,6 +198,46 @@ sentence is found there verbatim, else into the translation (`offsets_in: transl
 proof, and scores of the two models are not comparable. Add `llm: {include: true, description: ...}` (as in the
 example) to let the LLM finalizer see the result. Every job that runs it makes one request to one ML service.
 
+### Technique spans
+
+Each entry of `detected` also has `spans`: `{technique, text, start, end}` ranges of `Job.input.content` (the text as
+submitted, not `normalized_content` and never the translation) with half-open UTF-16 offsets, so
+`content.slice(start, end) === text` in JavaScript (shared change `technique-spans`). The result also has
+`span_method` (`sentence` when the translation's `source_language` is `en`, else `phrase`), `span_status` (`ok`,
+`failed`, `timeout`) and `spans_truncated`. They come from the optional `execution.spans` block:
+
+| Variable | |
+|---|---|
+| `TECHNIQUE_SPAN_URL` | prediction endpoint of the sentence model (`nci-social`, same request and answer shape as `short`/`long`) |
+| `SPAN_LLM_BASE_URL` | OpenAI-compatible base URL (`{base_url}/chat/completions`) of the phrase LLM |
+| `SPAN_LLM_API_KEY` | its key, sent as `Authorization: Bearer <key>`; never logged or returned |
+| `SPAN_LLM_MODEL` | its model name |
+
+- **English** (`sentence`): `Job.input.content` is split with the same rules as above (`.`, `!`, `?`, newlines,
+  fragments under 3 words dropped); the first `spans.max_sentences` (default 20) go in one
+  `POST {"text": [sentence 1..N]}` to `spans.sentence_model` (`spans_truncated` is true when more existed). A sentence
+  becomes a span of each technique in `detected` it scores at or above the sentence model's `threshold` (or its
+  `thresholds` override); scores of undetected techniques are ignored.
+- **Other languages** (`phrase`): one LLM request with the system prompt `spans.llm.prompt_file` (default
+  `/etc/orchestrator/technique_spans/prompt.md`, from `config/technique_spans/prompt.md`) and a user message with the
+  content (first `spans.max_input_chars` characters, default 20000) in a `<content>` block and the detected techniques.
+  The reply must be `{"phrases": [{"technique", "text"}]}`. A phrase is kept only when it is an exact, case-sensitive
+  substring of `Job.input.content` (its leftmost occurrence); nothing is trimmed, normalized or translated, so a
+  translated or reworded phrase is dropped. Phrases for undetected techniques are ignored, duplicates collapse, and at
+  most `spans.max_phrases_per_technique` (default 5) are kept per technique (`spans_truncated` is true when more were
+  dropped or the content was cut).
+- No span request is sent when `detected` is empty. A technique without an accepted span stays in `detected` with
+  `spans: []`. Spans are sorted by `start`, then `end`.
+- The span step has its own deadline `spans.timeout` (required, shorter than `timeout`). A non-2xx answer, connection
+  error or unreadable answer gives `span_status: failed`, the deadline `span_status: timeout`; either way the run
+  still succeeds with every `spans` empty and the rest of the result unchanged, and the cause is only logged (with
+  header values and the API key redacted). The analyzer's overall `timeout` still fails the run as before.
+- `spans.sentence_model` takes `endpoint`, `headers`, `threshold` (required, 0..1) and `thresholds`; `spans.llm` takes
+  `base_url`, `api_key`, `model`, `prompt_file`, `temperature`, `max_tokens` (default 1000), `response_format`
+  (default `json_schema`), `headers` and `extra_body`, all with `${VAR}` expansion. Invalid values abort startup.
+- Without a `spans` block nothing extra is requested: `span_method` follows the language, `span_status` is `ok` and
+  every `spans` is `[]`.
+
 ## Jobs from a social-media URL
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of
