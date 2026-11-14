@@ -1,0 +1,8 @@
+# Sample registry: the built-in in-process text_stats analyzer only.
+analyzers:
+  - id: text_stats
+    name: Text statistics
+    category: statistics
+    execution:
+      adapter: custom
+      handler: text_stats
