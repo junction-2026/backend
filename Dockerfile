@@ -19,6 +19,8 @@ COPY data/outlets.csv /etc/orchestrator/data/outlets.csv
 # DATA_DIR (unset by default: the cache then lives in ./var/wikipedia relative to the working directory) holds the wikipedia analyzer's on-disk cache in
 # $DATA_DIR/wikipedia. The container runs as uid 65532: mount a volume there that uid 65532 can write to
 # (e.g. -e DATA_DIR=/data -v wiki-cache:/data) to keep the cache across container restarts.
+# JOB_STORE=sqlite keeps job history in JOB_STORE_PATH; point it at a volume uid 65532 can write:
+# e.g. -e JOB_STORE=sqlite -e JOB_STORE_PATH=/data/jobs.db -v jobs:/data (see README "Job history").
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/orchestrator"]
