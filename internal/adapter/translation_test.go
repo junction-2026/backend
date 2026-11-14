@@ -352,3 +352,16 @@ func TestTranslationEnglishThresholds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, m.calls)
 }
+
+func TestTranslationEmptyAPIKeyFailsBeforeEnglishSkip(t *testing.T) {
+	m := newMistral(t, replyWith(200, chat(okReply, nil)))
+	d := tdef(m.URL)
+	d.Execution.APIKey = ""
+	_, err := texec(context.Background(), d, skipEnglishText)
+	require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+	for _, text := range []string{"", " \n\t"} { // empty input with skip enabled and a key
+		_, err = texec(context.Background(), tdef(m.URL), text)
+		require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+	}
+	require.Zero(t, m.calls)
+}
