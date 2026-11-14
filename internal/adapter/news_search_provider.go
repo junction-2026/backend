@@ -265,13 +265,13 @@ func (c *newsCache) do(ctx context.Context, key string, ttl time.Duration, fn fu
 		}
 		ent := &cacheEntry{done: make(chan struct{})}
 		c.m[key] = ent
-		if len(c.m) > maxCacheEntries { // shortcut: prune expired entries only; upgrade to an LRU if a deployment outgrows this
+		if len(c.m) > maxCacheEntries { // hard cap: evict one completed entry (map order, O(1) in practice); in-flight ones stay
+		evict:
 			for k, e := range c.m {
 				select {
 				case <-e.done:
-					if e.err != nil || !time.Now().Before(e.expires) {
-						delete(c.m, k)
-					}
+					delete(c.m, k)
+					break evict
 				default:
 				}
 			}

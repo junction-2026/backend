@@ -644,3 +644,15 @@ func TestRedactor(t *testing.T) {
 		require.Contains(t, out, "[redacted]")
 	}
 }
+
+func TestNewsCacheIsBounded(t *testing.T) {
+	var c newsCache
+	for i := 0; i < maxCacheEntries+200; i++ {
+		_, _, err := c.do(context.Background(), fmt.Sprint("k", i), time.Hour, func() ([]serperResult, error) { return nil, nil })
+		require.NoError(t, err)
+	}
+	require.LessOrEqual(t, len(c.m), maxCacheEntries+1)
+	// the newest entry is still served from the cache
+	_, shared, _ := c.do(context.Background(), fmt.Sprint("k", maxCacheEntries+199), time.Hour, func() ([]serperResult, error) { return nil, nil })
+	require.True(t, shared)
+}

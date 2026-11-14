@@ -7,7 +7,7 @@
 - **Cache and in-flight sharing** share one process-wide map on the `Executor` keyed by (endpoint, q, hl, gl).
   An entry is either in flight (waiters block on it) or a successful response with an expiry. Failures are
   removed, never cached. A waiter whose leader died of context cancellation retries on its own context.
-  Waiters count as `cached` (they sent no request). Expired entries are pruned when the map grows.
+  Waiters count as `cached` (they sent no request). The map is capped at 1024 entries: inserting beyond that evicts one completed entry (in-flight ones are never evicted).
 - **Fallback failure is best-effort.** If the web fallback of an entry fails after the news search succeeded with
   fewer than `min_results`, the entry stays `succeeded` with `endpoint: news` and its news results; both attempts
   are still counted in `searches_used`. A rejected key (401/403) fails the run either way.
