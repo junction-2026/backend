@@ -296,7 +296,6 @@ func (m *Module) scrapeAIStudio(ctx context.Context, u *url.URL) (*ss.Result, er
 	}
 
 	// JSON run failed or its body is too short: one Markdown run.
-	jsonErr := rerr
 	data, rerr = a.run(ctx, target, false)
 	text, extraction := "", "markdown_fallback"
 	if rerr == nil {
@@ -310,8 +309,6 @@ func (m *Module) scrapeAIStudio(ctx context.Context, u *url.URL) (*ss.Result, er
 		return a.result(u, jp, text, extraction), nil
 	case rerr != nil:
 		return nil, rerr.err
-	case jp == nil && jsonErr != nil:
-		return nil, jsonErr.err
 	}
 	return nil, ss.NoTextContent(platform)
 }

@@ -219,6 +219,7 @@ func TestAIStudioErrors(t *testing.T) {
 		{"error page", map[string]aiRun{"json": {data: jsonData("error_page", "", nil)}}, "no_text_content", 1},
 		{"empty body", map[string]aiRun{"json": {data: jsonData("article", "", nil)}, "markdown": {data: ""}}, "no_text_content", 2},
 		{"short paywall", map[string]aiRun{"json": {data: jsonData("consent_or_paywall", strings.Repeat("x", 100), nil)}}, "login_required", 1},
+		{"json failed markdown empty", map[string]aiRun{"json": {status: "failed", errCode: "target_unreachable"}, "markdown": {data: ""}}, "no_text_content", 2},
 		{"both runs failed", map[string]aiRun{"json": {status: "failed", errCode: "target_unreachable"},
 			"markdown": {status: "failed", errCode: "target_unreachable"}}, "upstream_error", 2},
 		{"start rejected", map[string]aiRun{"json": {startCode: 500}, "markdown": {startCode: 500}}, "upstream_error", 2},
