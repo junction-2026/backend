@@ -70,7 +70,7 @@ func (f *fakeSvc) Page(status string, after *store.Cursor, limit int) ([]job.Job
 	defer f.mu.Unlock()
 	var out []job.Job
 	for _, j := range f.jobs {
-		if status != "" && j.Status != status {
+		if !j.Public || (status != "" && j.Status != status) {
 			continue
 		}
 		// newest first, ties by id (the engine's contract for Page)
@@ -101,7 +101,7 @@ func (f *fakeSvc) Subscribe(id string) (*events.Subscription, error) {
 var t0 = time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
 
 func mkJob(id string, age int, status string) job.Job {
-	return job.Job{ID: id, Status: status, Done: status == job.StatusCompleted, CreatedAt: t0.Add(-time.Duration(age) * time.Second),
+	return job.Job{ID: id, Public: true, Status: status, Done: status == job.StatusCompleted, CreatedAt: t0.Add(-time.Duration(age) * time.Second),
 		Analyzers: []job.AnalyzerRun{}, Finalization: job.Finalization{Status: job.RunPending}}
 }
 
@@ -109,6 +109,7 @@ func newFake() *fakeSvc {
 	f := &fakeSvc{jobs: map[string]job.Job{}, subbed: make(chan struct{})}
 	f.create = func(r engine.CreateRequest) (job.Job, error) {
 		j := mkJob("job-1", 0, job.StatusQueued)
+		j.Public = !r.Private
 		if r.Scrape != nil {
 			j.Scrape = &job.Scrape{Status: job.RunPending, ScrapeRequest: *r.Scrape}
 			return j, nil
@@ -591,4 +592,58 @@ func TestGetJobServesTechniquesResultWithoutStrength(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.JSONEq(t, old, string(got.Analyzers[0].Result))
+}
+
+func TestCreateJobPublicFlag(t *testing.T) {
+	x := newHarness(t)
+	scrape := `"scrape":{"url":"https://bsky.app/profile/alice.bsky.social/post/3kxyz"}`
+	for _, c := range []struct {
+		body   string
+		public bool
+	}{
+		{`{"input":{"content":"x"}}`, true},
+		{`{"input":{"content":"x"},"public":true}`, true},
+		{`{"input":{"content":"x"},"public":false}`, false},
+		{`{` + scrape + `}`, true},
+		{`{` + scrape + `,"public":false}`, false},
+	} {
+		rec := x.do("POST", "/api/v1/jobs", c.body)
+		require.Equal(t, 201, rec.Code, c.body+rec.Body.String())
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Equal(t, c.public, got["public"], c.body)
+	}
+	for _, v := range []string{`"no"`, `1`, `null`, `{}`, `[]`} {
+		for _, body := range []string{`{"input":{"content":"x"},"public":` + v + `}`, `{` + scrape + `,"public":` + v + `}`} {
+			x.svc.last = engine.CreateRequest{}
+			e := wantError(t, x.do("POST", "/api/v1/jobs", body), 422, "validation_failed")
+			require.Contains(t, e.Error.Details["fields"], "public", body)
+			require.Empty(t, x.svc.last, "no job is created: "+body)
+		}
+	}
+	// reported next to the other violations
+	e := wantError(t, x.do("POST", "/api/v1/jobs", `{"input":{"content":" "},"public":"no"}`), 422, "validation_failed")
+	require.Contains(t, e.Error.Details["fields"], "public")
+	require.Contains(t, e.Error.Details["fields"], "input.content")
+}
+
+func TestListJobsExcludesNonPublic(t *testing.T) {
+	x := newHarness(t)
+	for i, id := range []string{"p1", "u1", "p2", "u2", "p3"} {
+		j := mkJob(id, 10-i, job.StatusRunning)
+		j.Public = id[0] == 'p'
+		x.svc.jobs[id] = j
+	}
+	for _, q := range []string{"?limit=2", "?status=running&limit=2"} {
+		p := list(t, x, q)
+		require.Len(t, p.Items, 2)
+		require.NotNil(t, p.NextCursor)
+		p2 := list(t, x, q+"&cursor="+*p.NextCursor)
+		require.Len(t, p2.Items, 1)
+		require.Nil(t, p2.NextCursor)
+		require.Equal(t, "p3", p.Items[0].ID)
+		require.Equal(t, "p2", p.Items[1].ID)
+		require.Equal(t, "p1", p2.Items[0].ID)
+	}
+	require.Equal(t, 200, x.do("GET", "/api/v1/jobs/u1", "").Code, "unlisted jobs are read by id")
 }

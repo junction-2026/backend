@@ -34,7 +34,7 @@ type Store interface {
 	// Load returns an unshared record of a persisted job, with its event-stream state and LastSeq.
 	Load(id string) (*job.Record, bool, error)
 	// Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with
-	// status, starting after cursor (nil: from the newest). Only the jobs it returns are decoded.
+	// status, only public jobs (the limit and the cursor count those only), starting after cursor (nil: from the newest). Only the jobs it returns are decoded.
 	Page(status string, after *Cursor, limit int) ([]job.Job, error)
 	// Unfinished returns the persisted jobs that are not done, as unshared records.
 	Unfinished() ([]*job.Record, error)
@@ -104,7 +104,7 @@ func (m *Memory) Page(status string, after *Cursor, limit int) ([]job.Job, error
 	var out []job.Job
 	for _, j := range m.All() {
 		j.Lock()
-		if status == "" || j.Status == status {
+		if j.Public && (status == "" || j.Status == status) {
 			out = append(out, j.Clone())
 		}
 		j.Unlock()

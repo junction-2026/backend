@@ -374,7 +374,7 @@ func TestExistingMembersAndRESTUnchanged(t *testing.T) {
 	for k := range m {
 		got = append(got, k)
 	}
-	require.ElementsMatch(t, []string{"id", "status", "done", "created_at", "started_at", "finished_at", "input", "scrape", "options",
+	require.ElementsMatch(t, []string{"id", "status", "done", "created_at", "started_at", "finished_at", "input", "scrape", "options", "public",
 		"analyzers", "coverage", "finalization"}, got)
 	var run map[string]json.RawMessage
 	var runs []json.RawMessage
