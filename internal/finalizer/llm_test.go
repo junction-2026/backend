@@ -115,7 +115,7 @@ func TestLLMSuccessAndRequest(t *testing.T) {
 
 	require.Equal(t, job.StatusCompleted, j.Status)
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
-	require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null,"wikipedia_quotes":[]}`, string(j.Finalization.Result))
 
 	require.EqualValues(t, 1, s.calls.Load())
 	require.Equal(t, "/v1/chat/completions", path, "trailing slash of base_url trimmed")
@@ -156,8 +156,10 @@ func TestLLMSuccessAndRequest(t *testing.T) {
 }
 
 var wantSchema = `{"type":"object","properties":{"verdict":{"type":"string","enum":["detected","not_detected","uncertain"]},` +
-	`"confidence":{"type":["number","null"],"minimum":0,"maximum":1},"user_text":{"type":"string","minLength":1}},` +
-	`"required":["verdict","confidence","user_text"],"additionalProperties":false}`
+	`"confidence":{"type":["number","null"],"minimum":0,"maximum":1},"user_text":{"type":"string","minLength":1},` +
+	`"wikipedia_quotes":{"type":"array","items":{"type":"object","properties":{"claim":{"type":"string"},"language":{"type":"string"},` +
+	`"quote":{"type":"string"}},"required":["claim","language","quote"],"additionalProperties":false}}},` +
+	`"required":["verdict","confidence","user_text","wikipedia_quotes"],"additionalProperties":false}`
 
 // AC 8: each response_format mode.
 func TestLLMResponseFormats(t *testing.T) {
@@ -233,7 +235,7 @@ func TestLLMFailuresAndDecoding(t *testing.T) {
 			}
 			if c.code == "" {
 				require.Equal(t, job.StatusCompleted, j.Finalization.Status)
-				require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null}`, string(j.Finalization.Result))
+				require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null,"wikipedia_quotes":[]}`, string(j.Finalization.Result))
 				return
 			}
 			require.Equal(t, job.RunFailed, j.Finalization.Status)

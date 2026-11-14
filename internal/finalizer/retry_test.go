@@ -77,7 +77,7 @@ func TestLLMReplyRetryLength(t *testing.T) {
 	j := runsOf(t, x.e, selected("x"))
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
 	require.JSONEq(t, `{"verdict":"detected","confidence":0.7,"user_text":"...","produced_by":"finalizer","attempts":2,"retry_reason":"length",`+
-		`"usage":{"prompt_tokens":1850,"completion_tokens":900,"total_tokens":2750,"cost":0.0022}}`, string(j.Finalization.Result))
+		`"usage":{"prompt_tokens":1850,"completion_tokens":900,"total_tokens":2750,"cost":0.0022},"wikipedia_quotes":[]}`, string(j.Finalization.Result))
 	require.EqualValues(t, 2, s.calls.Load())
 
 	first, _ := reqN(t, s, 0)
@@ -230,5 +230,5 @@ func TestLLMReplyRetryBothInvalid(t *testing.T) {
 func TestHTTPFinalizerAttemptsDropped(t *testing.T) {
 	s := newStub(t, reply(`{"verdict":"detected","user_text":"...","attempts":5,"retry_reason":"x"}`))
 	j, _ := run(t, s, "", req("x"))
-	require.JSONEq(t, `{"verdict":"detected","confidence":null,"user_text":"...","produced_by":"finalizer","usage":null,"attempts":null,"retry_reason":null}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"detected","confidence":null,"user_text":"...","produced_by":"finalizer","usage":null,"attempts":null,"retry_reason":null,"wikipedia_quotes":[]}`, string(j.Finalization.Result))
 }

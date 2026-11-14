@@ -316,10 +316,10 @@ func TestWikiAmbiguousAndDisambiguatedByOtherEntity(t *testing.T) {
 	s := newWikiStub(t, map[string]string{"en|mercury": "merc_only", "en|freddie": "mercury"})
 	amb := wc("Mercury is hot.", "mercury", "mercury", 0.7, "Mercury")
 	w := runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("en", amb)).Claims[0].Wikis[0]
-	require.Equal(t, wikiLookup{Language: "en", Query: "mercury", Status: "ambiguous"}, w)
+	require.Equal(t, wikiLookup{Language: "en", Query: "mercury", Status: "ambiguous", Coverage: CoverageNone}, w)
 	b, _ := json.Marshal(w)
 	require.JSONEq(t, `{"language":"en","query":"mercury","status":"ambiguous","cached":false,"title":null,"url":null,"page_id":null,
-"revision_id":null,"revised_at":null,"passage":null,"passage_source":null,"matched_entities":null,"matched_numbers":null}`, string(b))
+"revision_id":null,"revised_at":null,"passage":null,"passage_source":null,"matched_entities":null,"matched_numbers":null,"coverage":"no_coverage","evidence_sentence":null}`, string(b))
 
 	ok := wc("Freddie Mercury sang.", "freddie", "freddie", 0.7, "Mercury", "Freddie Mercury")
 	w = runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("en", ok)).Claims[0].Wikis[0]
@@ -338,8 +338,8 @@ func TestWikiFulltextDisambiguationTopHit(t *testing.T) {
 func TestWikiNoPage(t *testing.T) {
 	s := newWikiStub(t, nil)
 	w := runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("de", pensClaim)).Claims[0].Wikis
-	require.Equal(t, wikiLookup{Language: "de", Query: "Rentenalter 70", Status: "no_page"}, w[0])
-	require.Equal(t, wikiLookup{Language: "en", Query: "retirement age 70", Status: "no_page"}, w[1])
+	require.Equal(t, wikiLookup{Language: "de", Query: "Rentenalter 70", Status: "no_page", Coverage: CoverageNone}, w[0])
+	require.Equal(t, wikiLookup{Language: "en", Query: "retirement age 70", Status: "no_page", Coverage: CoverageNone}, w[1])
 	require.Equal(t, 2, s.count()) // no page request without hits
 }
 
