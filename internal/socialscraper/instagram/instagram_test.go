@@ -486,3 +486,18 @@ func TestMediaID(t *testing.T) {
 	short, _ := mediaID("BAAAAAAAAAA")
 	assert.Equal(t, short, long)
 }
+
+func TestUserTextNamingLoginMarkersIsNotALoginWall(t *testing.T) {
+	text := `use @login_required and {\"require_login\": true} in Django`
+	s := newSite(t)
+	s.raw(webHost+"/api/v1/users/web_profile_info/", 200,
+		`{"data":{"user":{"id":"1001","username":"alice","biography":"`+text+`","edge_followed_by":{"count":1},"edge_follow":{"count":1},"edge_owner_to_timeline_media":{"count":1}}}}`)
+	s.raw(mobileHost+"/api/v1/feed/user/1001/", 200,
+		`{"items":[{"code":"X1","taken_at":5,"caption":{"text":"`+text+`"},"user":{}}],"more_available":false}`)
+	res, err := scrape(s.module("", nil), profile(), 5, 0)
+	require.NoError(t, err)
+	assert.Contains(t, *res.Bio, "login_required")
+	require.Len(t, res.Posts, 1)
+	assert.Contains(t, res.Posts[0].Text, "login_required")
+	assert.Empty(t, res.Warnings)
+}

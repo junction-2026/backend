@@ -150,7 +150,20 @@ func retryAfter(h http.Header) int {
 	return -1
 }
 
-// loginWall reports an answer that demands a login: Instagram's login markers, or an HTML page that is the login page.
+// loginWallOK is loginWall for a 2xx answer, which carries user text: only structured markers count, never a substring.
+func loginWallOK(body []byte) bool {
+	b := bytes.TrimSpace(body)
+	if bytes.HasPrefix(b, []byte("<")) {
+		return bytes.Contains(b, []byte("/accounts/login"))
+	}
+	var m struct {
+		Message      string `json:"message"`
+		RequireLogin bool   `json:"require_login"`
+	}
+	return json.Unmarshal(b, &m) == nil && (m.Message == "login_required" || m.RequireLogin)
+}
+
+// loginWall reports an error answer (status >= 400) that demands a login: Instagram's login markers, or the login page.
 func loginWall(body []byte) bool {
 	return bytes.Contains(body, []byte("login_required")) || bytes.Contains(body, []byte(`"require_login"`)) ||
 		(bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) && bytes.Contains(body, []byte("/accounts/login")))
@@ -197,7 +210,7 @@ func (m *Module) get(ctx context.Context, u, what string) ([]byte, *ss.Error) {
 	if rerr != nil {
 		return nil, ss.UpstreamError(platform, "could not read the Instagram answer")
 	}
-	if loginWall(body) {
+	if loginWallOK(body) {
 		return nil, ss.RateLimited(platform, -1)
 	}
 	return body, nil
