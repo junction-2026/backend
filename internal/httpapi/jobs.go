@@ -15,6 +15,7 @@ import (
 
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/job"
+	"github.com/junction-2026/backend/internal/localization"
 	"github.com/junction-2026/backend/internal/registry"
 	"github.com/junction-2026/backend/internal/store"
 )
@@ -242,6 +243,31 @@ func (a *api) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
+}
+
+// getLocalization serves the shared job-text-localization endpoint. It only reads the job.
+func (a *api) getLocalization(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("language")
+	if strings.TrimSpace(raw) == "" {
+		WriteError(w, http.StatusBadRequest, "invalid_request", "language is required", nil)
+		return
+	}
+	lang, ok := localization.Language(raw)
+	if !ok {
+		WriteError(w, http.StatusBadRequest, "unsupported_language", "language is not supported",
+			map[string]any{"supported": localization.Supported})
+		return
+	}
+	j, err := a.svc.Get(r.PathValue("id"))
+	if err != nil {
+		a.jobError(w, err)
+		return
+	}
+	if !j.Done {
+		WriteError(w, http.StatusConflict, "job_not_finished", "job is not finished", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.loc.Localize(j, lang))
 }
 
 func (a *api) cancelJob(w http.ResponseWriter, r *http.Request) {
