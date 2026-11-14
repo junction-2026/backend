@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 // fakeSvc is the fake analyzer service behind the handlers.
@@ -63,25 +65,29 @@ func (f *fakeSvc) Cancel(id string) (job.Job, error) {
 	return j, nil
 }
 
-func (f *fakeSvc) List(status string) []job.Job {
+func (f *fakeSvc) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []job.Job
 	for _, j := range f.jobs {
-		if status == "" || j.Status == status {
+		if status != "" && j.Status != status {
+			continue
+		}
+		// newest first, ties by id (the engine's contract for Page)
+		if after == nil || j.CreatedAt.Before(after.CreatedAt) || (j.CreatedAt.Equal(after.CreatedAt) && j.ID > after.ID) {
 			out = append(out, j)
 		}
 	}
-	// newest first, ties by id (the engine's contract for List)
-	for i := range out {
-		for k := i + 1; k < len(out); k++ {
-			a, b := out[i], out[k]
-			if b.CreatedAt.After(a.CreatedAt) || (b.CreatedAt.Equal(a.CreatedAt) && b.ID < a.ID) {
-				out[i], out[k] = out[k], out[i]
-			}
+	sort.Slice(out, func(a, b int) bool {
+		if !out[a].CreatedAt.Equal(out[b].CreatedAt) {
+			return out[a].CreatedAt.After(out[b].CreatedAt)
 		}
+		return out[a].ID < out[b].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
-	return out
+	return out, nil
 }
 
 func (f *fakeSvc) Subscribe(id string) (*events.Subscription, error) {
@@ -512,12 +518,13 @@ func TestRoutingErrorsUseEnvelope(t *testing.T) {
 	wantError(t, x.do("GET", "/api/v1/nope", ""), 404, "not_found")
 	wantError(t, x.do("GET", "/api/v1/jobs/a/b/c", ""), 404, "not_found")
 	for path, allow := range map[string]string{
-		"/api/v1/jobs":          "GET, POST",
-		"/api/v1/jobs/x":        "GET",
-		"/api/v1/jobs/x/cancel": "POST",
-		"/api/v1/analyzers":     "GET",
-		"/api/v1/jobs/x/events": "GET",
-		"/healthz":              "GET",
+		"/api/v1/jobs":                "GET, POST",
+		"/api/v1/jobs/x":              "GET",
+		"/api/v1/jobs/x/cancel":       "POST",
+		"/api/v1/jobs/x/localization": "GET",
+		"/api/v1/analyzers":           "GET",
+		"/api/v1/jobs/x/events":       "GET",
+		"/healthz":                    "GET",
 	} {
 		rec := x.do("DELETE", path, "")
 		wantError(t, rec, 405, "method_not_allowed")
@@ -568,4 +575,20 @@ func TestLogsCarryIDsNotContent(t *testing.T) {
 	for _, line := range strings.Split(strings.TrimSpace(logs), "\n") {
 		require.True(t, json.Valid([]byte(line)), "structured JSON lines: %s", line)
 	}
+}
+
+// A techniques result stored before detection strength (no margin, located, strength or summary) is served unchanged.
+func TestGetJobServesTechniquesResultWithoutStrength(t *testing.T) {
+	x := newHarness(t)
+	old := `{"words":3,"detected":[{"name":"Doubt","display":"Doubt","explanation":"x","models":["nci-social"],"spans":[]}]}`
+	j := mkJob("old", 0, job.StatusCompleted)
+	j.Analyzers = []job.AnalyzerRun{{ID: "techniques", Status: job.RunSucceeded, Result: json.RawMessage(old)}}
+	x.svc.jobs["old"] = j
+	rec := x.do("GET", "/api/v1/jobs/old", "")
+	require.Equal(t, 200, rec.Code)
+	var got struct {
+		Analyzers []struct{ Result json.RawMessage }
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.JSONEq(t, old, string(got.Analyzers[0].Result))
 }

@@ -296,6 +296,8 @@ func TestEventsMatchRESTAndAreOrdered(t *testing.T) {
 func TestClientMessagesAreIgnored(t *testing.T) {
 	s := newStack(t, "analyzers:\n"+an("y", "y", ""), "y")
 	id := s.create(t)
+	// Subscribe only once y runs, so job.started/analyzer.started are already in the snapshot (not raced against).
+	s.waitREST(t, id, func(j map[string]any) bool { return run(j, "y")["status"] == "running" })
 	c := dial(t, s.srv.URL, id)
 	mustRead(t, c)
 	require.NoError(t, c.Write(context.Background(), websocket.MessageText, []byte(`{"cmd":"cancel"}`)))

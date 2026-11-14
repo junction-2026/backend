@@ -98,6 +98,28 @@ func (s TechniqueSpans) MaxInputCharsN() int {
 func (e Execution) SocialMaxWordsN() int    { return intOr(e.SocialMaxWords, 80) }
 func (e Execution) TechniqueMinWordsN() int { return intOr(e.TechniqueMinWords, 40) }
 
+// DefaultStrongMargin is the default execution.strong_margin of technique_classifier.
+const DefaultStrongMargin = 0.15
+
+// StrongMarginN is the configured strong_margin (validated at load), else DefaultStrongMargin.
+func (e Execution) StrongMarginN() float64 {
+	if f, ok := number(e.StrongMargin); ok {
+		return f
+	}
+	return DefaultStrongMargin
+}
+
+// number reads a YAML number (decoded as int or float64).
+func number(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case float64:
+		return n, true
+	}
+	return 0, false
+}
+
 // checkTechnique validates the technique_classifier settings and rejects them on other adapters.
 func (a *Analyzer) checkTechnique() error {
 	e := &a.Execution
@@ -115,8 +137,8 @@ func (a *Analyzer) checkTechnique() error {
 		}
 	}
 	if e.Adapter != AdapterTechniqueClassifier {
-		if e.SocialMaxWords != nil || e.TechniqueMinWords != nil || e.Technique != nil || e.Social != nil || e.Spans != nil {
-			return fmt.Errorf("execution.social_max_words, technique_min_words, technique, social and spans are only allowed for adapter %s", AdapterTechniqueClassifier)
+		if e.SocialMaxWords != nil || e.TechniqueMinWords != nil || e.Technique != nil || e.Social != nil || e.Spans != nil || e.StrongMargin != nil {
+			return fmt.Errorf("execution.social_max_words, technique_min_words, technique, social, spans and strong_margin are only allowed for adapter %s", AdapterTechniqueClassifier)
 		}
 		return nil
 	}
@@ -132,6 +154,9 @@ func (a *Analyzer) checkTechnique() error {
 	if e.TechniqueMinWordsN() > e.SocialMaxWordsN()+1 {
 		return fmt.Errorf("execution.technique_min_words (%d) must be at most execution.social_max_words + 1 (%d) so every text gets a model",
 			e.TechniqueMinWordsN(), e.SocialMaxWordsN()+1)
+	}
+	if f, ok := number(e.StrongMargin); e.StrongMargin != nil && (!ok || !inUnit(f)) {
+		return fmt.Errorf("execution.strong_margin must be a number between 0 and 1")
 	}
 	for _, b := range []struct {
 		name string

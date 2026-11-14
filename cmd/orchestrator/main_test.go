@@ -75,6 +75,17 @@ func TestConfigDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ":8080", c.ListenAddr)
 	require.Equal(t, "/etc/orchestrator/analyzers", c.AnalyzersConfig)
+	require.Equal(t, 20*time.Second, c.LocalizationTimeout)
+}
+
+func TestLocalizationTimeoutConfig(t *testing.T) {
+	c, err := loadConfig(func(k string) string { return map[string]string{"LOCALIZATION_TIMEOUT": "5s"}[k] })
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Second, c.LocalizationTimeout)
+	for _, v := range []string{"-1s", "0s", "soon"} {
+		_, err := loadConfig(func(k string) string { return map[string]string{"LOCALIZATION_TIMEOUT": v}[k] })
+		require.ErrorContains(t, err, "LOCALIZATION_TIMEOUT", v)
+	}
 }
 
 func TestConfigErrorsAreClear(t *testing.T) {

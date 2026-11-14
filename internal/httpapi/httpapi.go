@@ -12,14 +12,16 @@ import (
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
+	"github.com/junction-2026/backend/internal/localization"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 // Service is the part of the engine the API needs; *engine.Engine implements it.
 type Service interface {
 	Create(req engine.CreateRequest) (job.Job, error)
 	Get(id string) (job.Job, error)
-	List(status string) []job.Job
+	Page(status string, after *store.Cursor, limit int) ([]job.Job, error)
 	Cancel(id string) (job.Job, error)
 	Subscribe(id string) (*events.Subscription, error)
 }
@@ -30,7 +32,9 @@ type Config struct {
 	Registry *registry.Registry
 	// Events serves GET /api/v1/jobs/{id}/events (the job id is r.PathValue("id")).
 	Events http.Handler
-	Logger *slog.Logger // default slog.Default()
+	// Localizer serves GET /api/v1/jobs/{id}/localization; nil: no translation provider.
+	Localizer *localization.Service
+	Logger    *slog.Logger // default slog.Default()
 }
 
 const (
@@ -41,14 +45,18 @@ const (
 type api struct {
 	svc Service
 	reg *registry.Registry
+	loc *localization.Service
 	log *slog.Logger
 }
 
 // NewHandler returns the complete HTTP handler: /api/v1 routes and /healthz.
 func NewHandler(c Config) http.Handler {
-	a := &api{svc: c.Service, reg: c.Registry, log: c.Logger}
+	a := &api{svc: c.Service, reg: c.Registry, loc: c.Localizer, log: c.Logger}
 	if a.log == nil {
 		a.log = slog.Default()
+	}
+	if a.loc == nil {
+		a.loc = localization.New(nil, 0, a.log)
 	}
 	mux := http.NewServeMux()
 	route := func(pattern string, methods map[string]http.HandlerFunc) {
@@ -73,6 +81,7 @@ func NewHandler(c Config) http.Handler {
 	route(basePath+"/jobs", map[string]http.HandlerFunc{"POST": a.createJob, "GET": a.listJobs})
 	route(basePath+"/jobs/{id}", map[string]http.HandlerFunc{"GET": a.getJob})
 	route(basePath+"/jobs/{id}/cancel", map[string]http.HandlerFunc{"POST": a.cancelJob})
+	route(basePath+"/jobs/{id}/localization", map[string]http.HandlerFunc{"GET": a.getLocalization})
 	route(basePath+"/analyzers", map[string]http.HandlerFunc{"GET": a.listAnalyzers})
 	if c.Events != nil {
 		route(basePath+"/jobs/{id}/events", map[string]http.HandlerFunc{"GET": c.Events.ServeHTTP})

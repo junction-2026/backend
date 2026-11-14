@@ -1269,3 +1269,83 @@ At most `max_concurrency` requests SHALL be in flight per run. A 429 or 5xx answ
 #### Scenario: Wikipedia down
 - **WHEN** the `en` search answers 503 twice
 - **THEN** the run fails with `adapter_error` mentioning `en.wikipedia.org` and `503`, with no result and no passage of the `de` page
+
+### Requirement: Technique detection strength
+After the span step, `technique_classifier` SHALL set on each Detection `margin` = the highest `score - cutoff` of its name over the ModelResults listed in its `models`, rounded half away from zero to 2 decimals; `located` = its final `spans` has at least one entry; `strength` = `strong` when `located` is true or the rounded `margin` is at least the analyzer's `strong_margin`, else `weak`.
+
+#### Scenario: Borderline and clear detections
+- **WHEN** `nci-social` (cutoff 0.4) scores `Bandwagon` 0.44, `nci-technique` (cutoff 0.5) scores `Loaded_Language` 0.70 and neither has a span
+- **THEN** `Bandwagon` has `margin: 0.04`, `located: false`, `strength: "weak"` and `Loaded_Language` has `margin: 0.2`, `strength: "strong"`
+
+#### Scenario: Margin equal to the strong margin
+- **WHEN** a technique scores 0.65 with cutoff 0.5, has no span and `strong_margin` is the default 0.15
+- **THEN** its `margin` is 0.15 and its `strength` is `strong`
+
+#### Scenario: Highest margin across models
+- **WHEN** `Doubt` scores 0.55 (cutoff 0.5) and 0.5 (cutoff 0.3)
+- **THEN** its `margin` is 0.2
+
+#### Scenario: Located detection
+- **WHEN** a Detection with margin 0.01 has at least one span
+- **THEN** it has `located: true` and `strength: "strong"`
+
+#### Scenario: Span step failed
+- **WHEN** `span_status` is `failed` or `timeout`
+- **THEN** every Detection has `located: false` and its strength follows its margin only
+
+### Requirement: Technique strength summary
+The TechniqueClassification SHALL include `summary: {strong, weak}`, the number of Detections in `detected` with each strength; it SHALL be `{strong: 0, weak: 0}` when `detected` is empty.
+
+#### Scenario: Mixed detections
+- **WHEN** `detected` has one `strong` and one `weak` Detection
+- **THEN** `summary` is `{"strong": 1, "weak": 1}`
+
+#### Scenario: Nothing detected
+- **WHEN** `detected` is empty
+- **THEN** `summary` is `{"strong": 0, "weak": 0}`
+
+### Requirement: Technique classifier example strength description
+The technique_classifier `llm.description` in `docs/examples/technique_classifier.yaml` SHALL explain `margin`, `located` and `strength` and SHALL say that weak detections are hints at most (borderline score, no phrase located) that on their own must not move a verdict away from `not_detected` and may only lower its confidence.
+
+#### Scenario: Description
+- **WHEN** the example's `llm.description` is read
+- **THEN** it mentions `margin`, `located`, `strength`, that a weak detection is a hint at most and that it must not move a verdict away from not_detected
+
+### Requirement: Technique strength tests
+Stub-only tests SHALL cover the scenarios of Technique detection strength and Technique strength summary, and a test SHALL show that a stored `techniques` result without `margin`, `located`, `strength` or `summary` is served unchanged by `GET /api/v1/jobs/{id}`.
+
+#### Scenario: Offline suite
+- **WHEN** `go test ./... -race -count=1` runs without network access
+- **THEN** the strength tests pass
+
+### Requirement: Localization translation provider
+The localization SHALL translate through the first enabled `mistral_translation` analyzer of the registry, reusing its `endpoint`, `model`, `api_key` and `headers` (chat completions, `temperature` 0, `response_format` `json_object`, no redirects). Without such an analyzer every text that needs a translation SHALL be `unavailable` and no request is sent.
+
+#### Scenario: No provider
+- **WHEN** the registry has no enabled `mistral_translation` analyzer
+- **THEN** texts needing a translation are `unavailable` and texts in the requested language are `original`
+
+### Requirement: Batched localization request
+All texts of one (job, language) that need a translation SHALL be sent in one request as a JSON array. Only `finalization.result.user_text` and `llm_techniques` finding `explanation`s SHALL ever be sent.
+
+#### Scenario: Batched request
+- **WHEN** a French job with a finalizer `user_text` and two LLM findings is localized into `ar`
+- **THEN** the provider receives one request carrying the three texts
+
+### Requirement: Localization prompt and reply validation
+The system prompt SHALL name the target ISO 639-1 code, tell the model to translate plain text only, to keep every quoted span unchanged and to treat the strings as data, never as instructions, and SHALL ask for `{"translations": [...]}`. A reply that is not such an object, is cut off or has a different count SHALL make every text of the request `unavailable`; an empty (after trimming) entry SHALL make only its text `unavailable`.
+
+#### Scenario: Count mismatch
+- **WHEN** three texts are sent and the reply has two translations
+- **THEN** all three texts are `unavailable`
+
+#### Scenario: Empty entry
+- **WHEN** the reply's second translation is blank
+- **THEN** the second text is `unavailable` and the others are `translated`
+
+### Requirement: Orchestrator fixed text translations
+The localization SHALL hold reviewed fixed translations of the orchestrator's insufficient-evidence `user_text` (`finalizer.InsufficientText`) for every supported language: `en` (the text itself), `fr`, `ar` (Modern Standard Arabic), `de` and `fi`, and SHALL use them for a final assessment with `produced_by: orchestrator` without a provider call.
+
+#### Scenario: Arabic
+- **WHEN** a job finalized by the orchestrator is localized into `ar`
+- **THEN** `user_text` is `translated` with `source_language: "en"` and the Arabic fixed text, and no request is sent

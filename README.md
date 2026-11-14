@@ -6,7 +6,52 @@ Analysis orchestrator HTTP server (`cmd/orchestrator`).
 |---|---|---|
 | `LISTEN_ADDR` | `:8080` | listen address |
 | `ANALYZERS_CONFIG` | `/etc/orchestrator/analyzers` | registry file or directory |
-| `MAX_PARALLEL_ANALYZERS`, `MAX_PARALLEL_JOBS`, `JOB_RETENTION` | 8, 16, 24h | engine limits |
+| `MAX_PARALLEL_ANALYZERS`, `MAX_PARALLEL_JOBS`, `JOB_RETENTION` | 8, 16, 24h | engine limits; `JOB_RETENTION` drops finished jobs from memory only |
+| `JOB_STORE` | `memory` | `memory` (jobs are lost on restart) or `sqlite` (persistent job history) |
+| `JOB_STORE_PATH` | `data/jobs.db` | SQLite database file (`JOB_STORE=sqlite`); its directory is created |
+| `JOB_HISTORY_RETENTION` | unset (keep forever) | Go duration, e.g. `720h`: with `sqlite`, done jobs finished longer ago are deleted |
+| `LOCALIZATION_TIMEOUT` | `20s` | Go duration bounding one translation request of `GET /api/v1/jobs/{id}/localization` |
+
+## Job history
+
+With `JOB_STORE=sqlite` every job (each analyzer result, the scrape and the final assessment, verbatim) is written to
+a SQLite file (pure Go driver, no CGO, WAL mode) when it is created and on every state change. After a restart
+`GET /api/v1/jobs`, `GET /api/v1/jobs/{id}` and the event stream still serve it: the stream sends one `job.snapshot`
+with the last `seq` emitted before the restart, then closes with 1000, and cancelling it answers 409 `job_finished`.
+`JOB_RETENTION` only frees memory; history is kept until `JOB_HISTORY_RETENTION` removes it (checked once a minute;
+a value below `JOB_RETENTION` also shortens the time a job stays in memory). The schema is migrated automatically at
+startup; a database written by a newer server is refused.
+
+**Interrupted jobs.** A job that was not done when the server stopped is not resumed. At the next start, before the
+server accepts requests, it ends `failed` with `finished_at` the start time: a `pending` analyzer (and finalization)
+becomes `skipped` with reason `interrupted`, a `running` analyzer or finalization and a pending or running scrape
+`failed` with `error.code: interrupted` (`availability: unavailable`); settled analyzers keep their results, `coverage`
+is recomputed and no event is emitted for this.
+
+Docker: the image runs as uid 65532 and its container filesystem is not kept, so put the database on a volume that
+uid can write instead of the default relative path `data/jobs.db`, e.g.
+`-e JOB_STORE=sqlite -e JOB_STORE_PATH=/data/jobs.db -v junction-jobs:/data` (a named volume, or a host directory
+owned by uid 65532). One server per database file; sharing it between instances is not supported.
+
+## Job text localization
+
+`GET /api/v1/jobs/{id}/localization?language=<code>` (shared change `job-text-localization`) returns the
+model-written texts of a done job in a UI language: the finalizer `user_text` and the `llm_techniques` finding
+`explanation`s, each `{"status", "text", "source_language"}` with status `original` (already in that language, no
+provider call), `translated` or `unavailable` (`text: null`). Supported languages: `en`, `fr`, `ar`, `de`, `fi`,
+matched by primary subtag (`DE-at` is `de`). Errors: 400 `invalid_request` (no `language`), 400
+`unsupported_language` (`error.details.supported`), 404 `not_found`, 409 `job_not_finished`.
+
+```sh
+curl -s 'http://localhost:8080/api/v1/jobs/<id>/localization?language=ar'
+```
+
+It only reads the job (persisted jobs too) and emits no event; source material (input, spans, claims, articles,
+reviews, passages) is never translated. Texts are translated in one request per (job, language) through the first
+enabled `mistral_translation` analyzer (its endpoint, model, `api_key` and headers); without one, or when it fails or
+exceeds `LOCALIZATION_TIMEOUT`, texts are `unavailable`. Translations are cached in memory per (job, language) (1000
+entries, LRU; `unavailable` texts are retried on the next request). The orchestrator's insufficient-evidence text
+uses fixed translations, without a provider call.
 
 Optional analyzers: `docs/examples/propaganda_detection.yaml` defines two analyzers. `translation`
 (adapter `mistral_translation`) translates the job's `normalized_content` into English through the Mistral
@@ -255,7 +300,11 @@ the model returned that are not known (`known: false`, `display` = the label) in
 `label`, `display`, `score`, `model`, `cutoff`, `above_cutoff` (`score >= cutoff`) and `known`; scores below the cutoff
 are kept. Scores of the two models are never averaged or merged and are not comparable. `detected` lists the known
 techniques with `above_cutoff` in at least one model, in name order, with `display`, `explanation`, `models` (which
-models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. Add
+models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. After the span step each
+Detection gets `margin` (highest `score - cutoff` across its `models`, rounded half away from zero to 2 decimals),
+`located` (it has at least one span) and `strength` (`strong` when located or `margin >= execution.strong_margin`,
+else `weak`), and the result gets `summary: {strong, weak}`. `execution.strong_margin` (number 0..1, default 0.15;
+only for this adapter) aborts startup when it is not a number in range. Add
 `llm: {include: true, description: ...}` (as in the example) to let the LLM finalizer see the result.
 
 ### Technique spans
@@ -387,9 +436,11 @@ the page's own registered domain, otherwise the final URL, so `source_info` can 
 
 | Variable | Default | |
 |---|---|---|
-| `OXYLABS_API` | `web_api` | `web_api` (Oxylabs Web API) or `web_scraper_api` (Web Scraper API, `source: universal`) |
+| `OXYLABS_API` | `web_api` | `web_api` (Oxylabs Web API), `web_scraper_api` (Web Scraper API, `source: universal`) or `ai_studio` (Oxylabs AI Studio AI Scraper) |
 | `OXYLABS_WEB_API_KEY` | | required for `web_api` (sent as a bearer token) |
 | `OXYLABS_USERNAME`, `OXYLABS_PASSWORD` | | required for `web_scraper_api` (HTTP Basic) |
+| `OXYLABS_AI_STUDIO_API_KEY` | | required for `ai_studio` (sent as the `x-api-key` header; without it a scrape fails with `platform_not_configured`) |
+| `OXYLABS_AI_STUDIO_URL` | `https://api-aistudio.oxylabs.io` | optional AI Studio base URL; an absolute http(s) URL |
 | `OXYLABS_LOCATION` | | optional two-letter country code the page is fetched from |
 | `WEB_MIN_TEXT_CHARS` | `300` | extracted text shorter than this triggers a rendered fetch, the Markdown fallback or the login-wall check |
 | `WEB_CACHE_TTL` | `1h` | Go duration; successful pages are cached in memory by normalized URL (failures never) |
@@ -403,7 +454,12 @@ Cost controls: a scrape first fetches without JavaScript and fetches once more w
 text is shorter than `WEB_MIN_TEXT_CHARS`; a 429 or 5xx answer of the provider is retried at most once; so a scrape
 sends at most 3 provider requests. The result records `rendered`, `cached` and `oxylabs_requests`; a cached page sends
 none. Login walls fail with `login_required`, an empty page with `no_text_content`, a page that answered 4xx/5xx
-with `upstream_error` and `details.target_status`; login walls are never bypassed. **Tests never call Oxylabs:** they
+with `upstream_error` and `details.target_status`; login walls are never bypassed. With `ai_studio` a scrape starts one rendered JSON run (metadata, `page_kind`, main body; polled every 1-3 s and
+bounded by `WEB_TIMEOUT_SECONDS`) and, when it fails or yields too little text, one rendered Markdown run;
+`oxylabs_requests` counts runs (at most 2), `provider` is `oxylabs_ai_studio`. The model's output is treated as
+untrusted: control and zero-width characters are removed and metadata is capped at 500 characters. A failed run
+gives `upstream_error` with `details.provider_error_code`, an HTTP 401/403 from AI Studio `upstream_error` at once,
+a login wall or a short consent/paywall page `login_required`. **Tests never call Oxylabs:** they
 use a stub provider and recorded HTML fixtures (`internal/socialscraper/web/testdata`).
 
 Other settings of the scraper:
@@ -628,7 +684,11 @@ the model returned that are not known (`known: false`, `display` = the label) in
 `label`, `display`, `score`, `model`, `cutoff`, `above_cutoff` (`score >= cutoff`) and `known`; scores below the cutoff
 are kept. Scores of the two models are never averaged or merged and are not comparable. `detected` lists the known
 techniques with `above_cutoff` in at least one model, in name order, with `display`, `explanation`, `models` (which
-models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. Add
+models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. After the span step each
+Detection gets `margin` (highest `score - cutoff` across its `models`, rounded half away from zero to 2 decimals),
+`located` (it has at least one span) and `strength` (`strong` when located or `margin >= execution.strong_margin`,
+else `weak`), and the result gets `summary: {strong, weak}`. `execution.strong_margin` (number 0..1, default 0.15;
+only for this adapter) aborts startup when it is not a number in range. Add
 `llm: {include: true, description: ...}` (as in the example) to let the LLM finalizer see the result.
 
 ### Technique spans

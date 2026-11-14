@@ -100,10 +100,14 @@ type techResult struct {
 		Name, Display, Explanation string
 		Models                     []string
 		Spans                      []techniqueSpan
+		Margin                     *float64
+		Located                    *bool
+		Strength                   string
 	} `json:"detected"`
-	SpanMethod     string `json:"span_method"`
-	SpanStatus     string `json:"span_status"`
-	SpansTruncated bool   `json:"spans_truncated"`
+	Summary        map[string]int `json:"summary"`
+	SpanMethod     string         `json:"span_method"`
+	SpanStatus     string         `json:"span_status"`
+	SpansTruncated bool           `json:"spans_truncated"`
 }
 
 func (r techResult) models() (out []string) {
@@ -286,10 +290,11 @@ func TestTechniqueNoAveraging(t *testing.T) {
 	var top map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(raw, &top))
 	require.ElementsMatch(t, []string{"words", "results", "detected", "span_method", "span_status", "spans_truncated",
-		"explanation_language", "glossary_version"}, slices.Collect(maps.Keys(top)))
+		"explanation_language", "glossary_version", "summary"}, slices.Collect(maps.Keys(top)))
 	var det []map[string]any
 	require.NoError(t, json.Unmarshal(top["detected"], &det))
-	require.ElementsMatch(t, []string{"name", "display", "explanation", "models", "spans", "plain_language"}, slices.Collect(maps.Keys(det[0])))
+	require.ElementsMatch(t, []string{"name", "display", "explanation", "models", "spans", "plain_language",
+		"margin", "located", "strength"}, slices.Collect(maps.Keys(det[0])))
 }
 
 func TestTechniqueNothingDetected(t *testing.T) {
