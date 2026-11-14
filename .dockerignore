@@ -1,4 +1,4 @@
 .git
 artifacts
 openspec
-scraper
+**/testdata
