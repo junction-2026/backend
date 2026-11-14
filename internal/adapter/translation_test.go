@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -278,4 +279,89 @@ func TestTranslationHTTPStatusMayBeNamed(t *testing.T) {
 	m := newMistral(t, replyWith(429, `{"message":"rate limited"}`))
 	_, err := texec(context.Background(), tdef(m.URL), "t")
 	require.Contains(t, strings.ToLower(err.Error()), "429")
+}
+
+const (
+	skipEnglishText = "They are LYING to you! Only we tell the truth. Wake up before it's too late, patriots!"
+	skipGermanText  = "Die Regierung belügt euch alle! Nur wir sagen die Wahrheit, wacht endlich auf, bevor es zu spät ist!"
+)
+
+func TestTranslationSkipsEnglish(t *testing.T) {
+	m := newMistral(t, replyWith(200, chat(okReply, nil)))
+	got, err := texec(context.Background(), tdef(m.URL), skipEnglishText)
+	require.NoError(t, err)
+	require.Zero(t, m.calls)
+	b, _ := json.Marshal(skipEnglishText)
+	require.JSONEq(t, `{"translated_text":`+string(b)+`,"source_language":"en","model":"none","skipped":"detected_english",
+		"truncated":false,"input_characters":`+strconv.Itoa(len([]rune(skipEnglishText)))+`}`, string(got))
+	require.NotContains(t, string(got), "usage")
+
+	// the text is returned as it would have been sent: not trimmed
+	got, err = texec(context.Background(), tdef(m.URL), "  "+skipEnglishText+"\n")
+	require.NoError(t, err)
+	require.Zero(t, m.calls)
+	require.Contains(t, string(got), `"translated_text":"  They are`)
+}
+
+func TestTranslationSkipEnglishTruncated(t *testing.T) {
+	m := newMistral(t, replyWith(200, chat(okReply, nil)))
+	d := tdef(m.URL)
+	limit := 60
+	d.Execution.MaxInputChars = &limit
+	got, err := texec(context.Background(), d, skipEnglishText)
+	require.NoError(t, err)
+	require.Zero(t, m.calls)
+	var r map[string]any
+	require.NoError(t, json.Unmarshal(got, &r))
+	require.Equal(t, "They are LYING to you! Only we tell the truth. Wake up", r["translated_text"])
+	require.Equal(t, true, r["truncated"])
+	require.EqualValues(t, len([]rune(skipEnglishText)), r["input_characters"])
+	require.Equal(t, "detected_english", r["skipped"])
+}
+
+func TestTranslationCallsMistralWhenNotSureEnglish(t *testing.T) {
+	off := false
+	for name, c := range map[string]struct {
+		text string
+		skip *bool
+	}{
+		"german":             {skipGermanText, nil},
+		"unsure":             {"OK, deal, Brexit Boris Johnson", nil},
+		"skip_english false": {skipEnglishText, &off},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newMistral(t, replyWith(200, chat(okReply, nil)))
+			d := tdef(m.URL)
+			d.Execution.SkipEnglish = c.skip
+			got, err := texec(context.Background(), d, c.text)
+			require.NoError(t, err)
+			require.Equal(t, 1, m.calls)
+			require.Equal(t, map[string]any{"role": "user", "content": c.text}, m.body["messages"].([]any)[1])
+			require.JSONEq(t, `{"translated_text":"Hello world","source_language":"uk","model":"mistral-small-2506",
+				"truncated":false,"input_characters":`+strconv.Itoa(len([]rune(c.text)))+`,"usage":{"total_tokens":42}}`, string(got))
+		})
+	}
+}
+
+func TestTranslationEnglishThresholds(t *testing.T) {
+	m := newMistral(t, replyWith(200, chat(okReply, nil)))
+	d := tdef(m.URL)
+	words := 30 // the text has fewer words
+	d.Execution.EnglishMinWords = &words
+	_, err := texec(context.Background(), d, skipEnglishText)
+	require.NoError(t, err)
+	require.Equal(t, 1, m.calls)
+}
+
+func TestTranslationEmptyAPIKeyFailsBeforeEnglishSkip(t *testing.T) {
+	m := newMistral(t, replyWith(200, chat(okReply, nil)))
+	d := tdef(m.URL)
+	d.Execution.APIKey = ""
+	_, err := texec(context.Background(), d, skipEnglishText)
+	require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+	for _, text := range []string{"", " \n\t"} { // empty input with skip enabled and a key
+		_, err = texec(context.Background(), tdef(m.URL), text)
+		require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+	}
+	require.Zero(t, m.calls)
 }

@@ -33,6 +33,10 @@ func (x *Executor) mistralTranslation(ctx context.Context, def *registry.Analyze
 	if limit := e.MaxChars(); total > limit {
 		truncated, text = true, cutAtSpace(runes, limit)
 	}
+	if e.SkipsEnglish() && detectEnglish(text, e.EnglishWords(), e.EnglishRatio()) == verdictEnglish {
+		return json.Marshal(map[string]any{"translated_text": text, "source_language": "en", "model": "none",
+			"skipped": "detected_english", "truncated": truncated, "input_characters": total})
+	}
 	body, err := json.Marshal(map[string]any{
 		"model":           e.Model,
 		"temperature":     0,
