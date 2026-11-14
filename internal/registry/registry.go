@@ -268,6 +268,28 @@ type LLMInput struct {
 	Description string `yaml:"description"`
 }
 
+// UI is the optional `ui` block of an analyzer: progress presentation only. It is never exposed by GET /analyzers.
+type UI struct {
+	Hidden      *bool  `yaml:"hidden"`       // default false; text_stats defaults to true
+	ActivityKey string `yaml:"activity_key"` // default: the analyzer id
+}
+
+// HiddenFromProgress reports whether the analyzer stays out of the plan, progress, previews and activities.
+func (a *Analyzer) HiddenFromProgress() bool {
+	if a.UI.Hidden != nil {
+		return *a.UI.Hidden
+	}
+	return a.ID == "text_stats"
+}
+
+// ActivityKey is ui.activity_key or the analyzer id.
+func (a *Analyzer) ActivityKey() string {
+	if a.UI.ActivityKey != "" {
+		return a.UI.ActivityKey
+	}
+	return a.ID
+}
+
 type Output struct {
 	Schema map[string]any `yaml:"schema"`
 }
@@ -286,6 +308,7 @@ type Analyzer struct {
 	Execution Execution `yaml:"execution"`
 	Output    Output    `yaml:"output"`
 	LLM       *LLMInput `yaml:"llm"`
+	UI        UI        `yaml:"ui"`
 
 	file   string
 	schema *jsonschema.Schema
@@ -474,6 +497,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	}
 	if a.DependsOn == nil {
 		a.DependsOn = []string{}
+	}
+	if k := a.UI.ActivityKey; k != "" && !idRe.MatchString(k) {
+		return fmt.Errorf("ui.activity_key must match %s", idRe)
 	}
 	e := &a.Execution
 	if e.Adapter == AdapterPropagandaDetection {

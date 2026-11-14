@@ -122,6 +122,7 @@ const regYAMLText = `analyzers:
     name: Claims
     category: facts
     depends_on: [entities]
+    ui: {hidden: true, activity_key: fact_check} # never exposed
     execution: {adapter: custom, handler: h}
   - id: entities
     execution: {adapter: custom, handler: h}

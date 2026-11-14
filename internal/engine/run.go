@@ -22,6 +22,7 @@ type run struct {
 	sem    chan struct{}      // per-job analyzer concurrency
 	finDef *registry.Analyzer // non-nil when finalization will run
 
+	planned   map[string]bool // analyzers in the plan (not the finalizer); nil before analysis.planned
 	launched  []bool
 	slot      bool // holds a global job slot
 	barrier   bool // ready_for_finalization emitted
@@ -78,9 +79,12 @@ func (r *run) beginLocked() {
 		r.j.Status = job.StatusScraping
 	}
 	r.emit("job.started", map[string]any{"job_id": r.j.ID})
+	if r.j.Scrape == nil {
+		r.planLocked() // directly after job.started, before every analyzer event
+	}
 	for i := range r.j.Analyzers {
 		if a := r.j.Analyzers[i]; a.Status == job.RunSkipped {
-			r.emit("analyzer.skipped", map[string]any{"analyzer": a})
+			r.emitSkippedLocked(a)
 		}
 	}
 }
@@ -98,8 +102,33 @@ func (r *run) settleLocked(i int, status string, reason *string, err *job.RunErr
 		a.DurationMS = job.Ptr(now.Sub(*a.StartedAt).Milliseconds())
 	}
 	r.j.Coverage = job.ComputeCoverage(r.j.Analyzers)
-	r.emit("analyzer."+status, map[string]any{"analyzer": *a})
+	delta := 0
+	if r.planned[a.ID] {
+		delta = 1
+		delete(r.j.Activities, a.ID)
+	}
+	data := map[string]any{"analyzer": *a}
+	if status == job.RunSucceeded {
+		preview := buildPreview(a.ID, result)
+		data["preview"] = preview
+		if r.planned[a.ID] && preview != nil {
+			r.j.Previews[a.ID] = preview
+		}
+	} else {
+		data["availability"], data["note"] = a.Availability, a.Note
+	}
+	r.emit("analyzer."+status, withProgress(data, r.progressLocked(delta)))
 	return true
+}
+
+// emitSkippedLocked emits analyzer.skipped of a run that was skipped at creation (no state change).
+func (r *run) emitSkippedLocked(a job.AnalyzerRun) {
+	data := map[string]any{"analyzer": a, "availability": a.Availability, "note": a.Note}
+	delta := 0
+	if r.planned[a.ID] {
+		delta = 1
+	}
+	r.emit("analyzer.skipped", withProgress(data, r.progressLocked(delta)))
 }
 
 // advanceLocked resolves every pending analyzer whose dependencies settled
@@ -156,7 +185,9 @@ func (r *run) barrierLocked() {
 	now := r.e.now()
 	f := &r.j.Finalization
 	f.Status, f.StartedAt = job.RunRunning, &now
-	r.emit("analysis.finalizing", map[string]any{"finalization": *f})
+	act := newActivity(keyFinalizer, r.finDef.Name)
+	r.j.Activities[r.finDef.ID] = act
+	r.emit("analysis.finalizing", withProgress(map[string]any{"finalization": *f, "activity": act}, r.progressLocked(0)))
 	go r.finalize(FinalizationInput{Job: r.j.Clone(), Analyzer: r.finDef})
 }
 
@@ -169,7 +200,7 @@ func (r *run) exec(i int, inputs map[string]any) {
 		return
 	}
 	defer func() { <-r.sem }()
-	if !r.startRun(i) {
+	if !r.startRun(i, inputs) {
 		return
 	}
 	def := r.defs[i]
@@ -190,7 +221,7 @@ func (r *run) exec(i int, inputs map[string]any) {
 	r.finishRun(i, raw, rerr, nil)
 }
 
-func (r *run) startRun(i int) bool {
+func (r *run) startRun(i int, inputs map[string]any) bool {
 	r.j.Lock()
 	defer r.j.Unlock()
 	defer r.recoverJob()
@@ -201,7 +232,11 @@ func (r *run) startRun(i int) bool {
 	now := r.e.now()
 	a.Status, a.StartedAt = job.RunRunning, &now
 	r.j.Coverage = job.ComputeCoverage(r.j.Analyzers)
-	r.emit("analyzer.started", map[string]any{"analyzer": *a})
+	act := activityFor(r.defs[i], inputs)
+	if r.planned[a.ID] {
+		r.j.Activities[a.ID] = act
+	}
+	r.emit("analyzer.started", withProgress(map[string]any{"analyzer": *a, "activity": act}, r.progressLocked(0)))
 	return true
 }
 
@@ -280,13 +315,14 @@ func (r *run) endFinalizationLocked(raw json.RawMessage, rerr *job.RunError) {
 	f := &r.j.Finalization
 	now := r.e.now()
 	f.FinishedAt, f.DurationMS = &now, job.Ptr(now.Sub(*f.StartedAt).Milliseconds())
+	typ := "analysis.finalized"
 	if rerr != nil {
-		f.Status, f.Error = job.RunFailed, rerr
-		r.emit("analysis.finalization_failed", map[string]any{"finalization": *f})
-		return
+		f.Status, f.Error, typ = job.RunFailed, rerr, "analysis.finalization_failed"
+	} else {
+		f.Status, f.Result = job.StatusCompleted, raw
 	}
-	f.Status, f.Result = job.StatusCompleted, raw
-	r.emit("analysis.finalized", map[string]any{"finalization": *f})
+	delete(r.j.Activities, r.finDef.ID)
+	r.emit(typ, withProgress(map[string]any{"finalization": *f}, r.progressLocked(1)))
 }
 
 // abortLocked ends the job as cancelled (or failed on an internal error):

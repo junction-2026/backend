@@ -74,7 +74,7 @@ func TestScrapePostSuccess(t *testing.T) {
 
 	evs := drain(t, sub)
 	requireSeq(t, evs)
-	require.Equal(t, []string{"job.snapshot", "job.started", "analyzer.skipped:off", "scrape.started", "scrape.succeeded",
+	require.Equal(t, []string{"job.snapshot", "job.started", "analyzer.skipped:off", "scrape.started", "scrape.succeeded", "analysis.planned",
 		"analyzer.skipped:long", "analyzer.started:a", "analyzer.succeeded:a", "analysis.ready_for_finalization",
 		"analysis.finalizing", "analysis.finalized", "job.completed"}, typesFor(evs))
 
