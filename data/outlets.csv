@@ -26,7 +26,7 @@ nzherald.co.nz,nzherald.co.nz,nzherald.co.nz,NZ Herald,NZ,New Zealand,center,ver
 washingtontimes.com,washingtontimes.com,washingtontimes.com,Washington Times,US,United States,leanRight,mixed,en
 localnews8.com,localnews8.com,localnews8.com,KIFI,US,United States,center,veryHigh,en
 krdo.com,krdo.com,krdo.com,KRDO,US,United States,center,high,en
-scmp.com,scmp.com|sc.mp,scmp.com,South China Morning Post,HK,,center,high,en
+scmp.com,scmp.com|sc.mp,scmp.com,South China Morning Post,,,center,high,en
 washingtonpost.com,washingtonpost.com|wapo.st,washingtonpost.com,The Washington Post,US,United States,leanLeft,high,en
 straitstimes.com,straitstimes.com,straitstimes.com,The Straits Times,SG,Singapore,leanRight,high,en
 metro.co.uk,metro.co.uk,metro.co.uk,Metro News,GB,United Kingdom,leanLeft,high,en
@@ -181,7 +181,7 @@ gbnews.com,gbnews.com,gbnews.com,GB News,GB,United Kingdom,leanRight,mixed,
 local10.com,local10.com,local10.com,WPLG,US,United States,center,veryHigh,en
 inquirer.net,inquirer.net,business.inquirer.net|cebudailynews.inquirer.net,Inquirer,PH,Philippines,leanLeft,veryHigh,en
 postandcourier.com,postandcourier.com,postandcourier.com,The Post and Courier,US,United States,center,veryHigh,en
-people.com,people.com,people.com,People,US,United States,leanLeft,high,EN
+people.com,people.com,people.com,People,US,United States,leanLeft,high,en
 corriere.it,corriere.it,corriere.it,Corriere Della Sera,IT,Italy,center,high,it
 idnes.cz,idnes.cz,idnes.cz,iDNES.cz,CZ,Czechia,unknown,unknown,
 marca.com,marca.com,marca.com,Marca,ES,Spain,center,high,en
@@ -263,7 +263,7 @@ clickondetroit.com,clickondetroit.com,clickondetroit.com,Click on Detroit,US,Uni
 zambianobserver.com,zambianobserver.com,zambianobserver.com,The Zambian Observer,ZM,Zambia,unknown,unknown,en
 wtvbam.com,wtvbam.com,wtvbam.com,WTVB,US,United States,center,high,en
 tvanouvelles.ca,tvanouvelles.ca,tvanouvelles.ca,TVA Nouvelles,CA,Canada,leanLeft,high,fr
-elperiodico.com,elperiodico.com,elperiodico.com,El Periódico,ES,Spain,center,high,ES
+elperiodico.com,elperiodico.com,elperiodico.com,El Periódico,ES,Spain,center,high,es
 bvmsports.com,bvmsports.com,bvmsports.com,BVM Sports US,US,United States,unknown,unknown,en
 southwalesargus.co.uk,southwalesargus.co.uk,southwalesargus.co.uk,South Wales Argus,GB,United Kingdom,center,veryHigh,en
 tt.com,tt.com,tt.com,Tiroler Tageszeitung Online,,,unknown,unknown,de
@@ -309,7 +309,7 @@ news-medical.net,news-medical.net,news-medical.net,News Medical,AU,Australia,cen
 hotnews.ro,hotnews.ro,hotnews.ro,Hot News,RO,Romania,leanLeft,high,ro
 jpost.com,jpost.com,jpost.com,Jerusalem Post,IL,Israel,center,high,en
 hnonline.sk,hnonline.sk,hnonline.sk,Hospodárske Noviny,SK,Slovakia,unknown,unknown,
-politika.rs,politika.rs,politika.rs,politika.rs,RS,Serbia,leanRight,high,sr/RS
+politika.rs,politika.rs,politika.rs,politika.rs,RS,Serbia,leanRight,high,sr
 dailyecho.co.uk,dailyecho.co.uk,dailyecho.co.uk,Daily Echo,GB,United Kingdom,center,high,en
 svt.se,svt.se,svt.se,svt Nyheter,SE,Sweden,leanLeft,high,sv
 timeslive.co.za,timeslive.co.za,timeslive.co.za,Times Live,ZA,South Africa,leanRight,high,en
@@ -567,7 +567,7 @@ boston.com,boston.com,boston.com,Boston.com,US,United States,center,high,en
 nbcconnecticut.com,nbcconnecticut.com,nbcconnecticut.com,NBC Connecticut,US,United States,leanLeft,veryHigh,en
 westernjournal.com,westernjournal.com,westernjournal.com,The Western Journal,US,United States,right,mixed,en
 lostiempos.com,lostiempos.com,lostiempos.com,Los Tiempos,,,unknown,unknown,es
-liputan6.com,liputan6.com,liputan6.com,liputan6.com,,,leanRight,high,In
+liputan6.com,liputan6.com,liputan6.com,liputan6.com,,,leanRight,high,in
 onetz.de,onetz.de,onetz.de,onetz.de,DE,Germany,unknown,unknown,
 kcrg.com,kcrg.com,kcrg.com,KCRG,US,United States,center,veryHigh,en
 heise.de,heise.de,heise.de,Heise,DE,Germany,unknown,unknown,de
@@ -679,7 +679,7 @@ nola.com,nola.com,nola.com,Nola,US,United States,center,veryHigh,en
 sme.sk,sme.sk,sme.sk|spectator.sme.sk|sportnet.sme.sk,SME,SK,Slovakia,leanLeft,high,
 diarioestrategia.cl,diarioestrategia.cl,diarioestrategia.cl,diarioestrategia.cl,,,unknown,unknown,
 dublinlive.ie,dublinlive.ie,dublinlive.ie,Dublin Live,IE,Ireland,center,high,en
-africanews.com,africanews.com,africanews.com,Africa News,CG,,leanLeft,veryHigh,en
+africanews.com,africanews.com,africanews.com,Africa News,,,leanLeft,veryHigh,en
 wtvr.com,wtvr.com,wtvr.com,WTVR,US,United States,center,veryHigh,en
 sdpnoticias.com,sdpnoticias.com,sdpnoticias.com,SDPnoticias.com,MX,Mexico,leanLeft,high,es
 time.com,time.com,time.com,Time Magazine,US,United States,leanLeft,high,en
@@ -766,7 +766,7 @@ kten.com,kten.com,kten.com,KTEN,,,center,high,en
 hs.fi,hs.fi,hs.fi,Helsingin Sanomat,FI,Finland,leanLeft,high,fi
 delawarebusinessnow.com,delawarebusinessnow.com,delawarebusinessnow.com,Delaware Business Now,US,United States,center,high,en
 hola.com,hola.com,hola.com,¡HOLA!,ES,Spain,center,high,en
-cope.es,cope.es,cope.es,COPE | Noticias y radio online,ES,Spain,unknown,unknown,ES
+cope.es,cope.es,cope.es,COPE | Noticias y radio online,ES,Spain,unknown,unknown,es
 bt.dk,bt.dk,bt.dk,BT,SE,Sweden,leanRight,high,da
 berliner-sonntagsblatt.de,berliner-sonntagsblatt.de,berliner-sonntagsblatt.de,berliner-sonntagsblatt.de,DE,Germany,unknown,unknown,
 tribuneindia.com,tribuneindia.com,tribuneindia.com,Tribune India,IN,India,leanRight,mixed,en
@@ -1030,7 +1030,7 @@ skysports.com,skysports.com,skysports.com,Sky Sports,GB,United Kingdom,unknown,u
 bollywoodshaadis.com,bollywoodshaadis.com,bollywoodshaadis.com,BollywoodShaadis.com,,,center,mixed,en
 hickoryrecord.com,hickoryrecord.com,hickoryrecord.com,HDR | Hickory Daily Record,US,United States,center,high,en
 tuttonapoli.net,tuttonapoli.net,tuttonapoli.net,tuttonapoli.net,,,unknown,unknown,it
-omroepbrabant.nl,omroepbrabant.nl,omroepbrabant.nl,Omroep Brabant,NL,Netherlands,unknown,unknown,NL
+omroepbrabant.nl,omroepbrabant.nl,omroepbrabant.nl,Omroep Brabant,NL,Netherlands,unknown,unknown,nl
 mynews13.com,mynews13.com,mynews13.com,Spectrum News 13,US,United States,center,high,en
 westerniowatoday.com,westerniowatoday.com,westerniowatoday.com,Western Iowa Today 96.5 KSOM KS 95.7,,,unknown,unknown,
 ktbs.com,ktbs.com,ktbs.com,KTBS,US,United States,center,high,en
@@ -1063,7 +1063,7 @@ haltonhillstoday.ca,haltonhillstoday.ca,haltonhillstoday.ca,haltonhillstoday.ca,
 thueringen24.de,thueringen24.de,thueringen24.de,thueringen24.de,DE,Germany,unknown,unknown,de
 tennesseestar.com,tennesseestar.com,tennesseestar.com,Tennessee Star,US,United States,right,mixed,en
 efe.com,efe.com,efe.com,EFE,ES,Spain,center,high,en
-postguam.com,postguam.com,postguam.com,The Guam Daily Post,KP,,center,veryHigh,en
+postguam.com,postguam.com,postguam.com,The Guam Daily Post,,,center,veryHigh,en
 bitcoin.com,bitcoin.com,news.bitcoin.com,Bitcoin.com,,,unknown,unknown,en
 westerntelegraph.co.uk,westerntelegraph.co.uk,westerntelegraph.co.uk,westerntelegraph.co.uk,GB,United Kingdom,center,veryHigh,en
 extra.ie,extra.ie,extra.ie,Extra.ie,IE,Ireland,center,veryHigh,en
@@ -1086,7 +1086,7 @@ madhyamamonline.com,madhyamamonline.com,madhyamamonline.com,madhyamamonline.com,
 indystar.com,indystar.com,indystar.com,Indy Star,US,United States,center,veryHigh,en
 nhk.or.jp,nhk.or.jp,www3.nhk.or.jp,NHK World,JP,Japan,leanRight,high,ja
 skai.gr,skai.gr,skai.gr,skai.gr,GR,Greece,unknown,unknown,el
-vz.ru,vz.ru,vz.ru,vz.ru,RU,,leanRight,mixed,ru
+vz.ru,vz.ru,vz.ru,vz.ru,,,leanRight,mixed,ru
 tvn-2.com,tvn-2.com,tvn-2.com,TVN,PL,Poland,center,high,es
 khaama.com,khaama.com,khaama.com,Khaama Press,AF,Afghanistan,center,veryLow,en
 rigzone.com,rigzone.com,rigzone.com,Rigzone,,,unknown,unknown,en
@@ -1102,7 +1102,7 @@ sports.fr,sports.fr,sports.fr,Sports.fr,,,unknown,unknown,fr
 faroutmagazine.co.uk,faroutmagazine.co.uk,faroutmagazine.co.uk,Far Out Magazine,GB,United Kingdom,center,high,en
 nakkheeran.in,nakkheeran.in,nakkheeran.in,"Nakkheeran,",IN,India,unknown,unknown,en
 thewhistler.ng,thewhistler.ng,thewhistler.ng,The Whistler Nigeria,,,unknown,unknown,en
-zona.media,zona.media,zona.media,Mediazona,RU,,left,high,ru
+zona.media,zona.media,zona.media,Mediazona,,,left,high,ru
 elimpulso.com,elimpulso.com,elimpulso.com,El Impulso,,,unknown,unknown,es
 the42.ie,the42.ie,the42.ie,The42,IE,Ireland,unknown,unknown,en
 khelnow.com,khelnow.com,khelnow.com,Khel Now,IN,India,unknown,unknown,en
@@ -1156,7 +1156,7 @@ bolavip.com,bolavip.com,bolavip.com,BolaVip,,,unknown,unknown,
 forbes.es,forbes.es,forbes.es,Forbes España,,,unknown,unknown,
 reporterherald.com,reporterherald.com,reporterherald.com,Reporter Herald,US,United States,center,high,en
 burnslakelakesdistrictnews.com,burnslakelakesdistrictnews.com,burnslakelakesdistrictnews.com,Burns Lake Lakes District News,,,leanLeft,high,en
-ew.com,ew.com,ew.com,Entertainment Weekly,US,United States,leanLeft,high,EN
+ew.com,ew.com,ew.com,Entertainment Weekly,US,United States,leanLeft,high,en
 eldiarioar.com,eldiarioar.com,eldiarioar.com,elDiarioAR,,,unknown,unknown,es
 newrepublic.com,newrepublic.com,newrepublic.com,The New Republic,US,United States,left,high,en
 kimberleybulletin.com,kimberleybulletin.com,kimberleybulletin.com,Kimberley Daily Bulletin,,,leanLeft,veryHigh,en
@@ -1201,7 +1201,7 @@ football-addict.com,football-addict.com,football-addict.com,football-addict,,,un
 thenewsmill.com,thenewsmill.com,thenewsmill.com,The News Mill,BD,Bangladesh,unknown,unknown,en
 valoraanalitik.com,valoraanalitik.com,valoraanalitik.com,Valora Analitik,,,unknown,unknown,es
 almasalah.com,almasalah.com,almasalah.com,المسلة,IQ,Iraq,unknown,unknown,
-investing.com,investing.com,investing.com,Investing.com,VG,,center,mixed,en
+investing.com,investing.com,investing.com,Investing.com,,,center,mixed,en
 quintanaroohoy.com,quintanaroohoy.com,quintanaroohoy.com,Quintana Roo Hoy,,,unknown,unknown,
 rediff.com,rediff.com,rediff.com,rediff.com,,,leanRight,high,en
 spacedaily.com,spacedaily.com,spacedaily.com,Space Daily,AU,Australia,center,high,en
@@ -1218,7 +1218,7 @@ sabcnews.com,sabcnews.com,sabcnews.com,SABC News,SD,Sudan,unknown,unknown,en
 thenationaldesk.com,thenationaldesk.com,thenationaldesk.com,The National Desk,US,United States,leanRight,high,en
 modernghana.com,modernghana.com,modernghana.com,Modern Ghana,GH,Ghana,unknown,unknown,en
 wellandtribune.ca,wellandtribune.ca,wellandtribune.ca,WellandTribune.ca,CA,Canada,leanLeft,veryHigh,en
-asiatimes.com,asiatimes.com|atimes.com,asiatimes.com,Asia Times,HK,,leanLeft,veryHigh,en
+asiatimes.com,asiatimes.com|atimes.com,asiatimes.com,Asia Times,,,leanLeft,veryHigh,en
 berria.eus,berria.eus,berria.eus,berria.eus,,,unknown,unknown,
 lincolnshireworld.com,lincolnshireworld.com,lincolnshireworld.com,LincolnshireWorld,,,center,high,en
 uniradioinforma.com,uniradioinforma.com,uniradioinforma.com,Uniradio Informa,MX,Mexico,unknown,unknown,es
@@ -1242,12 +1242,12 @@ europasur.es,europasur.es,europasur.es,Europa Sur,,,unknown,unknown,
 mediatalkafrica.com,mediatalkafrica.com,mediatalkafrica.com,mediatalkafrica.com,,,unknown,unknown,
 dailysignal.com,dailysignal.com,dailysignal.com,The Daily Signal,US,United States,right,low,en
 tribtoday.com,tribtoday.com,tribtoday.com,Tribune Chronicle,US,United States,center,high,en
-nhl.com,nhl.com,nhl.com,NHL,US,United States,unknown,unknown,en_US
+nhl.com,nhl.com,nhl.com,NHL,US,United States,unknown,unknown,en
 derbyshiretimes.co.uk,derbyshiretimes.co.uk,derbyshiretimes.co.uk,Derbyshire Times,GB,United Kingdom,center,veryHigh,en
 see.news,see.news,see.news,Sada El balad,SY,Syria,unknown,unknown,en
-life.ru,life.ru,life.ru,Life.ru,RU,,unknown,unknown,
+life.ru,life.ru,life.ru,Life.ru,,,unknown,unknown,
 republicain-lorrain.fr,republicain-lorrain.fr,republicain-lorrain.fr,republicain-lorrain.fr,FR,France,unknown,unknown,fr
-telemundopr.com,telemundopr.com,telemundopr.com,Telemundo de Puerto Rico,PR,,unknown,unknown,es
+telemundopr.com,telemundopr.com,telemundopr.com,Telemundo de Puerto Rico,,,unknown,unknown,es
 thewestmorlandgazette.co.uk,thewestmorlandgazette.co.uk,thewestmorlandgazette.co.uk,thewestmorlandgazette.co.uk,GB,United Kingdom,center,high,en
 katu.com,katu.com,katu.com,KATU,US,United States,center,veryHigh,en
 intelli.news,intelli.news,intelli.news,INTELLINEWS,CN,China,center,mixed,en
@@ -1264,7 +1264,7 @@ srugim.co.il,srugim.co.il,srugim.co.il,סרוגים,,,unknown,unknown,
 mainwelle.de,mainwelle.de,mainwelle.de,mainwelle.de,,,unknown,unknown,
 kt-kuriren.se,kt-kuriren.se,kt-kuriren.se,kt-kuriren.se,,,unknown,unknown,
 parismatch.com,parismatch.com,parismatch.com,parismatch.com,,,unknown,unknown,fr
-freshplaza.com,freshplaza.com,freshplaza.com,freshplaza.com,,,unknown,unknown,EN
+freshplaza.com,freshplaza.com,freshplaza.com,freshplaza.com,,,unknown,unknown,en
 laprensa.hn,laprensa.hn,laprensa.hn,Diario La Prensa,HN,Honduras,unknown,unknown,es
 somosjujuy.com.ar,somosjujuy.com.ar,somosjujuy.com.ar,SOMOS JUJUY,AR,Argentina,unknown,unknown,
 emirates247.com,emirates247.com,emirates247.com,Emirates24|7,AE,United Arab Emirates,leanRight,mixed,en
@@ -1401,7 +1401,7 @@ postregister.com,postregister.com,postregister.com,Post Register,,,center,veryHi
 herald-dispatch.com,herald-dispatch.com,herald-dispatch.com,The Herald-Dispatch,US,United States,center,veryHigh,en
 rocketnews.com,rocketnews.com,rocketnews.com,RocketNews,GB,United Kingdom,leanLeft,high,en
 mmnews.tv,mmnews.tv,mmnews.tv,MM News TV,,,unknown,unknown,en
-hongkongfp.com,hongkongfp.com,hongkongfp.com,Hong Kong Free Press,HK,,leanLeft,veryHigh,en
+hongkongfp.com,hongkongfp.com,hongkongfp.com,Hong Kong Free Press,,,leanLeft,veryHigh,en
 interior-news.com,interior-news.com,interior-news.com,Smithers Interior News,,,leanLeft,veryHigh,en
 today.com,today.com,today.com,Today,US,United States,leanLeft,veryHigh,en
 ndr.de,ndr.de,ndr.de,ndr.de,DE,Germany,unknown,unknown,de
@@ -1482,7 +1482,7 @@ cambridgetimes.ca,cambridgetimes.ca,cambridgetimes.ca,Cambridge Times,CA,Canada,
 union-bulletin.com,union-bulletin.com,union-bulletin.com,union-bulletin.com,,,center,veryHigh,en
 stl.news,stl.news,stl.news,STL News,US,United States,unknown,unknown,en
 crestonvalleyadvance.ca,crestonvalleyadvance.ca,crestonvalleyadvance.ca,Creston Valley Advance,CA,Canada,leanLeft,veryHigh,en
-rthk.hk,rthk.hk,news.rthk.hk,rthk.hk,HK,,leanLeft,mixed,en
+rthk.hk,rthk.hk,news.rthk.hk,rthk.hk,,,leanLeft,mixed,en
 3news.com,3news.com,3news.com,3news,,,unknown,unknown,en
 signalscv.com,signalscv.com,signalscv.com,Santa Clarita Valley Signal,US,United States,leanRight,mixed,en
 football-italia.net,football-italia.net,football-italia.net,Football Italia,IT,Italy,unknown,unknown,en
@@ -1498,7 +1498,7 @@ telegram.hr,telegram.hr,telegram.hr,Telegram.hr,HR,Croatia,unknown,unknown,hr
 que.es,que.es,que.es,Qué!,,,unknown,unknown,
 elvocero.com,elvocero.com,elvocero.com,El Vocero de Puerto Rico,US,United States,leanRight,mixed,es
 greatyorkshireradio.co.uk,greatyorkshireradio.co.uk,greatyorkshireradio.co.uk,Great Yorkshire Radio,,,unknown,unknown,en
-linfodrome.com,linfodrome.com,linfodrome.com,linfodrome.com,CI,,unknown,unknown,fr
+linfodrome.com,linfodrome.com,linfodrome.com,linfodrome.com,,,unknown,unknown,fr
 blick.ch,blick.ch,blick.ch,Blick,CH,Switzerland,unknown,unknown,de
 ugandanews.net,ugandanews.net,ugandanews.net,ugandanews.net,,,unknown,unknown,en
 folkebladet.no,folkebladet.no,folkebladet.no,folkebladet.no,,,unknown,unknown,
@@ -1507,7 +1507,7 @@ wltreport.com,wltreport.com,wltreport.com,WLTReport,,,farRight,low,
 thepressproject.gr,thepressproject.gr,thepressproject.gr,The Press Project,GR,Greece,unknown,unknown,el
 barrie360.com,barrie360.com,barrie360.com,Barrie 360,CA,Canada,center,high,en
 vaildaily.com,vaildaily.com,vaildaily.com,Vail Daily,,,center,high,en
-iomtoday.co.im,iomtoday.co.im,iomtoday.co.im,Isle of Man Today,IM,,unknown,unknown,en
+iomtoday.co.im,iomtoday.co.im,iomtoday.co.im,Isle of Man Today,,,unknown,unknown,en
 bbv-net.de,bbv-net.de,bbv-net.de,bbv-net.de,,,unknown,unknown,
 jerseyeveningpost.com,jerseyeveningpost.com,jerseyeveningpost.com,Jersey Evening Post,GB,United Kingdom,center,veryHigh,en
 hessenschau.de,hessenschau.de,hessenschau.de,hessenschau.de,DE,Germany,unknown,unknown,de
@@ -1684,7 +1684,7 @@ nairametrics.com,nairametrics.com,nairametrics.com,Nairametrics,US,United States
 cubadebate.cu,cubadebate.cu,cubadebate.cu|mesaredonda.cubadebate.cu,Cubadebate,CU,Cuba,unknown,unknown,es
 bernews.com,bernews.com,bernews.com,Bernews,,,unknown,unknown,en
 comobuz.com,comobuz.com,comobuz.com,CoMo BUZ,,,unknown,unknown,
-boredpanda.com,boredpanda.com,boredpanda.com,BoredPanda,LT,Lithuania,leanLeft,high,en_US
+boredpanda.com,boredpanda.com,boredpanda.com,BoredPanda,LT,Lithuania,leanLeft,high,en
 kutv.com,kutv.com,kutv.com,KUTV,US,United States,center,veryHigh,en
 fairfieldsuntimes.com,fairfieldsuntimes.com,fairfieldsuntimes.com,Fairfield Sun Times,US,United States,leanLeft,high,en
 thepeoplesperson.com,thepeoplesperson.com,thepeoplesperson.com,thepeoplesperson.com,,,unknown,unknown,en
@@ -1729,9 +1729,9 @@ driva.no,driva.no,driva.no,driva.no,,,unknown,unknown,
 suedtirolnews.it,suedtirolnews.it,suedtirolnews.it,suedtirolnews.it,IT,Italy,unknown,unknown,
 algemeiner.com,algemeiner.com,algemeiner.com,The Algemeiner,US,United States,leanRight,high,en
 wpxi.com,wpxi.com,wpxi.com,WPXI,US,United States,center,high,en
-invezz.com,invezz.com,invezz.com,Invezz,VG,,unknown,unknown,en
+invezz.com,invezz.com,invezz.com,Invezz,,,unknown,unknown,en
 actionnewsnow.com,actionnewsnow.com,actionnewsnow.com,Action News Now,US,United States,center,veryHigh,en
-tvrain.tv,tvrain.tv,tvrain.tv,tvrain.tv,RU,,unknown,unknown,
+tvrain.tv,tvrain.tv,tvrain.tv,tvrain.tv,,,unknown,unknown,
 svaboda.org,svaboda.org,svaboda.org,Радыё Свабода,BY,Belarus,unknown,unknown,
 coasttv.com,coasttv.com,coasttv.com,coasttv.com,US,United States,center,high,
 kotaku.com,kotaku.com,kotaku.com,Kotaku,US,United States,leanLeft,high,en
@@ -1932,7 +1932,7 @@ telemundo51.com,telemundo51.com,telemundo51.com,Telemundo Miami (51),US,United S
 investors.com,investors.com,investors.com,Investor's Business Daily,US,United States,leanRight,high,en
 conlagentenoticias.com,conlagentenoticias.com,conlagentenoticias.com,Con La Gente Noticias,,,unknown,unknown,es
 lodinews.com,lodinews.com,lodinews.com,Lodinews.com,,,leanLeft,high,
-sports.ru,sports.ru,sports.ru,Sports.ru,RU,,unknown,unknown,
+sports.ru,sports.ru,sports.ru,Sports.ru,,,unknown,unknown,
 newsypeople.com,newsypeople.com,newsypeople.com,newsypeople.com,GB,United Kingdom,unknown,unknown,
 mlbtraderumors.com,mlbtraderumors.com,mlbtraderumors.com,MLB Trade Rumors,US,United States,unknown,unknown,en
 eldiario.net,eldiario.net,eldiario.net,www.eldiario.net,BO,Bolivia,unknown,unknown,es
@@ -1980,7 +1980,7 @@ lokalec.si,lokalec.si,lokalec.si,Lokalec.si,,,unknown,unknown,
 theprovince.com,theprovince.com,theprovince.com,The Province,CA,Canada,leanRight,veryHigh,en
 kitco.com,kitco.com,kitco.com,Kitco NEWS,,,unknown,unknown,en
 boxingnewsonline.net,boxingnewsonline.net,boxingnewsonline.net,Boxing News,GB,United Kingdom,center,high,en
-kvf.fo,kvf.fo,kvf.fo,Kringvarp Føroya,FO,,unknown,unknown,fo
+kvf.fo,kvf.fo,kvf.fo,Kringvarp Føroya,,,unknown,unknown,fo
 potosinoticias.com,potosinoticias.com,potosinoticias.com,Potosinoticias.com,,,unknown,unknown,
 riverbender.com,riverbender.com,riverbender.com,RiverBender.com,US,United States,center,high,en
 wbur.org,wbur.org,wbur.org,WBUR,US,United States,center,veryHigh,en
@@ -2012,7 +2012,7 @@ newsbudz.com,newsbudz.com,newsbudz.com,newsbudz.com,,,unknown,unknown,en
 tvn24.pl,tvn24.pl,tvn24.pl,TVN24.pl,PL,Poland,leanLeft,high,pl
 canalc.com.ar,canalc.com.ar,canalc.com.ar,Canal C,,,unknown,unknown,es
 ajaxshowtime.com,ajaxshowtime.com,ajaxshowtime.com,ajaxshowtime.com,,,unknown,unknown,
-balleralert.com,balleralert.com,balleralert.com,Baller Alert,RU,,unknown,unknown,en
+balleralert.com,balleralert.com,balleralert.com,Baller Alert,,,unknown,unknown,en
 diariotijuana.info,diariotijuana.info,diariotijuana.info,Diario Tijuana,,,unknown,unknown,
 ecoticias.com,ecoticias.com,ecoticias.com,ecoticias.com,,,left,mixed,
 gulf-times.com,gulf-times.com,gulf-times.com,Gulf Times,QA,Qatar,unknown,unknown,
@@ -2101,7 +2101,7 @@ luxtimes.lu,luxtimes.lu,luxtimes.lu,luxtimes.lu,LU,Luxembourg,unknown,unknown,en
 cubainformacion.tv,cubainformacion.tv,cubainformacion.tv,cubainformación.tv,TV,Tuvalu,unknown,unknown,
 zoomnews.in,zoomnews.in,zoomnews.in,Zoom News,,,unknown,unknown,
 adkhabar.com,adkhabar.com,adkhabar.com,ADKhabar,,,unknown,unknown,
-interfax.ru,interfax.ru,interfax.ru,Interfax.ru,RU,,leanRight,mixed,ru
+interfax.ru,interfax.ru,interfax.ru,Interfax.ru,,,leanRight,mixed,ru
 wfmd.com,wfmd.com,wfmd.com,wfmd.com,,,right,mixed,
 democracynow.org,democracynow.org,democracynow.org,Democracy Now!,US,United States,left,high,en
 diarioprimeralinea.com.ar,diarioprimeralinea.com.ar,diarioprimeralinea.com.ar,▷ Diario Primera Linea,AR,Argentina,unknown,unknown,
@@ -2160,7 +2160,7 @@ elfinancierocr.com,elfinancierocr.com,elfinancierocr.com,elfinancierocr.com,CR,C
 unionesarda.it,unionesarda.it,unionesarda.it,L'Unione Sarda.it,IT,Italy,unknown,unknown,it
 statesville.com,statesville.com,statesville.com,Record and Landmark,,,leanLeft,veryHigh,en
 actionnews5.com,actionnews5.com|wmcactionnews5.com,actionnews5.com,Action News 5,US,United States,center,veryHigh,en
-telemundochicago.com,telemundochicago.com,telemundochicago.com,Telemundo Chicago,PR,,unknown,unknown,es
+telemundochicago.com,telemundochicago.com,telemundochicago.com,Telemundo Chicago,,,unknown,unknown,es
 620ckrm.com,620ckrm.com,620ckrm.com,"620 CKRM The Source | Country Music, News, Sports in Sask…",,,center,high,en
 kttn.com,kttn.com,kttn.com,KTTN-FM 92.3 and KGOZ -FM 101.7 Serving north Missouri…,,,unknown,unknown,en
 lavozdemichoacan.com.mx,lavozdemichoacan.com.mx,lavozdemichoacan.com.mx,lavozdemichoacan.com.mx,MX,Mexico,unknown,unknown,es
@@ -2174,7 +2174,7 @@ nieuws.nl,nieuws.nl,nieuws.nl,Nieuws.nl,NL,Netherlands,unknown,unknown,
 telemundo47.com,telemundo47.com,telemundo47.com,Telemundo New York (47),,,unknown,unknown,es
 capital.fr,capital.fr,capital.fr,Capital.fr,FR,France,leanRight,high,fr
 jta.org,jta.org,jta.org,Jewish Telegraphic Agency,US,United States,leanLeft,veryHigh,en
-rtvnoord.nl,rtvnoord.nl,rtvnoord.nl,RTV Noord,NL,Netherlands,unknown,unknown,NL
+rtvnoord.nl,rtvnoord.nl,rtvnoord.nl,RTV Noord,NL,Netherlands,unknown,unknown,nl
 wtmj.com,wtmj.com,wtmj.com,WTMJ,,,center,veryHigh,en
 coinedition.com,coinedition.com,coinedition.com,Coin Edition,,,unknown,unknown,
 worldsoccertalk.com,worldsoccertalk.com,worldsoccertalk.com,World Soccer Talk,US,United States,unknown,unknown,en
@@ -2226,11 +2226,11 @@ periodicolaperla.com,periodicolaperla.com,periodicolaperla.com,La Perla del Sur,
 caribbeannewsglobal.com,caribbeannewsglobal.com,caribbeannewsglobal.com,Caribbean News Global,,,unknown,unknown,
 antiwar.com,antiwar.com,news.antiwar.com,Antiwar.com,IR,Iran,center,high,en
 psnews.ro,psnews.ro,psnews.ro,PSnews,RO,Romania,unknown,unknown,
-telemundoutah.com,telemundoutah.com,telemundoutah.com,Telemundo Utah,PR,,unknown,unknown,es
+telemundoutah.com,telemundoutah.com,telemundoutah.com,Telemundo Utah,,,unknown,unknown,es
 winonadailynews.com,winonadailynews.com,winonadailynews.com,Winona Daily News,,,center,veryHigh,en
 lasexta.com,lasexta.com,lasexta.com,LaSexta,GB,United Kingdom,unknown,unknown,es
 scuderiafans.com,scuderiafans.com,scuderiafans.com,Scuderia Fans,,,unknown,unknown,en
-tribune242.com,tribune242.com,tribune242.com,tribune242.com,BS,,unknown,unknown,en
+tribune242.com,tribune242.com,tribune242.com,tribune242.com,,,unknown,unknown,en
 thenationalherald.com,thenationalherald.com,thenationalherald.com,The National Herald,US,United States,leanRight,high,en
 ch-aviation.com,ch-aviation.com,ch-aviation.com,ch-aviation,,,unknown,unknown,en
 sopitas.com,sopitas.com,sopitas.com,Sopitas.com,MX,Mexico,unknown,unknown,
@@ -2337,13 +2337,13 @@ emisorasunidas.com,emisorasunidas.com,emisorasunidas.com,emisorasunidas.com,,,un
 lanacion.cl,lanacion.cl,lanacion.cl,La Nación,CL,Chile,unknown,unknown,es
 wabcradio.com,wabcradio.com,wabcradio.com,WABC,,,right,mixed,en
 vlnradio.cl,vlnradio.cl,vlnradio.cl,vlnradio.cl,,,unknown,unknown,
-telemundo40.com,telemundo40.com,telemundo40.com,Telemundo McAllen (40),PR,,unknown,unknown,es
-telemundoarizona.com,telemundoarizona.com,telemundoarizona.com,Telemundo Phoenix/Tucson,PR,,unknown,unknown,es
+telemundo40.com,telemundo40.com,telemundo40.com,Telemundo McAllen (40),,,unknown,unknown,es
+telemundoarizona.com,telemundoarizona.com,telemundoarizona.com,Telemundo Phoenix/Tucson,,,unknown,unknown,es
 moderndiplomacy.eu,moderndiplomacy.eu,moderndiplomacy.eu,Modern Diplomacy,BG,Bulgaria,right,mixed,en
 myclallamcounty.com,myclallamcounty.com,myclallamcounty.com,MyClallamCounty.com,,,center,high,
 gettysburgconnection.org,gettysburgconnection.org,gettysburgconnection.org,Gettysburg Connection,US,United States,unknown,unknown,
 elestimulo.com,elestimulo.com,elestimulo.com,El Estímulo,,,unknown,unknown,
-gellerreport.com,gellerreport.com,gellerreport.com,Geller Report,RU,,farRight,low,en
+gellerreport.com,gellerreport.com,gellerreport.com,Geller Report,,,farRight,low,en
 capital.gr,capital.gr,capital.gr,Capital.gr,GR,Greece,unknown,unknown,el
 aeroroutes.com,aeroroutes.com,aeroroutes.com,aeroroutes.com,,,unknown,unknown,
 dailyrepublic.com,dailyrepublic.com,dailyrepublic.com,Daily Republic,US,United States,center,high,en
@@ -2394,7 +2394,7 @@ muscatinejournal.com,muscatinejournal.com,muscatinejournal.com,Muscatine Journal
 diariotextual.com,diariotextual.com,diariotextual.com,Diario Textual,,,unknown,unknown,
 futuro.cl,futuro.cl,futuro.cl,Futuro,CL,Chile,unknown,unknown,es
 wirx.com,wirx.com,wirx.com,ROCK 107 WIRX,,,unknown,unknown,en
-economynext.com,economynext.com,economynext.com,EconomyNext,LK,Sri Lanka,center,high,lang=
+economynext.com,economynext.com,economynext.com,EconomyNext,LK,Sri Lanka,center,high,
 harianjogja.com,harianjogja.com,jateng.harianjogja.com|jogjapolitan.harianjogja.com|news.harianjogja.com|sport.harianjogja.com|wisata.harianjogja.com,Harianjogja.com,,,unknown,unknown,id
 einpresswire.com,einpresswire.com,einpresswire.com,EIN Presswire,,,unknown,unknown,en
 nbcmontana.com,nbcmontana.com,nbcmontana.com,NBC Montana,US,United States,center,veryHigh,en
@@ -2453,7 +2453,7 @@ radioeme.com,radioeme.com,radioeme.com,Radio EME,AR,Argentina,unknown,unknown,es
 nowtolove.com.au,nowtolove.com.au,nowtolove.com.au,nowtolove.com.au,AU,Australia,unknown,unknown,en
 bnews.com.br,bnews.com.br,bnews.com.br,BNews,,,unknown,unknown,
 sucesospuebla.com,sucesospuebla.com,sucesospuebla.com,Sucesos Puebla,,,unknown,unknown,
-telemundodenver.com,telemundodenver.com,telemundodenver.com,Telemundo Denver,PR,,unknown,unknown,es
+telemundodenver.com,telemundodenver.com,telemundodenver.com,Telemundo Denver,,,unknown,unknown,es
 zona-militar.com,zona-militar.com,zona-militar.com,zona-militar.com,,,unknown,unknown,
 globalupfront.com,globalupfront.com,globalupfront.com,Global Upfront Newspapers,,,unknown,unknown,
 siliconrepublic.com,siliconrepublic.com,siliconrepublic.com,Silicon Republic,IE,Ireland,center,veryHigh,en
@@ -2470,7 +2470,7 @@ the-dispatch.com,the-dispatch.com,the-dispatch.com,The Dispatch,US,United States
 biggleswadetoday.co.uk,biggleswadetoday.co.uk,biggleswadetoday.co.uk,biggleswadetoday.co.uk,GB,United Kingdom,center,high,en
 wpr.org,wpr.org,wpr.org,Wisconsin Public Radio,US,United States,center,veryHigh,en
 thenews21.com,thenews21.com,thenews21.com,"The News 21 - Latest News, Breaking News, Today's Headlines & more",,,unknown,unknown,en
-telemundolasvegas.com,telemundolasvegas.com,telemundolasvegas.com,Telemundo Las Vegas,PR,,unknown,unknown,es
+telemundolasvegas.com,telemundolasvegas.com,telemundolasvegas.com,Telemundo Las Vegas,,,unknown,unknown,es
 realpolitik.com.ar,realpolitik.com.ar,realpolitik.com.ar,realpolitik.com.ar,AR,Argentina,unknown,unknown,es
 l-a.no,l-a.no,l-a.no,l-a.no,,,unknown,unknown,
 thepattayanews.com,thepattayanews.com,thepattayanews.com,The Pattaya News,,,unknown,unknown,en
@@ -2484,7 +2484,7 @@ canberradaily.com.au,canberradaily.com.au,canberradaily.com.au,canberradaily.com
 versionrosario.com.ar,versionrosario.com.ar,versionrosario.com.ar,versionrosario.com.ar,,,unknown,unknown,
 lacasademitia.es,lacasademitia.es,lacasademitia.es,La casa de mi tía,,,unknown,unknown,
 cbs12.com,cbs12.com,cbs12.com,WPEC,US,United States,leanRight,veryHigh,en
-rijnmond.nl,rijnmond.nl,rijnmond.nl,RTV Rijnmond,NL,Netherlands,unknown,unknown,NL
+rijnmond.nl,rijnmond.nl,rijnmond.nl,RTV Rijnmond,NL,Netherlands,unknown,unknown,nl
 bcharts.com.br,bcharts.com.br,bcharts.com.br,BCharts Fórum,,,unknown,unknown,pt
 newsaddicts.com,newsaddicts.com,newsaddicts.com,News Addicts,US,United States,farRight,low,
 zycrypto.com,zycrypto.com,zycrypto.com,ZyCrypto,,,unknown,unknown,en
@@ -2506,7 +2506,7 @@ wqow.com,wqow.com,wqow.com,WQOW,US,United States,center,veryHigh,en
 lifo.gr,lifo.gr,lifo.gr,LiFO,GR,Greece,unknown,unknown,el
 onlarissa.gr,onlarissa.gr,onlarissa.gr,onlarissa.gr,GR,Greece,unknown,unknown,
 businesselitesafrica.com,businesselitesafrica.com,businesselitesafrica.com,Business Elites Africa,,,unknown,unknown,en
-telemundo31.com,telemundo31.com,telemundo31.com,Telemundo Orlando (31),PR,,unknown,unknown,es
+telemundo31.com,telemundo31.com,telemundo31.com,Telemundo Orlando (31),,,unknown,unknown,es
 bomlo-nytt.no,bomlo-nytt.no,bomlo-nytt.no,bomlo-nytt.no,,,unknown,unknown,
 tubarco.news,tubarco.news,tubarco.news,TuBarco Noticias,CO,Colombia,unknown,unknown,es
 kctv5.com,kctv5.com,kctv5.com,kctv5,US,United States,center,veryHigh,en
@@ -2556,16 +2556,16 @@ sanangelolive.com,sanangelolive.com,sanangelolive.com,sanangelolive.com,,,right,
 spaziomilan.it,spaziomilan.it,spaziomilan.it,spaziomilan.it,,,unknown,unknown,
 philstockworld.com,philstockworld.com,philstockworld.com,Phil's Stock World,,,unknown,unknown,
 perezhilton.com,perezhilton.com,perezhilton.com,Perez Hilton,US,United States,left,mixed,en
-telemundofresno.com,telemundofresno.com,telemundofresno.com,Telemundo Fresno,PR,,unknown,unknown,es
+telemundofresno.com,telemundofresno.com,telemundofresno.com,Telemundo Fresno,,,unknown,unknown,es
 92q.com,92q.com,92q.com,92q.com,,,unknown,unknown,
 brecon-radnor.co.uk,brecon-radnor.co.uk,brecon-radnor.co.uk,brecon-radnor.co.uk,GB,United Kingdom,unknown,unknown,
 volksfreund.de,volksfreund.de,volksfreund.de,volksfreund.de,DE,Germany,center,high,
 breakingdefense.com,breakingdefense.com,breakingdefense.com,Breaking Defense,US,United States,leanRight,veryHigh,en
-telemundo49.com,telemundo49.com,telemundo49.com,Telemundo Tampa (49),PR,,unknown,unknown,es
+telemundo49.com,telemundo49.com,telemundo49.com,Telemundo Tampa (49),,,unknown,unknown,es
 thethinkingconservative.com,thethinkingconservative.com,thethinkingconservative.com,The Thinking Conservative,,,farRight,low,
 nuevatribuna.es,nuevatribuna.es,nuevatribuna.es,nuevatribuna.es,ES,Spain,unknown,unknown,
 thesudantimes.com,thesudantimes.com,thesudantimes.com,thesudantimes.com,,,unknown,unknown,
-telemundodallas.com,telemundodallas.com,telemundodallas.com,Telemundo Dallas (39),PR,,unknown,unknown,es
+telemundodallas.com,telemundodallas.com,telemundodallas.com,Telemundo Dallas (39),,,unknown,unknown,es
 cloudprwire.us,cloudprwire.us,cloudprwire.us,cloudprwire.us,,,unknown,unknown,
 dwtonline.com,dwtonline.com,dwtonline.com,DWTonline.com,,,unknown,unknown,
 lowkickmma.com,lowkickmma.com,lowkickmma.com,LowKickMMA.com,,,unknown,unknown,en
@@ -2628,7 +2628,7 @@ detroitsportsnation.com,detroitsportsnation.com,detroitsportsnation.com,Detroit 
 rrdailyherald.com,rrdailyherald.com,rrdailyherald.com,The Daily Herald,US,United States,leanRight,veryHigh,
 stephanelarue.com,stephanelarue.com,stephanelarue.com,Stéphane Larue,US,United States,unknown,unknown,fr
 pressbee.net,pressbee.net,arabic.pressbee.net,برس بي,,,unknown,unknown,
-republika.mk,republika.mk,republika.mk,republika.mk,MK,,unknown,unknown,en
+republika.mk,republika.mk,republika.mk,republika.mk,,,unknown,unknown,en
 italpress.com,italpress.com,italpress.com,italpress.com,,,unknown,unknown,
 brightonandhovenews.org,brightonandhovenews.org,brightonandhovenews.org,Brighton and Hove News,,,center,high,en
 aufeminin.com,aufeminin.com,aufeminin.com,aufeminin.com,,,unknown,unknown,
@@ -2799,7 +2799,7 @@ infoblancosobrenegro.com,infoblancosobrenegro.com,infoblancosobrenegro.com,infob
 environewsnigeria.com,environewsnigeria.com,environewsnigeria.com,EnviroNews Nigeria -,,,unknown,unknown,en
 atlanticcouncil.org,atlanticcouncil.org,atlanticcouncil.org,Atlantic Council,US,United States,leanRight,high,en
 avaz.ba,avaz.ba,avaz.ba,Avaz.ba,BA,Bosnia and Herzegovina,unknown,unknown,bs
-timescaribbeanonline.com,timescaribbeanonline.com,timescaribbeanonline.com,Times Caribbean,KN,,unknown,unknown,en
+timescaribbeanonline.com,timescaribbeanonline.com,timescaribbeanonline.com,Times Caribbean,,,unknown,unknown,en
 journaldunet.com,journaldunet.com,journaldunet.com,journaldunet.com,,,unknown,unknown,fr
 hngn.com,hngn.com,hngn.com,hngn.com,,,center,veryHigh,en
 seleo.gr,seleo.gr,seleo.gr,seleo.gr,GR,Greece,unknown,unknown,el
@@ -2861,7 +2861,7 @@ zeri.info,zeri.info,zeri.info,Zëri,,,unknown,unknown,
 advanced-television.com,advanced-television.com,advanced-television.com,advanced-television.com,,,center,mixed,en
 jis.gov.jm,jis.gov.jm,jis.gov.jm,Jamaica Information Service,US,United States,unknown,unknown,en
 netnews1.com,netnews1.com,netnews1.com,netnews1.com,,,unknown,unknown,
-omroepwest.nl,omroepwest.nl,omroepwest.nl,Omroep West,NL,Netherlands,unknown,unknown,NL
+omroepwest.nl,omroepwest.nl,omroepwest.nl,Omroep West,NL,Netherlands,unknown,unknown,nl
 losangelespress.org,losangelespress.org,losangelespress.org,Los Ángeles Press,,,unknown,unknown,
 globalfintechseries.com,globalfintechseries.com,globalfintechseries.com,GlobalFinTechSeries,,,unknown,unknown,en
 theheritagetimes.com,theheritagetimes.com,theheritagetimes.com,The Heritage Times,,,unknown,unknown,en
@@ -3038,7 +3038,7 @@ mothership.sg,mothership.sg,mothership.sg,Mothership Singapore,SG,Singapore,lean
 elsoldeiquique.cl,elsoldeiquique.cl,elsoldeiquique.cl,El Sol de Iquique,,,unknown,unknown,
 calcoastnews.com,calcoastnews.com,calcoastnews.com,Cal Coast News,US,United States,leanRight,high,en
 getfootballnewsfrance.com,getfootballnewsfrance.com,getfootballnewsfrance.com,getfootballnewsfrance.com,FR,France,unknown,unknown,en
-voetbalprimeur.nl,voetbalprimeur.nl,voetbalprimeur.nl,voetbalprimeur.nl,NL,Netherlands,unknown,unknown,nl_NL
+voetbalprimeur.nl,voetbalprimeur.nl,voetbalprimeur.nl,voetbalprimeur.nl,NL,Netherlands,unknown,unknown,nl
 dodgerblue.com,dodgerblue.com,dodgerblue.com,Dodger Blue,US,United States,unknown,unknown,en
 porten.no,porten.no,porten.no,porten.no,,,unknown,unknown,
 kickfootball.fr,kickfootball.fr,kickfootball.fr,Kick Football,,,unknown,unknown,
@@ -3487,7 +3487,7 @@ portavozchiapas.com.mx,portavozchiapas.com.mx,portavozchiapas.com.mx,PORTAVOZ,,,
 mugglehead.com,mugglehead.com,mugglehead.com,Mugglehead Magazine,CA,Canada,unknown,unknown,en
 savonsanomat.fi,savonsanomat.fi,savonsanomat.fi,savonsanomat.fi – Savon Sanomat,FI,Finland,unknown,unknown,
 cpj.org,cpj.org,cpj.org,Committee to Protect Journalists,US,United States,center,high,en
-topwar.ru,topwar.ru,topwar.ru,topwar.ru,RU,,right,mixed,
+topwar.ru,topwar.ru,topwar.ru,topwar.ru,,,right,mixed,
 admis.com,admis.com,admis.com,Futures Brokerage and Clearing | ADM Investor Services,,,unknown,unknown,
 aapnews.com.au,aapnews.com.au,aapnews.com.au,AAPNews,,,unknown,unknown,
 liverpoolworld.uk,liverpoolworld.uk,liverpoolworld.uk,liverpoolworld.uk,,,center,high,en
@@ -3539,7 +3539,7 @@ nycaribnews.com,nycaribnews.com,nycaribnews.com,New York Carib News,,,unknown,un
 albawaba.net,albawaba.net,albawaba.net,albawaba.net,,,unknown,unknown,
 vg.hu,vg.hu,vg.hu,Világgazdaság,,,unknown,unknown,hu
 libertynation.com,libertynation.com,libertynation.com,Liberty Nation,CA,Canada,right,low,en
-tvagatineau.ca,tvagatineau.ca,tvagatineau.ca,tvagatineau.ca,CA,Canada,unknown,unknown,fr_ca
+tvagatineau.ca,tvagatineau.ca,tvagatineau.ca,tvagatineau.ca,CA,Canada,unknown,unknown,fr
 metal-hammer.de,metal-hammer.de,metal-hammer.de,metal-hammer.de,DE,Germany,unknown,unknown,
 versicherungsmonitor.de,versicherungsmonitor.de,versicherungsmonitor.de,Herbert Frommes Versicherungsmonitor,DE,Germany,unknown,unknown,
 mysportdab.com,mysportdab.com,mysportdab.com,MySportDab,,,unknown,unknown,
@@ -3763,7 +3763,7 @@ glidemagazine.com,glidemagazine.com,glidemagazine.com,glidemagazine.com,,,unknow
 daryo.uz,daryo.uz,daryo.uz,daryo.uz,UZ,Uzbekistan,unknown,unknown,
 hailstate.com,hailstate.com,hailstate.com,hailstate.com,,,unknown,unknown,
 6yka.com,6yka.com,6yka.com,6yka.com,RS,Serbia,unknown,unknown,
-natemat.pl,natemat.pl,natemat.pl,naTemat.pl,PL,Poland,unknown,unknown,PL
+natemat.pl,natemat.pl,natemat.pl,naTemat.pl,PL,Poland,unknown,unknown,pl
 utopiayouarestandinginit.com,utopiayouarestandinginit.com,utopiayouarestandinginit.com,Utopia - you are standing in it!,,,unknown,unknown,
 georgiadogs.com,georgiadogs.com,georgiadogs.com,University of Georgia Athletics,,,unknown,unknown,
 1053rnb.com,1053rnb.com,1053rnb.com,1053rnb.com,,,unknown,unknown,
@@ -3929,7 +3929,7 @@ radioradicale.it,radioradicale.it,radioradicale.it,radioradicale.it,IT,Italy,unk
 bta.bg,bta.bg,bta.bg,bta.bg,BG,Bulgaria,unknown,unknown,
 deadspin.com,deadspin.com,deadspin.com,Deadspin,MT,Malta,left,mixed,en
 aboluowang.com,aboluowang.com,aboluowang.com,阿波罗新闻网,CA,Canada,unknown,unknown,
-bitcoinke.io,bitcoinke.io,bitcoinke.io,bitcoinke.io,IO,,unknown,unknown,en
+bitcoinke.io,bitcoinke.io,bitcoinke.io,bitcoinke.io,,,unknown,unknown,en
 skd.se,skd.se,skd.se,Skånska Dagbladet,SE,Sweden,unknown,unknown,
 thelaziali.com,thelaziali.com,thelaziali.com,The Laziali,,,unknown,unknown,en
 agorarn.com.br,agorarn.com.br,agorarn.com.br,Agora RN,,,unknown,unknown,
@@ -3949,7 +3949,7 @@ janoubia.com,janoubia.com,janoubia.com,جنوبية,,,unknown,unknown,
 postal.pt,postal.pt,postal.pt,postal.pt,PT,Portugal,unknown,unknown,
 cyprusshippingnews.com,cyprusshippingnews.com,cyprusshippingnews.com,cyprusshippingnews.com,,,unknown,unknown,
 boldmedya.com,boldmedya.com,boldmedya.com,BoldMedya,,,unknown,unknown,
-inosmi.ru,inosmi.ru,inosmi.ru,ИноСМИ.Ru,RU,,unknown,unknown,ru
+inosmi.ru,inosmi.ru,inosmi.ru,ИноСМИ.Ru,,,unknown,unknown,ru
 farmersreviewafrica.com,farmersreviewafrica.com,farmersreviewafrica.com,Farmers Review Africa,,,unknown,unknown,en
 avnetwork.com,avnetwork.com,avnetwork.com,systemscontractor,US,United States,unknown,unknown,en
 svtv.org,svtv.org,svtv.org,svtv.org,,,unknown,unknown,
@@ -3996,7 +3996,7 @@ iraqinews.com,iraqinews.com,iraqinews.com,"Iraq news, the latest Iraq news by Ir
 svnews.ro,svnews.ro,svnews.ro,Suceava News Online,,,unknown,unknown,
 sn-jp.com,sn-jp.com,sn-jp.com,Share News Japan,JP,Japan,unknown,unknown,ja
 morski.hr,morski.hr,morski.hr,morski.hr,HR,Croatia,unknown,unknown,
-sport-express.ru,sport-express.ru,sport-express.ru,sport-express.ru,RU,,unknown,unknown,ru
+sport-express.ru,sport-express.ru,sport-express.ru,sport-express.ru,,,unknown,unknown,ru
 op.se,op.se,op.se,op.se,SE,Sweden,unknown,unknown,
 cumberlandspatriots.com,cumberlandspatriots.com,cumberlandspatriots.com,University of the Cumberlands Athletics,,,unknown,unknown,en
 hms.ba,hms.ba,hms.ba,Hrvatski Medijski Servis,,,unknown,unknown,
@@ -4094,7 +4094,7 @@ naturalhistorywanderings.com,naturalhistorywanderings.com,naturalhistorywanderin
 pacificislandtimes.com,pacificislandtimes.com,pacificislandtimes.com,pacificislandtimes.com,,,unknown,unknown,en
 goccusports.com,goccusports.com,goccusports.com,Coastal Carolina University Athletics,,,unknown,unknown,en
 elmercurio.com.ec,elmercurio.com.ec,elmercurio.com.ec,Diario El Mercurio,EC,Ecuador,unknown,unknown,es
-vedomosti.ru,vedomosti.ru,vedomosti.ru,vedomosti.ru,RU,,unknown,unknown,ru
+vedomosti.ru,vedomosti.ru,vedomosti.ru,vedomosti.ru,,,unknown,unknown,ru
 africanminingmarket.com,africanminingmarket.com,africanminingmarket.com,African Mining Market,,,center,high,en
 intlbm.com,intlbm.com,intlbm.com,INTLBM,,,unknown,unknown,en
 qcostarica.com,qcostarica.com,qcostarica.com,Q Costa Rica,,,unknown,unknown,en
@@ -4431,7 +4431,7 @@ smestreet.in,smestreet.in,smestreet.in,SMEStreet: Knowledge & Networking for Gro
 thisnigeria.com,thisnigeria.com,thisnigeria.com,ThisNigeria,,,unknown,unknown,
 wielerflits.nl,wielerflits.nl,wielerflits.nl,WielerFlits,NL,Netherlands,unknown,unknown,nl
 righttolife.org.uk,righttolife.org.uk,righttolife.org.uk,Right To Life UK,,,unknown,unknown,en
-tftc.io,tftc.io,tftc.io,TFTC,IO,,unknown,unknown,en
+tftc.io,tftc.io,tftc.io,TFTC,,,unknown,unknown,en
 platformafrica.com,platformafrica.com,platformafrica.com,Platform Africa - Economic News for Emerging Market,,,unknown,unknown,
 tuttocagliari.net,tuttocagliari.net,tuttocagliari.net,Tutto Cagliari,,,unknown,unknown,
 tv4.se,tv4.se,tv4.se,tv4.se,SE,Sweden,unknown,unknown,sv
@@ -4550,7 +4550,7 @@ ojogo.pt,ojogo.pt,ojogo.pt,O Jogo,PT,Portugal,unknown,unknown,pt
 whatcom-news.com,whatcom-news.com,whatcom-news.com,Whatcom News,,,unknown,unknown,en
 bright.nl,bright.nl,bright.nl,Bright,NL,Netherlands,unknown,unknown,
 tuttoasroma.it,tuttoasroma.it,tuttoasroma.it,Tuttoasroma,,,unknown,unknown,
-bunshun.jp,bunshun.jp,bunshun.jp,文春オンライン,HK,,unknown,unknown,ja
+bunshun.jp,bunshun.jp,bunshun.jp,文春オンライン,,,unknown,unknown,ja
 kawarthanow.com,kawarthanow.com,kawarthanow.com,kawarthaNOW,,,center,high,en
 fulcrum.sg,fulcrum.sg,fulcrum.sg,FULCRUM,,,unknown,unknown,
 ramsnewswire.com,ramsnewswire.com,ramsnewswire.com,ramsnewswire.com,,,unknown,unknown,
@@ -4587,7 +4587,7 @@ terveydenasialla.com,terveydenasialla.com,terveydenasialla.com,Terveyden Asialla
 basedinlafayette.com,basedinlafayette.com,basedinlafayette.com,"Based in Lafayette, Indiana",US,United States,unknown,unknown,
 editorialge.com,editorialge.com,editorialge.com,Editorialge,,,unknown,unknown,
 tulanehullabaloo.com,tulanehullabaloo.com,tulanehullabaloo.com,The Tulane Hullabaloo,,,unknown,unknown,en
-ohmymedia.cc,ohmymedia.cc,ohmymedia.cc,ohmymedia.cc,CC,,unknown,unknown,
+ohmymedia.cc,ohmymedia.cc,ohmymedia.cc,ohmymedia.cc,,,unknown,unknown,
 pagineromaniste.com,pagineromaniste.com,pagineromaniste.com,Pagine Romaniste,,,unknown,unknown,it
 defendjerusalem.com,defendjerusalem.com,defendjerusalem.com,Defend Jerusalem,,,unknown,unknown,
 021.rs,021.rs,021.rs,021.rs,RS,Serbia,unknown,unknown,en
@@ -4694,7 +4694,7 @@ ipdefenseforum.com,ipdefenseforum.com,ipdefenseforum.com,Indo-Pacific Defense Fo
 eunews.it,eunews.it,eunews.it,Eunews,,,unknown,unknown,
 visionnewspaper.ca,visionnewspaper.ca,visionnewspaper.ca,visionnewspaper.ca,CA,Canada,unknown,unknown,
 qs-gen.com,qs-gen.com,qs-gen.com,qs-gen.com,,,unknown,unknown,
-pbc.ps,pbc.ps,pbc.ps,pbc.ps,PS,,unknown,unknown,
+pbc.ps,pbc.ps,pbc.ps,pbc.ps,,,unknown,unknown,
 uueduudised.ee,uueduudised.ee,uueduudised.ee,Uued Uudised,EE,Estonia,unknown,unknown,
 benin-sports.com,benin-sports.com,benin-sports.com,BeninSports,,,unknown,unknown,fr
 ifamnews.com,ifamnews.com,ifamnews.com,ifamnews.com,,,unknown,unknown,
@@ -4822,7 +4822,7 @@ cryptoninjas.net,cryptoninjas.net,cryptoninjas.net,CryptoNinjas,,,unknown,unknow
 stophomophobie.com,stophomophobie.com,stophomophobie.com,Association STOP HOMOPHOBIE | Information - Prévention - Aide aux victimes,TW,Taiwan,unknown,unknown,
 cenzolovka.rs,cenzolovka.rs,cenzolovka.rs,Cenzolovka,RS,Serbia,unknown,unknown,
 losirreverentes.com,losirreverentes.com,losirreverentes.com,losirreverentes.com,,,unknown,unknown,
-fondsk.ru,fondsk.ru,fondsk.ru,fondsk.ru,RU,,unknown,unknown,ru
+fondsk.ru,fondsk.ru,fondsk.ru,fondsk.ru,,,unknown,unknown,ru
 tanja7.com,tanja7.com,tanja7.com,tanja7.com,,,unknown,unknown,
 tndnewsuganda.com,tndnewsuganda.com,tndnewsuganda.com,TND News,,,unknown,unknown,
 otterathletics.com,otterathletics.com,otterathletics.com,CSU Monterey Bay Athletics,,,unknown,unknown,
