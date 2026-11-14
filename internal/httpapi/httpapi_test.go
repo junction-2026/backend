@@ -569,3 +569,19 @@ func TestLogsCarryIDsNotContent(t *testing.T) {
 		require.True(t, json.Valid([]byte(line)), "structured JSON lines: %s", line)
 	}
 }
+
+// A techniques result stored before detection strength (no margin, located, strength or summary) is served unchanged.
+func TestGetJobServesTechniquesResultWithoutStrength(t *testing.T) {
+	x := newHarness(t)
+	old := `{"words":3,"detected":[{"name":"Doubt","display":"Doubt","explanation":"x","models":["nci-social"],"spans":[]}]}`
+	j := mkJob("old", 0, job.StatusCompleted)
+	j.Analyzers = []job.AnalyzerRun{{ID: "techniques", Status: job.RunSucceeded, Result: json.RawMessage(old)}}
+	x.svc.jobs["old"] = j
+	rec := x.do("GET", "/api/v1/jobs/old", "")
+	require.Equal(t, 200, rec.Code)
+	var got struct {
+		Analyzers []struct{ Result json.RawMessage }
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.JSONEq(t, old, string(got.Analyzers[0].Result))
+}

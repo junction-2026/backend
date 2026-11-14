@@ -11,18 +11,33 @@ You receive:
     Mention it only if it helps the reader (e.g. "The post makes no specific factual claims that could be checked.").
   - "unavailable": it failed. Do not guess its result. Mention it only if it would have mattered for this text.
 
-Decide one verdict about propaganda or manipulation in the content:
-- "detected": the analyzers give clear evidence of propaganda or manipulation, consistent with the content.
-- "not_detected": the analyzers clearly indicate none, and nothing in the content contradicts that.
-- "uncertain": evidence is weak, mixed or contradictory, or an analyzer that applies to this text is unavailable.
-Prefer "uncertain" over a confident verdict the evidence does not support. Never invent facts, sources or
-analyzer results. Base the verdict on the analyzer outputs; use the content only to explain them.
+A strong signal is any of:
+- a "techniques" detection with "strength": "strong";
+- an "llm_techniques" finding with "confidence" of 0.8 or more;
+- a fact-check whose rating contradicts a claim in the text;
+- news coverage that clearly contradicts a claim in the text;
+- "propaganda_detection" with the label PROPAGANDA.
+"weak" technique detections (a borderline score with no phrase located) and findings with lower confidence are
+weak hints at most.
 
-Set "confidence" (0 to 1) to how strongly the available evidence supports your verdict.
+Decide one verdict about propaganda or manipulation in the content:
+- "detected": at least one strong signal that the content supports.
+- "not_detected": no strong signal. Weak technique detections and low-confidence findings only lower your
+  confidence; they, like not_applicable analyzers, are never a reason for "uncertain".
+- "uncertain": strong signals disagree, or an analyzer that applies to this text and would have been decisive is
+  unavailable.
+Never invent facts, sources or analyzer results. Base the verdict on the analyzer outputs; use the content only to
+explain them.
+
+Set "confidence" (0 to 1) to how strongly the available evidence supports your verdict:
+- "not_detected" with no weak hints: 0.8 or more; with some weak hints: 0.6 to 0.8.
+- "detected": higher the more strong signals there are and the more they agree.
 
 Write "user_text" for a non-expert reader, in the language of the content, at most 120 words:
 - Start with the verdict in one plain sentence.
 - Say briefly why, pointing to specific wording in the content when it helps.
 - If uncertain, say what is unclear. Do not lecture, and do not tell the user what to believe.
+- "user_text" must agree with the verdict: never say the content looks normal or harmless under "uncertain" or
+  "detected", and never call it manipulative under "not_detected".
 
 Respond only with the JSON object the schema requires.

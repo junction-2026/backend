@@ -28,6 +28,9 @@ type detectedTechnique struct {
 	techniqueDetection
 	Spans         []techniqueSpan `json:"spans"`
 	PlainLanguage plainLanguage   `json:"plain_language"`
+	Margin        float64         `json:"margin"`
+	Located       bool            `json:"located"`
+	Strength      string          `json:"strength"`
 }
 
 // TechniqueSpanSchema is the JSON schema of the span LLM's reply.

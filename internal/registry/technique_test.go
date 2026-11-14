@@ -154,8 +154,12 @@ func TestTechniqueExampleLoads(t *testing.T) {
 	require.Equal(t, 0.5, *e.Technique.Cutoff)
 	require.Equal(t, 80, e.SocialMaxWordsN())
 	require.Equal(t, 40, e.TechniqueMinWordsN())
+	require.Equal(t, 0.15, e.StrongMarginN())
+	require.Equal(t, 0.15, e.StrongMargin)
 	require.True(t, a.LLM.Include)
-	for _, s := range []string{"spans", "English translation", "several", "low score", "not a technique", "nci-technique", "nci-social"} {
+	for _, s := range []string{"margin", "located", "strength", "weak detection is a hint at most",
+		"must not move a verdict away from not_detected", "only lower its confidence",
+		"spans", "English translation", "several", "low score", "not a technique", "nci-technique", "nci-social"} {
 		require.Contains(t, a.LLM.Description, s)
 	}
 	sp := e.Spans
@@ -243,4 +247,29 @@ func TestTechniqueSpansValidation(t *testing.T) {
 	require.ErrorContains(t, err, "colour")
 	_, err = Load(write(t, "r.yaml", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, spans: {timeout: 1s}}\n"), opts(nil))
 	require.ErrorContains(t, err, "only allowed for adapter technique_classifier")
+}
+
+func TestTechniqueStrongMargin(t *testing.T) {
+	for exec, want := range map[string]float64{"": DefaultStrongMargin, "      strong_margin: 0.3\n": 0.3,
+		"      strong_margin: 0\n": 0, "      strong_margin: 1\n": 1} {
+		r, err := Load(write(t, "r.yaml", techYAML(exec+techModels)), opts(techEnv))
+		require.NoError(t, err)
+		require.Equal(t, want, r.Get("techniques").Execution.StrongMarginN(), exec)
+	}
+	require.Equal(t, 0.15, DefaultStrongMargin)
+
+	for _, v := range []string{"1.5", "-0.1", "abc", "true", "[0.1]", "\"0.2\""} {
+		p := write(t, "r.yaml", techYAML("      strong_margin: "+v+"\n"+techModels))
+		_, err := Load(p, opts(techEnv))
+		require.ErrorContains(t, err, "execution.strong_margin must be a number between 0 and 1", v)
+		require.ErrorContains(t, err, p)
+		require.ErrorContains(t, err, `"techniques"`)
+	}
+
+	p := write(t, "r.yaml", "analyzers:\n  - id: other\n    execution: {adapter: custom, handler: ok, strong_margin: 0.2}\n")
+	_, err := Load(p, opts(nil))
+	require.ErrorContains(t, err, "strong_margin")
+	require.ErrorContains(t, err, "only allowed for adapter technique_classifier")
+	require.ErrorContains(t, err, p)
+	require.ErrorContains(t, err, `"other"`)
 }
