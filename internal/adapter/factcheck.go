@@ -219,21 +219,6 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 	return out, nil
 }
 
-// qualifyingClaims are the claims that will be searched: check_worthiness at least minWorth, at most maxClaims, in
-// claims order. Missing or malformed claims: none.
-func qualifyingClaims(rawClaims json.RawMessage, minWorth float64, maxClaims int) []claim {
-	var claims, out []claim
-	if json.Unmarshal(rawClaims, &claims) != nil {
-		return nil
-	}
-	for _, c := range claims {
-		if c.CheckWorthiness >= minWorth && len(out) < maxClaims {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // planFactChecks applies the threshold and cap and returns the deduplicated
 // searches in claims order (a claim's query before its query_en).
 func planFactChecks(rawClaims json.RawMessage, minWorth float64, maxClaims int) []plannedQuery {
