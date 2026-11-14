@@ -170,6 +170,29 @@ type Job struct {
 type Record struct {
 	sync.Mutex
 	Job
+
+	// Event-stream state (guarded by the mutex): the plan, the current Progress, the Activity of each running
+	// planned analyzer (and the finalizer) and the preview of each succeeded planned analyzer.
+	Plan       *Plan
+	Progress   *Progress
+	Previews   map[string]any
+	Activities map[string]Activity
+}
+
+// Snapshot copies the event-stream state. Caller holds the lock.
+func (r *Record) Snapshot() Snapshot {
+	s := Snapshot{Plan: r.Plan, Previews: map[string]any{}, Activities: map[string]Activity{}}
+	if r.Progress != nil {
+		p := *r.Progress
+		s.Progress = &p
+	}
+	for k, v := range r.Previews {
+		s.Previews[k] = v
+	}
+	for k, v := range r.Activities {
+		s.Activities[k] = v
+	}
+	return s
 }
 
 // Clone returns a copy that is safe to hand to other goroutines. Pointer and

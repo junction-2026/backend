@@ -48,6 +48,18 @@ type nciModel struct {
 	cutoff float64
 }
 
+// selectModels picks the models by word count: nci-technique before nci-social.
+func selectModels(e *registry.Execution, words int) []nciModel {
+	var sel []nciModel
+	if words >= e.TechniqueMinWordsN() || words > e.SocialMaxWordsN() {
+		sel = append(sel, nciModel{"nci-technique", e.Technique, e.Technique.CutoffOr(registry.DefaultTechniqueCutoff)})
+	}
+	if words <= e.SocialMaxWordsN() {
+		sel = append(sel, nciModel{"nci-social", e.Social, e.Social.CutoffOr(registry.DefaultSocialCutoff)})
+	}
+	return sel
+}
+
 // techniqueClassifier scores the English translation for every technique label with nci-technique and/or
 // nci-social (selected by word count, called concurrently, never merged). Then the span step (technique_spans.go)
 // adds detected[].spans in Job.input.content.
@@ -58,13 +70,7 @@ func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyz
 		return nil, adapterErr("the translation result has no translated_text")
 	}
 	words := len(strings.Fields(text))
-	var sel []nciModel // nci-technique before nci-social
-	if words >= e.TechniqueMinWordsN() || words > e.SocialMaxWordsN() {
-		sel = append(sel, nciModel{"nci-technique", e.Technique, e.Technique.CutoffOr(registry.DefaultTechniqueCutoff)})
-	}
-	if words <= e.SocialMaxWordsN() {
-		sel = append(sel, nciModel{"nci-social", e.Social, e.Social.CutoffOr(registry.DefaultSocialCutoff)})
-	}
+	sel := selectModels(&e, words)
 	for _, m := range sel {
 		if m.cfg == nil || m.cfg.Endpoint == "" {
 			return nil, adapterErr("no %s endpoint configured", m.name)
