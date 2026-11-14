@@ -23,7 +23,7 @@ func (f moduleFunc) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*s
 // stubScraper runs mod for every platform through the in-process scraper core.
 func stubScraper(mod moduleFunc) *scraper.Client {
 	reg := ss.NewRegistry()
-	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Instagram, ss.Threads, ss.Twitter} {
+	for _, p := range []string{ss.Bluesky, ss.Mastodon} {
 		reg.Register(p, mod)
 	}
 	return &scraper.Client{Core: ss.New(reg, nil)}
@@ -148,15 +148,15 @@ func TestScrapeFailureMapping(t *testing.T) {
 		code    string
 		details string
 	}{
-		"account_private passes through": {mod: reply(nil, ss.AccountPrivate("instagram", "private")), code: "account_private", details: `{"platform":"instagram"}`},
+		"account_private passes through": {mod: reply(nil, ss.AccountPrivate("mastodon", "private")), code: "account_private", details: `{"platform":"mastodon"}`},
 		"panic":                          {mod: func(context.Context, ss.Target, ss.Request) (*ss.Result, error) { panic("boom") }, code: job.CodeScraperUnavailable},
-		"invalid result":                 {mod: reply(&ss.Result{Platform: "twitter"}, nil), code: job.CodeScraperUnavailable},
-		"profile without text":           {mod: reply(&ss.Result{Platform: "twitter", URLKind: "profile", Username: "a"}, nil), code: job.CodeNoTextContent},
+		"invalid result":                 {mod: reply(&ss.Result{Platform: "mastodon"}, nil), code: job.CodeScraperUnavailable},
+		"profile without text":           {mod: reply(&ss.Result{Platform: "mastodon", URLKind: "profile", Username: "a"}, nil), code: job.CodeNoTextContent},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := &fakeFinalizer{}
 			e := newEngine(t, scrapeRegistry, Config{Scraper: stubScraper(c.mod), Finalizer: f}, map[string]adapter.Handler{"ok": ok, "final": ok})
-			created, sub := createWithEvents(t, e, scrapeReq("https://x.com/alice"))
+			created, sub := createWithEvents(t, e, scrapeReq("https://mastodon.social/@alice"))
 			evs := drain(t, sub)
 			require.Equal(t, []string{"job.snapshot", "job.started", "analyzer.skipped:off", "scrape.started", "scrape.failed",
 				"analyzer.skipped:a", "analyzer.skipped:long", "job.failed"}, typesFor(evs))
@@ -190,7 +190,7 @@ func TestScrapeTimeout(t *testing.T) {
 		return nil, ctx.Err()
 	})
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, ScrapeTimeout: 50 * time.Millisecond}, map[string]adapter.Handler{"ok": ok, "final": ok})
-	j, err := e.Create(scrapeReq("https://x.com/alice"))
+	j, err := e.Create(scrapeReq("https://mastodon.social/@alice"))
 	require.NoError(t, err)
 	j = waitDone(t, e, j.ID)
 	require.Equal(t, job.StatusFailed, j.Status)
@@ -208,7 +208,7 @@ func TestCancelWhileScraping(t *testing.T) {
 	})
 	f := &fakeFinalizer{}
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, Finalizer: f}, map[string]adapter.Handler{"ok": ok, "final": ok})
-	created, sub := createWithEvents(t, e, scrapeReq("https://x.com/alice"))
+	created, sub := createWithEvents(t, e, scrapeReq("https://mastodon.social/@alice"))
 	<-inflight
 
 	j, err := e.Get(created.ID)
@@ -216,7 +216,7 @@ func TestCancelWhileScraping(t *testing.T) {
 	require.Equal(t, job.StatusScraping, j.Status)
 	require.Nil(t, j.Input)
 	require.Equal(t, job.RunRunning, j.Scrape.Status)
-	require.Equal(t, "https://x.com/alice", j.Scrape.URL)
+	require.Equal(t, "https://mastodon.social/@alice", j.Scrape.URL)
 	require.Equal(t, job.RunPending, ar(j, "a").Status)
 	require.Equal(t, job.RunPending, ar(j, "long").Status)
 
@@ -250,7 +250,7 @@ func TestCancelQueuedScrapeJob(t *testing.T) {
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, MaxParallelJobs: 1}, map[string]adapter.Handler{"ok": block, "final": ok})
 	first, err := e.Create(in("x")) // holds the only slot
 	require.NoError(t, err)
-	q, err := e.Create(scrapeReq("https://x.com/alice"))
+	q, err := e.Create(scrapeReq("https://mastodon.social/@alice"))
 	require.NoError(t, err)
 	sub, err := e.Subscribe(q.ID)
 	require.NoError(t, err)
@@ -266,7 +266,7 @@ func TestCancelQueuedScrapeJob(t *testing.T) {
 
 func TestScrapeWithoutScraper(t *testing.T) {
 	e := newEngine(t, scrapeRegistry, Config{}, map[string]adapter.Handler{"ok": ok, "final": ok})
-	_, err := e.Create(scrapeReq("https://x.com/alice"))
+	_, err := e.Create(scrapeReq("https://mastodon.social/@alice"))
 	require.ErrorIs(t, err, ErrScrapeUnavailable)
 	require.Empty(t, e.List(""))
 }

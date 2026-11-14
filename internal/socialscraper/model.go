@@ -16,7 +16,7 @@ type Request struct {
 
 // Target is a recognized URL.
 type Target struct {
-	Platform string            // bluesky, mastodon, instagram, threads, twitter
+	Platform string            // bluesky or mastodon
 	URLKind  string            // profile or post
 	URL      *url.URL          // the parsed request URL
 	IDs      map[string]string // platform-specific identifiers taken from the URL

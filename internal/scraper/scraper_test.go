@@ -24,10 +24,10 @@ func (f moduleFunc) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*s
 // client runs mod for every platform through the real core.
 func client(mod ss.Module) *Client {
 	reg := ss.NewRegistry()
-	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Instagram, ss.Threads, ss.Twitter} {
+	for _, p := range []string{ss.Bluesky, ss.Mastodon} {
 		reg.Register(p, mod)
 	}
-	red := ss.NewRedactor(func(k string) string { return map[string]string{"TWITTER_CT0": secret}[k] }, nil)
+	red := ss.NewRedactor(func(k string) string { return map[string]string{"SCRAPER_TOKEN": secret}[k] })
 	return &Client{Core: ss.New(reg, nil), Redactor: red}
 }
 
@@ -55,26 +55,27 @@ func TestErrorMapping(t *testing.T) {
 		code    string
 		details string
 	}{
-		"account_private passes through": {mod: ret(nil, ss.AccountPrivate("instagram", "private")), code: "account_private", details: `{"platform":"instagram"}`},
-		"rate_limited keeps retry_after": {mod: ret(nil, ss.RateLimited("", 30)), code: "rate_limited", details: `{"platform":"twitter","retry_after_s":30}`},
-		"not configured lists names":     {mod: ret(nil, ss.PlatformNotConfigured("twitter", "TWITTER_CT0")), code: "platform_not_configured", details: `{"platform":"twitter","missing_settings":["TWITTER_CT0"]}`},
-		"unknown code passes through":    {mod: ret(nil, &ss.Error{Code: "new_code"}), code: "new_code", details: `{"platform":"twitter"}`},
-		"message redacted":               {mod: ret(nil, ss.UpstreamError("twitter", "failed with "+secret)), code: "upstream_error"},
+		"account_private passes through": {mod: ret(nil, ss.AccountPrivate("mastodon", "private")), code: "account_private", details: `{"platform":"mastodon"}`},
+		"rate_limited keeps retry_after": {mod: ret(nil, ss.RateLimited("", 30)), code: "rate_limited", details: `{"platform":"mastodon","retry_after_s":30}`},
+		"not configured lists names":     {mod: ret(nil, ss.PlatformNotConfigured("mastodon", "EXAMPLE_SETTING")), code: "platform_not_configured", details: `{"platform":"mastodon","missing_settings":["EXAMPLE_SETTING"]}`},
+		"unknown code passes through":    {mod: ret(nil, &ss.Error{Code: "new_code"}), code: "new_code", details: `{"platform":"mastodon"}`},
+		"message redacted":               {mod: ret(nil, ss.UpstreamError("mastodon", "failed with "+secret)), code: "upstream_error"},
 		"unsupported_url":                {url: "https://www.facebook.com/examplenews", code: "unsupported_url"},
 		"facebook personal profile":      {url: "https://www.facebook.com/profile.php?id=100000000000001", code: "unsupported_url"},
+		"x status":                       {url: "https://x.com/alice/status/1790000000000000000", code: "unsupported_url"},
 		"internal_error":                 {mod: ret(nil, errors.New("boom")), code: job.CodeScraperUnavailable},
 		"panic":                          {mod: func(context.Context, ss.Target, ss.Request) (*ss.Result, error) { panic("boom " + secret) }, code: job.CodeScraperUnavailable},
 		"nil result":                     {mod: ret(nil, nil), code: job.CodeScraperUnavailable},
 		"missing platform":               {mod: ret(&ss.Result{URLKind: "profile"}, nil), code: job.CodeScraperUnavailable},
-		"missing url_kind":               {mod: ret(&ss.Result{Platform: "twitter"}, nil), code: job.CodeScraperUnavailable},
-		"post kind without post":         {mod: ret(&ss.Result{Platform: "twitter", URLKind: "post"}, nil), code: job.CodeScraperUnavailable},
-		"post without text":              {mod: ret(&ss.Result{Platform: "twitter", URLKind: "post", Post: &ss.Post{Text: "  "}}, nil), code: job.CodeNoTextContent},
-		"profile without text":           {mod: ret(&ss.Result{Platform: "twitter", URLKind: "profile", Posts: []ss.Post{{Text: ""}}}, nil), code: job.CodeNoTextContent},
+		"missing url_kind":               {mod: ret(&ss.Result{Platform: "mastodon"}, nil), code: job.CodeScraperUnavailable},
+		"post kind without post":         {mod: ret(&ss.Result{Platform: "mastodon", URLKind: "post"}, nil), code: job.CodeScraperUnavailable},
+		"post without text":              {mod: ret(&ss.Result{Platform: "mastodon", URLKind: "post", Post: &ss.Post{Text: "  "}}, nil), code: job.CodeNoTextContent},
+		"profile without text":           {mod: ret(&ss.Result{Platform: "mastodon", URLKind: "profile", Posts: []ss.Post{{Text: ""}}}, nil), code: job.CodeNoTextContent},
 	} {
 		t.Run(name, func(t *testing.T) {
 			url := c.url
 			if url == "" {
-				url = "https://x.com/alice"
+				url = "https://mastodon.social/@alice"
 			}
 			se := scrapeErr(t, client(c.mod), context.Background(), url)
 			require.Equal(t, c.code, se.Code)
@@ -94,11 +95,11 @@ func blocking(ctx context.Context, _ ss.Target, _ ss.Request) (*ss.Result, error
 func TestTimeoutAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	require.Equal(t, job.CodeTimeout, scrapeErr(t, client(moduleFunc(blocking)), ctx, "https://x.com/alice").Code)
+	require.Equal(t, job.CodeTimeout, scrapeErr(t, client(moduleFunc(blocking)), ctx, "https://mastodon.social/@alice").Code)
 
 	ctx, cancel = context.WithCancel(context.Background())
 	time.AfterFunc(20*time.Millisecond, cancel)
-	require.Equal(t, job.CodeCancelled, scrapeErr(t, client(moduleFunc(blocking)), ctx, "https://x.com/alice").Code)
+	require.Equal(t, job.CodeCancelled, scrapeErr(t, client(moduleFunc(blocking)), ctx, "https://mastodon.social/@alice").Code)
 }
 
 func TestResultMapping(t *testing.T) {

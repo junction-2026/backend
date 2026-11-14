@@ -41,8 +41,8 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	if err != nil {
 		return err
 	}
-	// Scraper credentials (TWITTER_*, INSTAGRAM_SESSION_FILE and its content) and Bearer values never reach a log line.
-	redactor := ss.NewRedactor(getenv, os.ReadFile)
+	// Bearer values and secret scraper variables never reach a log line.
+	redactor := ss.NewRedactor(getenv)
 	log := ss.NewLogger(logOut, redactor)
 	for _, name := range cfg.Ignored {
 		log.Warn("ignoring obsolete scraper variable: scraping runs in process", "variable", name)
@@ -61,7 +61,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	// already checked an enabled llm finalizer's settings and read its prompt.
 	ecfg.Finalizer = finalizer.New(reg, ecfg.Executor, log)
 	if cfg.ScraperEnabled { // nil Scraper: jobs with scrape answer 503 scrape_unavailable
-		ecfg.Scraper = newScraper(getenv, cfg.Upstream, log, redactor)
+		ecfg.Scraper = newScraper(cfg.Upstream, log, redactor)
 	}
 	eng := engine.New(reg, ecfg)
 	defer eng.Close()

@@ -1,7 +1,6 @@
 package socialscraper
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,14 +14,13 @@ const redacted = "[redacted]"
 var bearerRe = regexp.MustCompile(`(?i)(bearer\s+)[^\s,;"'}]+`)
 
 // secretEnv are the environment variables whose values never reach a log line.
-var secretEnv = []string{"SCRAPER_TOKEN", "TWITTER_AUTH_TOKEN", "TWITTER_CT0", "INSTAGRAM_SESSION_FILE"}
+var secretEnv = []string{"SCRAPER_TOKEN"}
 
 // Redactor replaces `Bearer <...>` values and the secret values it was built with by [redacted].
 type Redactor struct{ secrets []string }
 
-// NewRedactor reads the secret environment variables through getenv, and the content of the
-// INSTAGRAM_SESSION_FILE file (whole text and every string value of a JSON object) through readFile.
-func NewRedactor(getenv func(string) string, readFile func(string) ([]byte, error), extra ...string) *Redactor {
+// NewRedactor reads the secret environment variables through getenv.
+func NewRedactor(getenv func(string) string, extra ...string) *Redactor {
 	seen := map[string]bool{}
 	add := func(v string) {
 		if v = strings.TrimSpace(v); v != "" {
@@ -31,19 +29,6 @@ func NewRedactor(getenv func(string) string, readFile func(string) ([]byte, erro
 	}
 	for _, name := range secretEnv {
 		add(getenv(name))
-	}
-	if path := getenv("INSTAGRAM_SESSION_FILE"); path != "" && readFile != nil {
-		if data, err := readFile(path); err == nil {
-			add(string(data))
-			var obj map[string]any
-			if json.Unmarshal(data, &obj) == nil {
-				for _, v := range obj {
-					if s, ok := v.(string); ok {
-						add(s)
-					}
-				}
-			}
-		}
 	}
 	for _, v := range extra {
 		add(v)
