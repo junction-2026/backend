@@ -360,32 +360,14 @@ The `topic_extraction` llm entry SHALL accept `execution.max_claims` (>=1, defau
 - **THEN** loading fails with an error naming news_search as the only adapter allowing it
 
 ### Requirement: Technique classifier settings
-The registry SHALL accept `execution.adapter: technique_classifier` with `short_max_words` (positive integer, default 80), `max_sentences` (positive integer, default 20), `timeout` (default `30s`) and the blocks `short` and `long`. These keys SHALL NOT be accepted on other adapters.
+The registry SHALL accept `execution.adapter: technique_classifier` with `social_max_words` (positive integer, default 80), `technique_min_words` (positive integer, default 40), `timeout` (default `30s`), the blocks `technique` and `social` and the optional `spans` block. These keys SHALL NOT be accepted on other adapters.
 
 #### Scenario: Defaults and expansion
-- **WHEN** an analyzer with `short` and `long` blocks only is loaded with its variables set
-- **THEN** `short_max_words` is 80, `max_sentences` is 20, `timeout` is 30 seconds and endpoints and header values are expanded
+- **WHEN** an analyzer with `technique` and `social` blocks only is loaded with its variables set
+- **THEN** `social_max_words` is 80, `technique_min_words` is 40, `timeout` is 30 seconds and endpoints and header values are expanded
 
 #### Scenario: Keys on another adapter
-- **WHEN** an `http_sync` analyzer sets `max_sentences`
-- **THEN** loading fails
-
-### Requirement: Technique classifier model blocks
-Each of `short` and `long` SHALL have `endpoint` (required, non-empty, `${VAR}` expanded), `headers` (`${VAR}` expanded), `threshold` (required, 0 to 1) and optionally `thresholds`, a map from technique name to a number from 0 to 1.
-
-#### Scenario: Override map
-- **WHEN** `long.thresholds` is `{Doubt: 0.7}`
-- **THEN** the effective threshold of `Doubt` in the long model is 0.7 and of every other technique `long.threshold`
-
-### Requirement: Technique classifier validation
-Loading SHALL fail with an error naming the file and the analyzer id when a model block is missing, an endpoint is empty, a threshold is missing or outside 0 to 1, a `thresholds` key is not one of the 18 technique names or its value is outside 0 to 1, or `short_max_words` or `max_sentences` is not positive.
-
-#### Scenario: Threshold out of range
-- **WHEN** `long.threshold` is 1.5
-- **THEN** loading fails naming the file, the analyzer `techniques` and `execution.long.threshold`
-
-#### Scenario: Unknown technique name
-- **WHEN** `short.thresholds` has the key `Nope`
+- **WHEN** an `http_sync` analyzer sets `social_max_words`
 - **THEN** loading fails
 
 ### Requirement: Technique classifier top-level keys and bindings
@@ -403,7 +385,7 @@ An enabled technique analyzer with an unset `${VAR}` SHALL fail to load naming t
 - **THEN** the registry loads
 
 ### Requirement: Technique classifier example
-`docs/examples/technique_classifier.yaml` SHALL define the analyzer `techniques` (category `propaganda`, `depends_on: [translation]`, binding `text: "$analyzers.translation"`, endpoints `${TECHNIQUE_SHORT_URL}` and `${TECHNIQUE_LONG_URL}`, header `Authorization: Bearer ${ML_API_TOKEN}`, thresholds 0.3 and 0.5, `llm.include: true` with a description that mentions spans) and a `spans` block. The README SHALL document it in its own section with its variables.
+`docs/examples/technique_classifier.yaml` SHALL define the analyzer `techniques` (category `propaganda`, `depends_on: [translation]`, binding `text: "$analyzers.translation"`, `social_max_words: 80`, `technique_min_words: 40`, endpoints `${NCI_TECHNIQUE_URL}` and `${NCI_SOCIAL_URL}`, header `Authorization: Bearer ${ML_API_TOKEN}`, cutoffs 0.5 and 0.3, `llm.include: true`) and a `spans` block. The README SHALL document it in its own section with its variables, keys and defaults.
 
 #### Scenario: Example loads
 - **WHEN** the example is loaded next to an analyzer `translation` with its variables set
@@ -490,7 +472,7 @@ The registry SHALL accept an optional `spans` block on `execution.adapter: techn
 - **THEN** loading fails
 
 ### Requirement: Technique span sentence model settings
-`spans.sentence_model` SHALL take `endpoint`, `headers`, `threshold` (required, 0 to 1) and `thresholds` (per-technique overrides), with `${VAR}` expansion of the endpoint and header values like the `short` and `long` blocks.
+`spans.sentence_model` SHALL take `endpoint`, `headers`, `threshold` (required, 0 to 1) and `thresholds` (per-technique overrides), with `${VAR}` expansion of the endpoint and header values like the `technique` and `social` blocks.
 
 #### Scenario: Override map
 - **WHEN** `spans.sentence_model` has `threshold: 0.4` and `thresholds: {Doubt: 0.6}`
@@ -504,7 +486,7 @@ The registry SHALL accept an optional `spans` block on `execution.adapter: techn
 - **THEN** `base_url`, `api_key`, `model` and header values are expanded and the prompt is loaded
 
 ### Requirement: Technique span validation
-Loading SHALL fail with an error naming the file, the analyzer id and the field when `spans` lacks `sentence_model`, `llm` or a positive `timeout`, when `spans.timeout` is not shorter than `execution.timeout`, when the sentence model block is invalid like a `short` block would be, when a cap is not a positive integer or when `llm.extra_body` sets `model` or `messages`.
+Loading SHALL fail with an error naming the file, the analyzer id and the field when `spans` lacks `sentence_model`, `llm` or a positive `timeout`, when `spans.timeout` is not shorter than `execution.timeout`, when the sentence model has no endpoint, a missing `threshold` or one outside 0 to 1, a `thresholds` key that is not a technique name or a value outside 0 to 1, when a cap is not a positive integer or when `llm.extra_body` sets `model` or `messages`.
 
 #### Scenario: Span deadline too long
 - **WHEN** `execution.timeout` is 30s and `spans.timeout` is 30s
@@ -520,3 +502,62 @@ For an enabled analyzer, loading SHALL fail, naming the field and never a value,
 #### Scenario: Empty api key
 - **WHEN** an enabled analyzer's `spans.llm.api_key` expands to an empty string
 - **THEN** loading fails naming `execution.spans.llm.api_key`
+
+### Requirement: Technique classifier old keys
+Loading SHALL fail, naming the file, the analyzer id and the replacement key, when an analyzer sets a key of the earlier technique classifier: `execution.short`, `execution.long`, `execution.short_max_words`, `execution.max_sentences`, or `threshold` or `thresholds` in the `technique` or `social` block.
+
+#### Scenario: Old short and long blocks
+- **WHEN** an analyzer sets `execution.short`, then `execution.long`
+- **THEN** loading fails naming `execution.social`, then `execution.technique`
+
+#### Scenario: Old threshold
+- **WHEN** the `social` block sets `threshold: 0.3` or `thresholds`
+- **THEN** loading fails with an error naming `execution.social.cutoff`
+
+#### Scenario: Old word and sentence keys
+- **WHEN** an analyzer sets `execution.short_max_words`, then `execution.max_sentences`
+- **THEN** loading fails naming `social_max_words` and `technique_min_words`, then `spans.max_sentences`
+
+### Requirement: Technique classifier span block kept
+The `spans` block (`sentence_model` with `endpoint`, `headers`, `threshold` and `thresholds`, `llm`, `timeout` and the caps `max_sentences`, `max_phrases_per_technique`, `max_input_chars`) SHALL be accepted and validated as before this change. `threshold` and `thresholds` SHALL stay valid inside `spans.sentence_model`.
+
+#### Scenario: Span block with new model blocks
+- **WHEN** an analyzer with `technique` and `social` blocks has a `spans` block whose `sentence_model` sets `threshold: 0.4` and `thresholds: {Doubt: 0.6}`
+- **THEN** it loads and the sentence model's effective threshold of `Doubt` is 0.6
+
+#### Scenario: Span block still validated
+- **WHEN** `spans.sentence_model.thresholds` has the key `Nope`
+- **THEN** loading fails
+
+### Requirement: Technique classifier NCI model blocks
+Each of `technique` (the `nci-technique` model) and `social` (the `nci-social` model) SHALL have `endpoint` (required, non-empty, `${VAR}` expanded), `headers` (`${VAR}` expanded) and `cutoff` (optional, 0 to 1, default 0.5 for `technique` and 0.3 for `social`).
+
+#### Scenario: Default cutoffs
+- **WHEN** neither block sets `cutoff`
+- **THEN** the effective cutoff is 0.5 for `technique` and 0.3 for `social`
+
+#### Scenario: Configured cutoff
+- **WHEN** `technique.cutoff` is 0.6
+- **THEN** the effective cutoff of `nci-technique` is 0.6
+
+### Requirement: Technique classifier bounds and cutoff validation
+Loading SHALL fail with an error naming the file and the analyzer id when a model block is missing, an endpoint is empty, a `cutoff` is outside 0 to 1, `social_max_words` or `technique_min_words` is not positive, or `technique_min_words` is greater than `social_max_words + 1` (a word count would select no model).
+
+#### Scenario: Cutoff out of range
+- **WHEN** `technique.cutoff` is 1.5
+- **THEN** loading fails naming the file, the analyzer `techniques` and `execution.technique.cutoff`
+
+#### Scenario: Gap between the bounds
+- **WHEN** `social_max_words` is 30 and `technique_min_words` is the default 40
+- **THEN** loading fails naming `technique_min_words` and `social_max_words`
+
+#### Scenario: Adjacent bounds
+- **WHEN** `social_max_words` is 10 and `technique_min_words` is 11
+- **THEN** the analyzer loads
+
+### Requirement: Technique classifier example description
+The example's `llm.description` SHALL state that a score is the model's confidence in that technique on the English translation, that several labels may be true at once, that a low score is not a technique, that scores of the two models are not comparable or averaged, and that `detected` entries have spans.
+
+#### Scenario: Description
+- **WHEN** the example's `llm.description` is read
+- **THEN** it mentions the English translation, several labels at once, that a low score is not a technique, `nci-technique`, `nci-social` and spans
