@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -70,11 +72,13 @@ func (s *classifierStub) calls() int { s.mu.Lock(); defer s.mu.Unlock(); return 
 
 func fp(f float64) *float64 { return &f }
 
-func techDef(short, long string) *registry.Analyzer {
+const tokTech, tokSocial = "tok-secret-tech", "tok-secret-social"
+
+func techDef(technique, social string) *registry.Analyzer {
 	return &registry.Analyzer{ID: "techniques", Execution: registry.Execution{
-		Adapter: registry.AdapterTechniqueClassifier,
-		Short:   &registry.TechniqueModel{Endpoint: short, Headers: map[string]string{"Authorization": "Bearer tok-secret"}, Threshold: fp(0.3)},
-		Long:    &registry.TechniqueModel{Endpoint: long, Headers: map[string]string{"Authorization": "Bearer tok-secret"}, Threshold: fp(0.5)},
+		Adapter:   registry.AdapterTechniqueClassifier,
+		Technique: &registry.NCIModel{Endpoint: technique, Headers: map[string]string{"Authorization": "Bearer " + tokTech}},
+		Social:    &registry.NCIModel{Endpoint: social, Headers: map[string]string{"Authorization": "Bearer " + tokSocial}},
 	}}
 }
 
@@ -86,34 +90,37 @@ func techReq(text, lang, content string) Request {
 }
 
 type techResult struct {
-	Model      string             `json:"model"`
-	Words      int                `json:"words"`
-	Threshold  float64            `json:"threshold"`
-	Thresholds map[string]float64 `json:"thresholds"`
-	Techniques []struct {
-		Name, Display string
-		Score         float64
-	} `json:"techniques"`
+	Words    int           `json:"words"`
+	Results  []modelResult `json:"results"`
 	Detected []struct {
 		Name, Display, Explanation string
-		Score                      float64
+		Models                     []string
 		Spans                      []techniqueSpan
 	} `json:"detected"`
-	MaxScore  float64 `json:"max_score"`
-	Sentences []struct {
-		Text       string
-		Start, End int
-		Techniques []struct {
-			Name, Display, Explanation string
-			Score                      float64
+	SpanMethod     string `json:"span_method"`
+	SpanStatus     string `json:"span_status"`
+	SpansTruncated bool   `json:"spans_truncated"`
+}
+
+func (r techResult) models() (out []string) {
+	for _, m := range r.Results {
+		out = append(out, m.Model)
+	}
+	return
+}
+
+// score is the TechniqueScore of label in the ModelResult of model.
+func (r techResult) score(t *testing.T, model, label string) techniqueScore {
+	t.Helper()
+	for _, m := range r.Results {
+		for _, s := range m.Scores {
+			if m.Model == model && s.Label == label {
+				return s
+			}
 		}
-	} `json:"sentences"`
-	OffsetsIn          string   `json:"offsets_in"`
-	SentencesTruncated bool     `json:"sentences_truncated"`
-	LatencyMS          *float64 `json:"latency_ms"`
-	SpanMethod         string   `json:"span_method"`
-	SpanStatus         string   `json:"span_status"`
-	SpansTruncated     bool     `json:"spans_truncated"`
+	}
+	t.Fatalf("no %s score from %s", label, model)
+	return techniqueScore{}
 }
 
 func runTech(t *testing.T, d *registry.Analyzer, r Request) techResult {
@@ -134,25 +141,48 @@ func techErr(t *testing.T, d *registry.Analyzer, r Request) *job.RunError {
 func nWords(n int) string { return strings.TrimSpace(strings.Repeat("word ", n)) }
 
 func TestTechniqueRouting(t *testing.T) {
-	short, long := newClassifierStub(t), newClassifierStub(t)
-	d := techDef(short.URL, long.URL)
-	for _, c := range []struct {
-		words int
-		model string
-		thr   float64
-	}{{40, "short", 0.3}, {80, "short", 0.3}, {81, "long", 0.5}, {300, "long", 0.5}} {
-		s0, l0 := short.calls(), long.calls()
-		res := runTech(t, d, techReq(nWords(c.words), "en", ""))
-		require.Equal(t, c.model, res.Model, c.words)
-		require.Equal(t, c.words, res.Words)
-		require.Equal(t, c.thr, res.Threshold)
-		require.Equal(t, c.model == "short", short.calls() == s0+1 && long.calls() == l0)
+	tech, social := newClassifierStub(t), newClassifierStub(t)
+	d := techDef(tech.URL, social.URL)
+	check := func(words int, want ...string) {
+		t.Helper()
+		t0, s0 := tech.calls(), social.calls()
+		text := nWords(words)
+		res := runTech(t, d, techReq(text, "en", ""))
+		require.Equal(t, want, res.models(), words)
+		require.Equal(t, words, res.Words)
+		usesT, usesS := slices.Contains(want, "nci-technique"), slices.Contains(want, "nci-social")
+		require.Equal(t, usesT, tech.calls() == t0+1, words)
+		require.Equal(t, !usesT, tech.calls() == t0, words) // the unselected model receives no request
+		require.Equal(t, usesS, social.calls() == s0+1, words)
+		require.Equal(t, !usesS, social.calls() == s0, words)
+		if usesT {
+			require.Equal(t, []string{text}, tech.bodies[len(tech.bodies)-1]) // one text, no sentence batch
+		}
+		if usesS {
+			require.Equal(t, []string{text}, social.bodies[len(social.bodies)-1])
+		}
 	}
-	d.Execution.ShortMaxWords = new(int)
-	*d.Execution.ShortMaxWords = 5
-	require.Equal(t, "short", runTech(t, d, techReq(nWords(5), "en", "")).Model)
-	require.Equal(t, "long", runTech(t, d, techReq(nWords(6), "en", "")).Model)
+	check(1, "nci-social")
+	check(39, "nci-social")
+	check(40, "nci-technique", "nci-social")
+	check(80, "nci-technique", "nci-social")
+	check(81, "nci-technique")
+	check(300, "nci-technique")
+	require.Equal(t, "Bearer "+tokTech, tech.hdr.Get("Authorization"))
+	require.Equal(t, "Bearer "+tokSocial, social.hdr.Get("Authorization"))
+	require.Equal(t, "application/json", tech.hdr.Get("Content-Type"))
+
+	d.Execution.SocialMaxWords, d.Execution.TechniqueMinWords = ip(5), ip(3)
+	check(2, "nci-social")
+	check(3, "nci-technique", "nci-social")
+	check(5, "nci-technique", "nci-social")
+	check(6, "nci-technique")
+	d.Execution.TechniqueMinWords = ip(6) // social_max_words + 1: no overlap, no gap
+	check(5, "nci-social")
+	check(6, "nci-technique")
 }
+
+func ip(n int) *int { return &n }
 
 func TestTechniqueIgnoresSource(t *testing.T) {
 	s := newClassifierStub(t)
@@ -170,37 +200,6 @@ func TestTechniqueIgnoresSource(t *testing.T) {
 	require.Equal(t, run(jobWith(job.Source{})), run(jobWith(job.Source{Platform: "x"})))
 }
 
-func TestTechniqueBatchBody(t *testing.T) {
-	s := newClassifierStub(t)
-	d := techDef(s.URL, s.URL)
-	full := "Wake up. They are LYING to you!\nGo!\nWhat do they want?!  Because 3 words ok"
-	res := runTech(t, d, techReq(full, "en", ""))
-	require.Equal(t, [][]string{{full, "They are LYING to you!", "What do they want?!", "Because 3 words ok"}}, s.bodies)
-	require.False(t, res.SentencesTruncated)
-	require.Equal(t, "application/json", s.hdr.Get("Content-Type"))
-	require.Equal(t, "Bearer tok-secret", s.hdr.Get("Authorization"))
-
-	// a single sentence that is the whole text is sent once
-	s.bodies = nil
-	runTech(t, d, techReq("One single sentence here.", "en", ""))
-	require.Equal(t, [][]string{{"One single sentence here."}}, s.bodies)
-	// nothing long enough to split: only the document
-	s.bodies = nil
-	runTech(t, d, techReq("Too short.", "en", ""))
-	require.Equal(t, [][]string{{"Too short."}}, s.bodies)
-
-	// truncation: only the first max_sentences are scored
-	s.bodies = nil
-	d.Execution.MaxSentences = new(int)
-	*d.Execution.MaxSentences = 2
-	res = runTech(t, d, techReq("Aaa bbb ccc. Ddd eee fff. Ggg hhh iii.", "en", ""))
-	require.Len(t, s.bodies[0], 3)
-	require.True(t, res.SentencesTruncated)
-	// exactly max_sentences is not truncated
-	res = runTech(t, d, techReq("Aaa bbb ccc. Ddd eee fff.", "en", ""))
-	require.False(t, res.SentencesTruncated)
-}
-
 func TestSplitSentences(t *testing.T) {
 	got := splitSentences("  Hi there you... Ok. \r\nFine? Not 😀 so sure!!\n")
 	require.Equal(t, []sentence{{"Hi there you...", 2, 17}, {"Not 😀 so sure!!", 30, 46}}, got)
@@ -211,37 +210,113 @@ func TestSplitSentences(t *testing.T) {
 	require.Empty(t, splitSentences(""))
 }
 
-func TestTechniqueThresholds(t *testing.T) {
-	s := newClassifierStub(t)
-	s.scoreFn = func(string) map[string]float64 {
-		return map[string]float64{"Loaded_Language": 0.4, "Doubt": 0.6, "Slogans": 0.05}
+func TestTechniqueCutoffs(t *testing.T) {
+	tech, social := newClassifierStub(t), newClassifierStub(t)
+	tech.scoreFn = func(string) map[string]float64 {
+		return map[string]float64{"Loaded_Language": 0.4, "Doubt": 0.49, "Slogans": 0.5, "Bandwagon": 0.9}
 	}
-	d := techDef(s.URL, s.URL)
-	text := "They are LYING to you now."
-	res := runTech(t, d, techReq(text, "en", text))
-	require.Equal(t, "short", res.Model)
-	require.Equal(t, []string{"Doubt", "Loaded_Language"}, names(res))
-
-	res = runTech(t, d, techReq(nWords(100)+". "+text, "en", ""))
-	require.Equal(t, "long", res.Model)
-	require.Equal(t, []string{"Doubt"}, names(res)) // 0.4 < 0.5
-
-	d.Execution.Long.Thresholds = map[string]float64{"Doubt": 0.7, "Slogans": 0}
-	res = runTech(t, d, techReq(nWords(100)+". "+text, "en", ""))
-	require.Equal(t, []string{"Slogans"}, names(res)) // 0.05 >= 0
-	require.Equal(t, 0.7, res.Thresholds["Doubt"])
-	require.Equal(t, 0.5, res.Thresholds["Repetition"])
-	require.Len(t, res.Thresholds, 18)
-	require.Len(t, res.Techniques, 18)
-	require.Equal(t, 0.6, res.MaxScore)
-	require.Equal(t, "Doubt", res.Techniques[0].Name)
-	require.NotNil(t, res.LatencyMS)
-	require.Equal(t, 7.5, *res.LatencyMS)
-	for _, sd := range res.Sentences {
-		for _, x := range sd.Techniques {
-			require.GreaterOrEqual(t, x.Score, res.Thresholds[x.Name])
+	social.scoreFn = func(string) map[string]float64 {
+		return map[string]float64{"Loaded_Language": 0.4, "Doubt": 0.3, "Slogans": 0.29, "Bandwagon": 0.9}
+	}
+	d := techDef(tech.URL, social.URL)
+	res := runTech(t, d, techReq(nWords(50), "en", ""))
+	require.Equal(t, []string{"nci-technique", "nci-social"}, res.models())
+	require.Equal(t, 0.5, res.Results[0].Cutoff) // defaults
+	require.Equal(t, 0.3, res.Results[1].Cutoff)
+	for _, m := range res.Results {
+		require.Len(t, m.Scores, 18) // below-cutoff scores are present
+		require.Equal(t, 7.5, *m.LatencyMS)
+		for i, n := range registry.TechniqueNames {
+			s := m.Scores[i]
+			require.Equal(t, n, s.Label)
+			require.Equal(t, techniqueDisplay[n].Display, s.Display)
+			require.Equal(t, m.Model, s.Model)
+			require.Equal(t, m.Cutoff, s.Cutoff)
+			require.True(t, s.Known)
+			require.Equal(t, s.Score >= s.Cutoff, s.AboveCutoff)
 		}
 	}
+	require.Equal(t, techniqueScore{"Doubt", "Doubt", 0.49, "nci-technique", 0.5, false, true}, res.score(t, "nci-technique", "Doubt"))
+	require.True(t, res.score(t, "nci-technique", "Slogans").AboveCutoff) // equality counts
+	require.True(t, res.score(t, "nci-social", "Doubt").AboveCutoff)
+	require.False(t, res.score(t, "nci-social", "Slogans").AboveCutoff)
+	require.False(t, res.score(t, "nci-technique", "Loaded_Language").AboveCutoff) // same score, different cutoffs
+	require.True(t, res.score(t, "nci-social", "Loaded_Language").AboveCutoff)
+
+	// detected: known labels above cutoff in any model, names order, with the models that flagged them
+	require.Equal(t, []string{"Loaded_Language", "Doubt", "Bandwagon", "Slogans"}, names(res))
+	models := map[string][]string{}
+	for _, x := range res.Detected {
+		models[x.Name] = x.Models
+		require.NotEmpty(t, x.Display)
+		require.NotEmpty(t, x.Explanation)
+		require.Equal(t, []techniqueSpan{}, x.Spans)
+	}
+	require.Equal(t, map[string][]string{"Loaded_Language": {"nci-social"}, "Doubt": {"nci-social"},
+		"Bandwagon": {"nci-technique", "nci-social"}, "Slogans": {"nci-technique"}}, models)
+
+	// configured cutoffs are echoed and used
+	d.Execution.Technique.Cutoff, d.Execution.Social.Cutoff = fp(0.6), fp(0.95)
+	res = runTech(t, d, techReq(nWords(50), "en", ""))
+	require.Equal(t, 0.6, res.Results[0].Cutoff)
+	require.Equal(t, 0.6, res.score(t, "nci-technique", "Repetition").Cutoff)
+	require.False(t, res.score(t, "nci-technique", "Slogans").AboveCutoff)
+	require.Equal(t, []string{"Bandwagon"}, names(res))
+	require.Equal(t, []string{"nci-technique"}, res.Detected[0].Models)
+}
+
+func TestTechniqueNoAveraging(t *testing.T) {
+	tech, social := newClassifierStub(t), newClassifierStub(t)
+	tech.scoreFn = func(string) map[string]float64 { return map[string]float64{"Doubt": 0.6} }
+	social.scoreFn = func(string) map[string]float64 { return map[string]float64{"Doubt": 0.2} }
+	raw, err := (&Executor{}).Execute(context.Background(), techDef(tech.URL, social.URL), techReq(nWords(60), "en", ""))
+	require.NoError(t, err)
+	var res techResult
+	require.NoError(t, json.Unmarshal(raw, &res))
+	require.Equal(t, 0.6, res.score(t, "nci-technique", "Doubt").Score)
+	require.Equal(t, 0.2, res.score(t, "nci-social", "Doubt").Score)
+	require.Equal(t, 2, strings.Count(string(raw), `"label":"Doubt"`))
+	require.Equal(t, []string{"nci-technique"}, res.Detected[0].Models)
+
+	// the result has only the shared members: no top-level score summary, no Detection score
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &top))
+	require.ElementsMatch(t, []string{"words", "results", "detected", "span_method", "span_status", "spans_truncated"}, slices.Collect(maps.Keys(top)))
+	var det []map[string]any
+	require.NoError(t, json.Unmarshal(top["detected"], &det))
+	require.ElementsMatch(t, []string{"name", "display", "explanation", "models", "spans"}, slices.Collect(maps.Keys(det[0])))
+}
+
+func TestTechniqueNothingDetected(t *testing.T) {
+	s := newClassifierStub(t)
+	res := runTech(t, techDef(s.URL, s.URL), techReq(nWords(100), "en", ""))
+	require.Equal(t, []string{"nci-technique"}, res.models())
+	require.NotNil(t, res.Detected)
+	require.Empty(t, res.Detected)
+	require.Len(t, res.Results[0].Scores, 18)
+	for _, sc := range res.Results[0].Scores {
+		require.Equal(t, 0.1, sc.Score)
+		require.False(t, sc.AboveCutoff)
+	}
+}
+
+func TestTechniqueUnfamiliarLabel(t *testing.T) {
+	l := []any{map[string]any{"label": "Appeal_to_Pity", "score": 0.7}}
+	for _, n := range registry.TechniqueNames {
+		l = append(l, map[string]any{"label": n, "score": 0.1})
+	}
+	l = append(l, map[string]any{"label": "<b>LIES</b>", "score": 0.1})
+	b, _ := json.Marshal(map[string]any{"result": []any{l}})
+	s := newClassifierStub(t)
+	s.raw = string(b)
+	res := runTech(t, techDef(s.URL, s.URL), techReq(nWords(10), "en", ""))
+	sc := res.Results[0].Scores
+	require.Len(t, sc, 20)
+	require.Equal(t, "Loaded_Language", sc[0].Label)
+	require.Equal(t, techniqueScore{"Appeal_to_Pity", "Appeal_to_Pity", 0.7, "nci-social", 0.3, true, false}, sc[18])
+	require.Equal(t, "<b>LIES</b>", sc[19].Label)
+	require.False(t, sc[19].Known)
+	require.Empty(t, res.Detected) // unfamiliar labels never reach detected
 }
 
 func names(r techResult) (out []string) {
@@ -262,74 +337,11 @@ func TestTechniqueDisplayMapComplete(t *testing.T) {
 	}
 	require.Equal(t, techniqueInfo{"Loaded language", "Words chosen to trigger strong emotions"}, techniqueDisplay["Loaded_Language"])
 
-	s := newClassifierStub(t)
-	s.scoreFn = func(string) map[string]float64 { return map[string]float64{"Slogans": 0.9} }
-	text := "Make them pay now."
-	res := runTech(t, techDef(s.URL, s.URL), techReq(text, "en", text))
-	for _, x := range res.Techniques {
-		require.NotEmpty(t, x.Display)
-	}
-	require.NotEmpty(t, res.Detected[0].Explanation)
-	require.NotEmpty(t, res.Sentences[0].Techniques[0].Display)
-	require.NotEmpty(t, res.Sentences[0].Techniques[0].Explanation)
 }
 
 // slice16 is s.slice(start, end) of JavaScript.
 func slice16(s string, start, end int) string {
 	return string(utf16.Decode(utf16.Encode([]rune(s))[start:end]))
-}
-
-func TestTechniqueOffsets(t *testing.T) {
-	s := newClassifierStub(t)
-	s.scoreFn = func(txt string) map[string]float64 {
-		if strings.Contains(txt, "LYING") || strings.Contains(txt, "Müll") {
-			return map[string]float64{"Doubt": 0.9}
-		}
-		return nil
-	}
-	d := techDef(s.URL, s.URL)
-
-	content := "Wake up. They are LYING to you."
-	res := runTech(t, d, techReq(content, "en", content))
-	require.Equal(t, "original", res.OffsetsIn)
-	require.Equal(t, 9, res.Sentences[0].Start)
-	require.Equal(t, 31, res.Sentences[0].End)
-	require.Equal(t, "They are LYING to you.", res.Sentences[0].Text)
-
-	// non-ASCII and astral characters count in UTF-16 units; the content has extra text before the sentences
-	tr := "Ünï ok now. 😀 They are LYING to you ✓."
-	c := "😀😀 Ünï ok now. 😀 They are LYING to you ✓."
-	res = runTech(t, d, techReq(tr, "en", c))
-	require.Equal(t, "original", res.OffsetsIn)
-	require.Len(t, res.Sentences, 1)
-	require.Equal(t, 17, res.Sentences[0].Start)
-	require.Equal(t, 44, res.Sentences[0].End)
-	require.Equal(t, res.Sentences[0].Text, slice16(c, 17, 44))
-
-	// English, but a reported sentence is not verbatim in the content: offsets index the translation
-	res = runTech(t, d, techReq(tr, "en", "<p>Ünï ok now. 😀 They are lying to you ✓.</p>"))
-	require.Equal(t, "translation", res.OffsetsIn)
-	require.Equal(t, res.Sentences[0].Text, slice16(tr, res.Sentences[0].Start, res.Sentences[0].End))
-
-	// German: always the translation, even when the content happens to contain the sentence
-	de := "Das ist 😀 Müll heute. Wirklich Müll hier."
-	res = runTech(t, d, techReq(de, "de", de))
-	require.Equal(t, "translation", res.OffsetsIn)
-	require.Len(t, res.Sentences, 2)
-	require.Equal(t, 0, res.Sentences[0].Start)
-	require.Equal(t, 23, res.Sentences[1].Start)
-	for _, sd := range res.Sentences {
-		require.Equal(t, sd.Text, slice16(de, sd.Start, sd.End))
-	}
-
-	// English, sentences present but in another order: not "in order", so the translation is indexed
-	en := "They are LYING now. Das ist Müll heute."
-	res = runTech(t, d, techReq(en, "en", "Das ist Müll heute. They are LYING now."))
-	require.Equal(t, "translation", res.OffsetsIn)
-	// no sentence reported: still the translation
-	res = runTech(t, d, techReq("Nothing here at all.", "en", "Nothing here at all."))
-	require.Equal(t, "original", res.OffsetsIn) // vacuously every reported sentence was found
-	require.Empty(t, res.Sentences)
 }
 
 func TestTechniqueInvalidOutput(t *testing.T) {
@@ -351,7 +363,12 @@ func TestTechniqueInvalidOutput(t *testing.T) {
 		"LABEL_n":         string(ub),
 		"17 labels":       full(func(l []any) []any { return l[:17] }),
 		"19 labels":       full(func(l []any) []any { return append(l, label("Doubt", 0.1)) }),
-		"unknown label":   full(func(l []any) []any { l[0] = label("Nonsense", 0.1); return l }),
+		"known replaced":  full(func(l []any) []any { l[0] = label("Nonsense", 0.1); return l }),
+		"empty label":     full(func(l []any) []any { return append(l, label("", 0.1)) }),
+		"null label":      full(func(l []any) []any { return append(l, label("x", 0.1), map[string]any{"label": nil, "score": 0.1}) }),
+		"number label":    full(func(l []any) []any { return append(l, label("x", 0.1), map[string]any{"label": 3, "score": 0.1}) }),
+		"extra dup":       full(func(l []any) []any { return append(l, label("x", 0.1), label("x", 0.2)) }),
+		"extra score 2":   full(func(l []any) []any { return append(l, label("x", 2)) }),
 		"duplicate label": full(func(l []any) []any { l[1] = label(registry.TechniqueNames[0], 0.1); return l }),
 		"missing label":   full(func(l []any) []any { l[0] = map[string]any{"score": 0.1}; return l }),
 		"score 1.2":       full(func(l []any) []any { l[0] = label(registry.TechniqueNames[0], 1.2); return l }),
@@ -368,31 +385,35 @@ func TestTechniqueInvalidOutput(t *testing.T) {
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			s := newClassifierStub(t)
-			s.raw = body
-			e := techErr(t, techDef(s.URL, s.URL), techReq("They are LYING to you now.", "en", ""))
-			require.Equal(t, job.CodeInvalidOutput, e.Code, e.Message)
+			for _, words := range []int{10, 100} { // nci-social, nci-technique
+				s := newClassifierStub(t)
+				s.raw = body
+				e := techErr(t, techDef(s.URL, s.URL), techReq(nWords(words), "en", ""))
+				require.Equal(t, job.CodeInvalidOutput, e.Code, e.Message)
+			}
 		})
 	}
-	// the same body but for a one-item batch is valid
+	// the full list, with or without an extra label, is valid
 	s := newClassifierStub(t)
 	s.raw = full(func(l []any) []any { return l })
+	runTech(t, techDef(s.URL, s.URL), techReq("They are LYING to you now.", "en", ""))
+	s.raw = full(func(l []any) []any { return append(l, label("Appeal_to_Pity", 0)) })
 	runTech(t, techDef(s.URL, s.URL), techReq("They are LYING to you now.", "en", ""))
 }
 
 func TestTechniqueServiceFailuresNoFallback(t *testing.T) {
-	short, long := newClassifierStub(t), newClassifierStub(t)
-	short.status = 503
-	e := techErr(t, techDef(short.URL, long.URL), techReq(nWords(10), "en", ""))
+	tech, social := newClassifierStub(t), newClassifierStub(t)
+	social.status = 503
+	e := techErr(t, techDef(tech.URL, social.URL), techReq(nWords(10), "en", ""))
 	require.Equal(t, job.CodeAdapterError, e.Code)
-	require.Equal(t, 1, short.calls()) // no retry
-	require.Zero(t, long.calls())
+	require.Equal(t, 1, social.calls()) // no retry
+	require.Zero(t, tech.calls())       // no fallback
 
-	long.status = 500
-	e = techErr(t, techDef(short.URL, long.URL), techReq(nWords(200), "en", ""))
+	social.status, tech.status = 200, 503
+	e = techErr(t, techDef(tech.URL, social.URL), techReq(nWords(200), "en", ""))
 	require.Equal(t, job.CodeAdapterError, e.Code)
-	require.Equal(t, 1, long.calls())
-	require.Equal(t, 1, short.calls())
+	require.Equal(t, 1, tech.calls())
+	require.Equal(t, 1, social.calls())
 
 	// connection error
 	dead := newClassifierStub(t)
@@ -401,6 +422,58 @@ func TestTechniqueServiceFailuresNoFallback(t *testing.T) {
 	e = techErr(t, techDef(url, url), techReq(nWords(10), "en", ""))
 	require.Equal(t, job.CodeAdapterError, e.Code)
 	require.NotContains(t, e.Message, url)
+}
+
+func TestTechniquePartialFailure(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer slow.Close()
+	for name, fail := range map[string]string{"nci-technique": "technique", "nci-social": "social"} {
+		t.Run(name, func(t *testing.T) {
+			ok, bad := newClassifierStub(t), newClassifierStub(t)
+			bad.status = 503
+			d := techDef(ok.URL, bad.URL)
+			if fail == "technique" {
+				d = techDef(bad.URL, ok.URL)
+			}
+			raw, err := (&Executor{}).Execute(context.Background(), d, techReq(nWords(60), "en", ""))
+			require.Nil(t, raw)
+			e := runErr(t, err)
+			require.Equal(t, job.CodeAdapterError, e.Code)
+			require.Contains(t, e.Message, name)
+			require.Equal(t, 1, ok.calls()) // both were called concurrently
+			require.Equal(t, 1, bad.calls())
+
+			// the failure does not wait for the other, slow model
+			d = techDef(slow.URL, bad.URL)
+			if fail == "technique" {
+				d = techDef(bad.URL, slow.URL)
+			}
+			start := time.Now()
+			e = techErr(t, d, techReq(nWords(60), "en", ""))
+			require.Equal(t, job.CodeAdapterError, e.Code)
+			require.Less(t, time.Since(start), 2*time.Second)
+		})
+	}
+}
+
+func TestTechniqueNonEnglishJobSendsOnlyTranslation(t *testing.T) {
+	const german = "Sie LÜGEN euch an und die Regierung verschweigt die Wahrheit über alles was heute passiert"
+	tech, social := newClassifierStub(t), newClassifierStub(t)
+	d := techDef(tech.URL, social.URL)
+	d.Input.Bindings = map[string]string{"text": "$analyzers.translation"}
+	english := nWords(50)
+	tr, _ := json.Marshal(map[string]any{"translated_text": english, "source_language": "de"})
+	j := &job.Job{Input: &job.Input{Content: german}, Analyzers: []job.AnalyzerRun{{ID: "translation", Result: tr}}}
+	_, err := (&Executor{}).Execute(context.Background(), d, Request{JobID: "j", AnalyzerID: "techniques", Inputs: Inputs(d, j)})
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{english}}, tech.bodies)
+	require.Equal(t, [][]string{{english}}, social.bodies)
 }
 
 func TestTechniqueTimeoutAndCancel(t *testing.T) {
@@ -447,21 +520,24 @@ func TestTechniqueUnreadableTranslation(t *testing.T) {
 }
 
 func TestTechniqueHidesCredentials(t *testing.T) {
-	const tok = "tok-secret"
 	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
-		fmt.Fprintf(w, `{"error":"bad %s","auth":"%s"}`, r.Header.Get("Authorization"), tok)
+		fmt.Fprintf(w, `{"error":"bad %s","auth":"%s %s"}`, r.Header.Get("Authorization"), tokTech, tokSocial)
 	}))
 	defer echo.Close()
-	e := techErr(t, techDef(echo.URL, echo.URL), techReq(nWords(10), "en", ""))
-	require.Equal(t, job.CodeAdapterError, e.Code)
-	require.NotContains(t, e.Message, tok)
-
-	// an unknown label that carries the token must not reach the message
-	s := newClassifierStub(t)
-	s.raw = fmt.Sprintf(`{"result":[[{"label":"%s","score":0.1}]]}`, "Bearer "+tok)
-	e = techErr(t, techDef(s.URL, s.URL), techReq(nWords(10), "en", ""))
-	require.Equal(t, job.CodeInvalidOutput, e.Code)
-	require.NotContains(t, e.Message, tok)
-	require.NotContains(t, techniqueRedactor(techDef("", "").Execution)("x "+tok+" Bearer "+tok), tok)
+	// a label carrying the token in a list that misses known labels
+	leak := newClassifierStub(t)
+	leak.raw = fmt.Sprintf(`{"result":[[{"label":"Bearer %s %s","score":0.1}]]}`, tokTech, tokSocial)
+	ok := newClassifierStub(t)
+	for _, bad := range []string{echo.URL, leak.URL} {
+		for words, d := range map[int]*registry.Analyzer{ // the failing model is selected: alone or with the other
+			100: techDef(bad, ok.URL), 60: techDef(bad, ok.URL), 59: techDef(ok.URL, bad), 10: techDef(ok.URL, bad),
+		} {
+			e := techErr(t, d, techReq(nWords(words), "en", ""))
+			require.Contains(t, []string{job.CodeAdapterError, job.CodeInvalidOutput}, e.Code)
+			require.NotContains(t, e.Message, "tok-secret")
+		}
+	}
+	r := techniqueRedactor(techDef("", "").Execution)("x " + tokTech + " Bearer " + tokSocial)
+	require.NotContains(t, r, "tok-secret")
 }

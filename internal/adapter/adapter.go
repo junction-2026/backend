@@ -104,7 +104,7 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 		}
 	}
 	if def.Execution.Adapter == registry.AdapterTechniqueClassifier {
-		out[jobContentKey] = j.Input.Content // for sentence offsets in the original text
+		out[jobContentKey] = j.Input.Content // for the span step only; never sent to the classification models
 	}
 	return out
 }

@@ -43,7 +43,7 @@ func TestTechniqueAfterTranslation(t *testing.T) {
 	yaml := fmt.Sprintf("analyzers:\n"+
 		"  - id: translation\n    execution: {adapter: mistral_translation, endpoint: %q, api_key: sk-secret-key}\n"+
 		"  - id: techniques\n    depends_on: [translation]\n    input: {bindings: {text: $analyzers.translation}}\n"+
-		"    execution:\n      adapter: technique_classifier\n      short: {endpoint: %q, threshold: 0.3}\n      long: {endpoint: %q, threshold: 0.5}\n",
+		"    execution:\n      adapter: technique_classifier\n      technique: {endpoint: %q}\n      social: {endpoint: %q}\n",
 		mis.URL, clf.URL, clf.URL)
 	e := newEngine(t, yaml, Config{}, nil)
 
@@ -53,13 +53,24 @@ func TestTechniqueAfterTranslation(t *testing.T) {
 	tr := ar(done, "techniques")
 	require.Equal(t, job.RunSucceeded, tr.Status)
 	var res struct {
-		OffsetsIn string `json:"offsets_in"`
-		Sentences []struct{ Start, End int }
+		Words   int
+		Results []struct {
+			Model  string
+			Scores []struct{ Label string }
+		}
+		Detected []struct {
+			Name   string
+			Models []string
+		}
 	}
 	require.NoError(t, json.Unmarshal(tr.Result, &res))
-	require.Equal(t, "original", res.OffsetsIn) // Job.input.content reaches the adapter
-	require.Equal(t, 9, res.Sentences[0].Start)
-	require.Equal(t, 31, res.Sentences[0].End)
+	require.Equal(t, 7, res.Words)
+	require.Len(t, res.Results, 1) // 7 words: nci-social only
+	require.Equal(t, "nci-social", res.Results[0].Model)
+	require.Len(t, res.Results[0].Scores, 18)
+	require.Len(t, res.Detected, 1)
+	require.Equal(t, "Doubt", res.Detected[0].Name)
+	require.Equal(t, []string{"nci-social"}, res.Detected[0].Models)
 	require.Equal(t, int32(1), calls.Load())
 
 	// translation fails: techniques is skipped and no classifier request is sent

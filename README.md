@@ -170,33 +170,48 @@ with reason `no_sources`; a failed or skipped `news_search` gives the usual `dep
 ## Technique classifier analyzer
 
 `docs/examples/technique_classifier.yaml` (analyzer `techniques`, adapter `technique_classifier`, category `propaganda`,
-`depends_on: [translation]`, `input.bindings: {text: $analyzers.translation}`) scores the English translation for the 18
-SemEval-2020 Task 11 propaganda techniques and finds the sentences that carry them (result shape: shared change
-`technique-classifier-result`). Add the file next to an analyzer `translation` (see `propaganda_detection.yaml`) and set:
+`depends_on: [translation]`, `input.bindings: {text: $analyzers.translation}`) scores the English translation for every
+propaganda technique label with the NCI document model (`nci-technique`) and/or the NCI short-post model
+(`nci-social`) (result shape: shared change `technique-all-labels` of `technique-classifier-result`). Add the file next
+to an analyzer `translation` (see `propaganda_detection.yaml`) and set:
 
 | Variable | |
 |---|---|
-| `TECHNIQUE_SHORT_URL` | prediction endpoint of the short-text model (BERTweet) |
-| `TECHNIQUE_LONG_URL` | prediction endpoint of the long-text model (ModernBERT) |
+| `NCI_TECHNIQUE_URL` | prediction endpoint of the document model (`nci-technique`) |
+| `NCI_SOCIAL_URL` | prediction endpoint of the short-post model (`nci-social`, at most 128 tokens) |
 | `ML_API_TOKEN` | sent as `Authorization: Bearer <token>` to both; never logged, returned or put in error messages |
 
-The model is chosen by the word count of `translated_text` (whitespace-separated): up to `short_max_words` (default 80)
-the `short` model, otherwise the `long` model; `input.source` is ignored. The text is split at `.`, `!`, `?` and
-newlines (fragments under 3 words are dropped) and one `POST {"text": [full text, sentence 1, ..., sentence N]}` goes
-to the chosen service, N at most `max_sentences` (default 20; `sentences_truncated` is true when more were left
-unscored). The answer must be `{"result": [[{label, score} x 18], ...], "latency_ms"?}`, one list per text sent with
-exactly the 18 technique names and scores in 0..1, else the analyzer fails with `invalid_output`. There is no retry and
-no fallback to the other model (HTTP errors are `adapter_error`, a slow answer `timeout`; default `timeout: 30s`).
+The models are selected by the word count of `translated_text` (whitespace-separated), never by `input.source`:
 
-Each of the `short` and `long` blocks takes `endpoint` (required), `headers`, `threshold` (required, 0..1) and an
-optional `thresholds` map of per-technique overrides (technique name: 0..1); string values accept `${VAR}`. The
-example uses 0.3 for the short and 0.5 for the long model. An enabled analyzer with an unset variable, a missing block,
-an empty endpoint, a threshold outside 0..1 or an unknown technique name in `thresholds` aborts startup; a disabled one
-loads. The result has the scores, the `detected` techniques and the `sentences` with `start`/`end` offsets in UTF-16
-code units: into `Job.input.content` (`offsets_in: original`) when the source language is English and every reported
-sentence is found there verbatim, else into the translation (`offsets_in: translation`). Detections are indicators, not
-proof, and scores of the two models are not comparable. Add `llm: {include: true, description: ...}` (as in the
-example) to let the LLM finalizer see the result. Every job that runs it makes one request to one ML service.
+| words (defaults) | models |
+|---|---|
+| below `technique_min_words` (40) | `nci-social` |
+| `technique_min_words` to `social_max_words` (40 to 80) | `nci-technique` and `nci-social` |
+| above `social_max_words` (80) | `nci-technique` |
+
+80 words is a conservative bound for the 128 tokens of `nci-social`. Each selected model gets one
+`POST {"text": [translated_text]}`; when both are selected they are called concurrently. Only the English translation
+is sent, never `Job.input.content`. The answer must be `{"result": [[{label, score}, ...]], "latency_ms"?}`: one list
+with each of the 18 known technique names exactly once, any other non-empty labels at most once each, and scores in
+0..1, else the analyzer fails with `invalid_output`. There is no retry and no fallback to the other model: a non-2xx
+answer or connection error is `adapter_error`, a slow answer `timeout` (default `timeout: 30s`), and when both models
+are selected and one fails the run fails with that error and no result.
+
+`execution` takes `social_max_words` (default 80), `technique_min_words` (default 40; at most `social_max_words + 1`
+so every text gets a model) and the blocks `technique` and `social`, each with `endpoint` (required), `headers` and
+`cutoff` (0..1, default 0.5 for `technique` and 0.3 for `social`); string values accept `${VAR}`. An enabled analyzer
+with an unset variable, a missing block, an empty endpoint, a cutoff outside 0..1 or word bounds that leave a gap aborts
+startup; a disabled one loads. The keys of the earlier version (`short`, `long`, `threshold`, `thresholds`,
+`short_max_words`, `max_sentences` outside `spans`) abort startup with a message naming the replacement.
+
+The result has `words`, `results` and `detected`. `results` has one entry per selected model (`nci-technique` first)
+with its `model`, `cutoff`, `latency_ms` and `scores`: one score per known label in the fixed name order, then labels
+the model returned that are not known (`known: false`, `display` = the label) in the model's order. Each score has
+`label`, `display`, `score`, `model`, `cutoff`, `above_cutoff` (`score >= cutoff`) and `known`; scores below the cutoff
+are kept. Scores of the two models are never averaged or merged and are not comparable. `detected` lists the known
+techniques with `above_cutoff` in at least one model, in name order, with `display`, `explanation`, `models` (which
+models flagged it) and `spans`; it has no score of its own. Detections are indicators, not proof. Add
+`llm: {include: true, description: ...}` (as in the example) to let the LLM finalizer see the result.
 
 ### Technique spans
 
@@ -208,13 +223,13 @@ submitted, not `normalized_content` and never the translation) with half-open UT
 
 | Variable | |
 |---|---|
-| `TECHNIQUE_SPAN_URL` | prediction endpoint of the sentence model (`nci-social`, same request and answer shape as `short`/`long`) |
+| `TECHNIQUE_SPAN_URL` | prediction endpoint of the sentence model (`nci-social`, same request and answer shape as `technique`/`social`, one list per sentence) |
 | `SPAN_LLM_BASE_URL` | OpenAI-compatible base URL (`{base_url}/chat/completions`) of the phrase LLM |
 | `SPAN_LLM_API_KEY` | its key, sent as `Authorization: Bearer <key>`; never logged or returned |
 | `SPAN_LLM_MODEL` | its model name |
 
-- **English** (`sentence`): `Job.input.content` is split with the same rules as above (`.`, `!`, `?`, newlines,
-  fragments under 3 words dropped); the first `spans.max_sentences` (default 20) go in one
+- **English** (`sentence`): `Job.input.content` is split at `.`, `!`, `?` and newlines (fragments under 3 words
+  dropped); the first `spans.max_sentences` (default 20) go in one
   `POST {"text": [sentence 1..N]}` to `spans.sentence_model` (`spans_truncated` is true when more existed). A sentence
   becomes a span of each technique in `detected` it scores at or above the sentence model's `threshold` (or its
   `thresholds` override); scores of undetected techniques are ignored.
@@ -232,7 +247,8 @@ submitted, not `normalized_content` and never the translation) with half-open UT
   error or unreadable answer gives `span_status: failed`, the deadline `span_status: timeout`; either way the run
   still succeeds with every `spans` empty and the rest of the result unchanged, and the cause is only logged (with
   header values and the API key redacted). The analyzer's overall `timeout` still fails the run as before.
-- `spans.sentence_model` takes `endpoint`, `headers`, `threshold` (required, 0..1) and `thresholds`; `spans.llm` takes
+- `spans.sentence_model` takes `endpoint`, `headers`, `threshold` (required, 0..1) and `thresholds` (per-technique
+  overrides; unchanged by the `cutoff` keys above); `spans.llm` takes
   `base_url`, `api_key`, `model`, `prompt_file`, `temperature`, `max_tokens` (default 1000), `response_format`
   (default `json_schema`), `headers` and `extra_body`, all with `${VAR}` expansion. Invalid values abort startup.
 - Without a `spans` block nothing extra is requested: `span_method` follows the language, `span_status` is `ok` and
