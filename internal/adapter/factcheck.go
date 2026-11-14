@@ -89,7 +89,8 @@ type providerClaim struct {
 	} `json:"claimReview"`
 }
 
-type plannedQuery struct{ q, lang, forClaim string }
+// plannedQuery is one search; short is its shorter retry query ("" = no retry).
+type plannedQuery struct{ q, lang, forClaim, short string }
 
 type factQuery struct {
 	Q        string    `json:"q"`
@@ -99,6 +100,7 @@ type factQuery struct {
 	Status   string    `json:"status"`
 	Cached   bool      `json:"cached"`
 	Error    *queryErr `json:"error"`
+	RetryOf  *string   `json:"retry_of"` // the q of the search this shorter retry repeats; null for planned searches
 }
 
 type queryErr struct {
@@ -146,6 +148,8 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 
 	answers := make([][]providerClaim, len(plan))
 	queries := make([]factQuery, len(plan))
+	retries := make([]*factQuery, len(plan)) // the shorter retry of plan[i], if one was sent
+	retryAns := make([][]providerClaim, len(plan))
 	sem := make(chan struct{}, e.MaxConcurrencyN())
 	var wg sync.WaitGroup
 	for i, p := range plan {
@@ -163,6 +167,13 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 				return
 			}
 			answers[i] = f.search(p, &queries[i])
+			// The retry holds the slot of its original, so max_concurrency still bounds requests in flight.
+			if p.short != "" && queries[i].Status == "succeeded" && queries[i].Claims == 0 && fctx.Err() == nil {
+				orig := p.q
+				rp := plannedQuery{q: p.short, lang: p.lang, forClaim: p.forClaim}
+				retries[i] = &factQuery{Q: rp.q, Language: rp.lang, ForClaim: rp.forClaim, Status: "failed", RetryOf: &orig}
+				retryAns[i] = f.search(rp, retries[i])
+			}
 		}()
 	}
 	wg.Wait()
@@ -172,6 +183,19 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 	if fatal != nil {
 		return nil, fatal
 	}
+
+	// Interleave: a retry directly follows the search it retries.
+	var allPlan []plannedQuery
+	var allQ []factQuery
+	var allA [][]providerClaim
+	for i, p := range plan {
+		allPlan, allQ, allA = append(allPlan, p), append(allQ, queries[i]), append(allA, answers[i])
+		if r := retries[i]; r != nil {
+			allPlan = append(allPlan, plannedQuery{q: r.Q, lang: r.Language, forClaim: r.ForClaim})
+			allQ, allA = append(allQ, *r), append(allA, retryAns[i])
+		}
+	}
+	queries = allQ
 
 	succeeded, cached := 0, 0
 	for _, q := range queries {
@@ -186,7 +210,7 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 		return nil, adapterErr("every fact check search failed")
 	}
 	out, err := json.Marshal(map[string]any{
-		"queries": queries, "fact_checks": assembleFactChecks(plan, queries, answers, e.MaxResultsN()),
+		"queries": queries, "fact_checks": assembleFactChecks(allPlan, queries, allA, e.MaxResultsN()),
 		"requests_used": int(f.requests.Load()), "cached": cached,
 	})
 	if err != nil {
@@ -204,10 +228,13 @@ func planFactChecks(rawClaims json.RawMessage, minWorth float64, maxClaims int) 
 	}
 	var plan []plannedQuery
 	seen := map[[2]string]bool{}
-	add := func(q, lang, text string) {
+	add := func(q, lang, text, short string) {
 		if k := [2]string{q, lang}; strings.TrimSpace(q) != "" && !seen[k] {
 			seen[k] = true
-			plan = append(plan, plannedQuery{q, lang, text})
+			if strings.EqualFold(strings.Join(strings.Fields(short), " "), strings.Join(strings.Fields(q), " ")) {
+				short = ""
+			}
+			plan = append(plan, plannedQuery{q, lang, text, short})
 		}
 	}
 	taken := 0
@@ -216,13 +243,26 @@ func planFactChecks(rawClaims json.RawMessage, minWorth float64, maxClaims int) 
 			continue
 		}
 		taken++
-		add(c.Query, c.Language, c.Text)
+		add(c.Query, c.Language, c.Text, firstEntities(c.Entities, 2))
 		if !strings.EqualFold(strings.SplitN(c.Language, "-", 2)[0], "en") {
-			add(c.QueryEN, "en", c.Text)
+			add(c.QueryEN, "en", c.Text, strings.Join(firstN(strings.Fields(c.QueryEN), 3), " "))
 		}
 	}
 	return plan
 }
+
+// firstEntities joins the first n non-blank entities, trimmed, by one space.
+func firstEntities(entities []string, n int) string {
+	var out []string
+	for _, e := range entities {
+		if e = strings.TrimSpace(e); e != "" && len(out) < n {
+			out = append(out, e)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+func firstN(w []string, n int) []string { return w[:min(n, len(w))] }
 
 type factRun struct {
 	x        *Executor
