@@ -289,3 +289,72 @@ The default `prompt_file` of `topic_extraction` SHALL be `/etc/orchestrator/extr
 #### Scenario: Example loads disabled
 - **WHEN** the example is loaded without `BOT_DETECTION_URL` set
 - **THEN** loading succeeds and `bot_detection` is disabled with the two bindings
+
+### Requirement: news_search settings
+The registry SHALL accept `execution.adapter: news_search` with the keys `base_url` and `api_key` (required, `${VAR}`-expanded), `languages` (default `[source, en]`), `translate.api_key`, `translate.model` and `translate.endpoint`, and the limits `max_topics`, `max_news`, `num`, `min_results`, `per_domain`, `max_results`, `max_concurrency`, `cache_ttl` and `timeout`. `translate.api_key` SHALL be required when a language other than `source` is configured.
+
+#### Scenario: Defaults
+- **WHEN** only `base_url` and `api_key` and `translate.api_key` are set
+- **THEN** the analyzer loads with languages `[source, en]`, max_topics 3, max_news 2, num 8, min_results 2, per_domain 2, max_results 12, max_concurrency 4, cache_ttl 6h and timeout 20s
+
+### Requirement: news_search settings are validated
+A non-positive integer or duration, an unknown language token, a missing required key or a `news_search` key on another adapter SHALL fail startup with a message naming the key.
+
+#### Scenario: Invalid values
+- **WHEN** `num: 0`, `languages: [german]`, a missing `api_key` or a missing `translate.api_key` with `languages: [source, en]` is configured
+- **THEN** startup fails and the message names `execution.num`, `execution.languages`, `execution.api_key` or `execution.translate.api_key`
+
+#### Scenario: Source only needs no translation key
+- **WHEN** `languages: [source]` and no `translate` block
+- **THEN** the analyzer loads
+
+### Requirement: news_search dependencies and bindings
+A `news_search` analyzer SHALL list `topic_extraction` in `depends_on` and bind `input.bindings.topics: $analyzers.topic_extraction`. It MAY bind `translation: $analyzers.<id>`, which SHALL be in `depends_on`. Other bindings, `endpoint`, `method`, `handler` and `poll_interval` SHALL be rejected.
+
+#### Scenario: Missing topics binding
+- **WHEN** `news_search` has no `topics` binding or does not depend on `topic_extraction`
+- **THEN** startup fails naming `input.bindings.topics` or `depends_on`
+
+#### Scenario: Translation binding outside depends_on
+- **WHEN** `translation: $analyzers.translation` is bound but `translation` is not in `depends_on`
+- **THEN** startup fails naming the binding
+
+### Requirement: Fact check settings
+Adapter `fact_check` SHALL accept the execution keys `base_url`, `api_key` (required when enabled), `min_check_worthiness`, `max_claims`, `page_size`, `max_age_days`, `max_results`, `max_concurrency`, `cache_ttl` and `timeout`, with the defaults of `docs/examples/fact_check.yaml` and `${VAR}` expansion in `base_url` and `api_key`. Loading SHALL fail, naming analyzer id and field, for an invalid value, a missing `api_key` or other `input.bindings`.
+
+#### Scenario: Defaults
+- **WHEN** an enabled `fact_check` entry sets only `api_key` and the binding
+- **THEN** it loads with the defaults above
+
+#### Scenario: Invalid value
+- **WHEN** `min_check_worthiness` is 1.5, or `max_claims` is 0
+- **THEN** loading fails with an error naming the analyzer id and the field
+
+#### Scenario: Missing key
+- **WHEN** an enabled entry has an empty `api_key`
+- **THEN** loading fails naming `execution.api_key`, without any value
+
+### Requirement: Topic extraction claim cap
+The `topic_extraction` llm entry SHALL accept `execution.max_claims` (>=1, default 5); the key is rejected on every other adapter except `fact_check`.
+
+#### Scenario: Invalid cap
+- **WHEN** a `topic_extraction` entry has `max_claims: 0`
+- **THEN** loading fails with an error naming the analyzer id and `execution.max_claims`
+
+### Requirement: Fact check example
+`docs/examples/fact_check.yaml` SHALL hold the `fact_check` entry (id `fact_check`, category `fact_check`, `depends_on: [topic_extraction]`, binding `extraction`, `api_key: ${GOOGLE_FACTCHECK_API_KEY}` and an `llm` block with `include: true` and a description), `docs/examples/topic_extraction.yaml` SHALL show `max_claims: 5`, and the README SHALL describe `GOOGLE_FACTCHECK_API_KEY` and that the Fact Check Tools API must be enabled on the key's Google Cloud project.
+
+#### Scenario: Example loads
+- **WHEN** the example files are loaded with their variables set
+- **THEN** the registry is valid
+
+### Requirement: Shared execution keys
+`max_results`, `max_concurrency` and `cache_ttl` SHALL be accepted by both `news_search` and `fact_check`, each with its own defaults, and rejected on every other adapter; the other `news_search` keys SHALL be rejected on `fact_check`.
+
+#### Scenario: Both analyzers in one registry
+- **WHEN** a registry holds a `news_search` and a `fact_check` entry that both set `max_results`, `max_concurrency` and `cache_ttl`
+- **THEN** it loads and each analyzer has its own values
+
+#### Scenario: News-only key on fact_check
+- **WHEN** a `fact_check` entry sets `num`
+- **THEN** loading fails with an error naming news_search as the only adapter allowing it

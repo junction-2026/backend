@@ -327,3 +327,202 @@ The requirements "LLM retries", "LLM provider errors" and "LLM timeout and cance
 #### Scenario: Timeout and cancellation
 - **WHEN** the provider does not answer before the timeout, or the job is cancelled meanwhile
 - **THEN** the analyzer fails with `timeout`, or `cancelled`
+
+### Requirement: news_search queries and languages
+The `news_search` adapter SHALL search the `query` of the first `max_topics` Topics (origin `topic`), then the `headline` of the first `max_news` NewsItems (origin `news`), once per language. Originals are assumed to be in the source language; a query needs translation unless its language equals the known source language.
+
+#### Scenario: Two topics in German and English
+- **WHEN** two topics, no news, source `de`, languages `[source, en]`
+- **THEN** four searches are sent (`de` with the original, `en` with the translation) and the result has languages `[de, en]` and four SearchQuery entries
+
+### Requirement: news_search language resolution
+The language `source` SHALL resolve to the lower-cased `source_language` of the bound `translation` result and SHALL be dropped when there is no binding or the value is null or not a two-letter code; duplicates SHALL be removed keeping the first.
+
+#### Scenario: Unknown source
+- **WHEN** the translation result has `source_language: null` and languages are `[source, en]`
+- **THEN** `source` is dropped and the `en` queries are translated
+
+### Requirement: news_search nothing to search
+When the topics input has no Topic and no NewsItem the adapter SHALL return the skip outcome `no_searchable_topics` without sending a search or translation request. A topics input that is not a TopicExtraction object SHALL fail with `adapter_error`.
+
+#### Scenario: Empty extraction
+- **WHEN** topics and news are empty
+- **THEN** the skip outcome is returned and the stub servers received zero requests
+
+### Requirement: news_search query translation
+For each target language with queries needing translation the adapter SHALL send one Mistral chat completions request (`Authorization: Bearer <translate.api_key>`) whose user message is a JSON array of those queries and expect a JSON array of the same length of non-empty strings. A failed request or a malformed reply SHALL mark those entries `failed` with `error.code: translation_failed` and no search SHALL be sent for them.
+
+#### Scenario: One request per language
+- **WHEN** three queries need English
+- **THEN** exactly one Mistral request carries all three
+
+#### Scenario: Translation failure
+- **WHEN** Mistral answers 500 twice
+- **THEN** the English entries are `failed` with `translation_failed`, no English search is sent and the source-language entries succeed
+
+#### Scenario: Rejected translation key
+- **WHEN** Mistral answers 401
+- **THEN** the run fails with `adapter_error` naming `execution.translate.api_key`
+
+### Requirement: news_search provider requests
+The adapter SHALL `POST {base_url}/news` with `{q, hl, gl, num}` and the header `X-API-KEY`, where `hl` is the language and `gl` the country from the table en→us, de→de, fr→fr, else the language code. When the news search returns fewer than `min_results` results it SHALL send one `POST {base_url}/search` for that query and language only.
+
+#### Scenario: Fallback
+- **WHEN** one news search returns 1 result with `min_results` 2
+- **THEN** exactly one `/search` request is sent for that query and language, its entry has `endpoint: search` and `results` counting both, and the other entries stay `news`
+
+### Requirement: news_search retries and aborts
+The adapter SHALL keep at most `max_concurrency` provider requests in flight per run and retry HTTP 429 and 5xx once after a backoff of 1s (honouring context cancellation), counting both attempts in `searches_used`. On HTTP 401/403 it SHALL cancel the remaining searches and fail the run with `adapter_error` naming `execution.api_key` (`execution.translate.api_key` for Mistral).
+
+#### Scenario: Retry
+- **WHEN** a search answers 429 then 200
+- **THEN** the entry succeeds and `searches_used` counts both requests
+
+#### Scenario: Rejected key
+- **WHEN** Serper answers 401
+- **THEN** the run fails with `adapter_error` naming `execution.api_key` and no further searches start
+
+#### Scenario: Partial and total failure
+- **WHEN** one entry fails with 503 twice and others succeed
+- **THEN** the run succeeds listing that entry `failed` with `search_failed`; when every entry fails the run fails with `adapter_error`
+
+### Requirement: news_search cache
+The adapter SHALL keep an in-memory cache per process of successful provider responses keyed by (endpoint, q, hl, gl) for `cache_ttl`; identical concurrent requests SHALL share one provider request; failed responses SHALL NOT be cached. Cache hits and shared requests SHALL count in `cached` and not in `searches_used`.
+
+#### Scenario: Second job
+- **WHEN** an identical job runs within `cache_ttl`
+- **THEN** zero provider requests are sent, `searches_used` is 0 and `cached` is greater than 0
+
+### Requirement: news_search merging
+The adapter SHALL build `articles` from the succeeded entries: only `http`/`https` URLs, deduplicated by URL with lower-cased scheme and host and no fragment, `domain` the lower-cased host without a leading `www.`, ordered by provider rank ascending, then entries with a parseable date first and newest first, then SearchQuery order; then at most `per_domain` per domain and at most `max_results` in total.
+
+#### Scenario: Duplicates and limits
+- **WHEN** searches return `https://www.example.com/a#top` and `https://WWW.EXAMPLE.COM/a`, and five distinct `example.org` articles with `per_domain` 2
+- **THEN** one Article has the first URL and two Articles have `domain: example.org`
+
+### Requirement: news_search hides credentials
+Every error message, SearchQuery error and log line of the adapter SHALL have the search API key, the translation API key and `X-API-KEY`/`Authorization` header values replaced by a placeholder; keys SHALL NOT be logged.
+
+#### Scenario: Provider echoes the key
+- **WHEN** Serper answers 500 with a body that repeats the API key
+- **THEN** the entry error message, the result and the run error do not contain the key
+
+### Requirement: Topic extraction claims schema
+The `llm` adapter with task `topic_extraction` SHALL include in its built-in JSON schema a required `claims` array of objects with the required members `text`, `language`, `query`, `query_en`, `entities` (array of strings) and `check_worthiness` (number), and SHALL send that schema when `response_format` is `json_schema` (and in the user message in the other modes).
+
+#### Scenario: Schema sent
+- **WHEN** the analyzer runs with `response_format: json_schema`
+- **THEN** the request's schema requires `topics`, `news` and `claims`, and each claim requires the six members
+
+### Requirement: Topic extraction claims validation and normalization
+The adapter SHALL validate `claims` per the shared requirement "Claim validation": a reply without a `claims` array, or with an invalid claim, fails with `invalid_output`. It SHALL normalize per "Claim normalization": absent or null `entities` become `[]`, `check_worthiness` is clamped to 0..1, claims are ordered by it descending (ties in the model's order) and capped at `execution.max_claims` (default 5), other members are dropped.
+
+#### Scenario: Claim of the pension example
+- **WHEN** the content is "The government raised the pension age to 70 last year, they are robbing us!" and the stub reply has one claim with `check_worthiness` 0.8
+- **THEN** the result has one Claim with `text`, `language`, `query`, `query_en`, `entities` and `check_worthiness` 0.8
+
+#### Scenario: Ordered, clamped and capped
+- **WHEN** `max_claims` is 2 and the reply has claims with `check_worthiness` 0.3, 1.4 and 0.6
+- **THEN** the result has claims with `check_worthiness` 1 and 0.6, in that order
+
+#### Scenario: Reply without claims
+- **WHEN** the reply is `{"topics":[],"news":[]}` or a claim lacks `check_worthiness`
+- **THEN** the analyzer fails with `invalid_output` and `result: null`
+
+#### Scenario: Opinion only
+- **WHEN** the reply has `"claims": []`
+- **THEN** the analyzer succeeds with `claims: []`
+
+### Requirement: Extractor prompt claims
+`config/extractor/prompt.md` SHALL define what counts as a claim (verifiable facts: events, numbers, quotes, causal claims, attributions; not opinions, insults, predictions, questions, calls to action or vague accusations) and the rules for `text`, `language`, `query` (3-8 words), `query_en`, `entities` and `check_worthiness`. It SHALL say never to invent a claim and give two short examples: one checkable claim, and an opinion-only post with `claims: []`.
+
+#### Scenario: Prompt content
+- **WHEN** the prompt file is read
+- **THEN** it contains the rules above and both examples
+
+### Requirement: Fact check request
+The `fact_check` adapter SHALL read only the binding `extraction` (the `topic_extraction` result) and its `claims`, plan searches per the shared requirements "Qualifying claims" and "Search queries per claim", and send for each planned search `GET {base_url}/claims:search?query=<q>&languageCode=<l>&pageSize=<page_size>&maxAgeDays=<max_age_days>&key=<api_key>` with at most `max_concurrency` (default 4) requests in flight. It SHALL NOT call an LLM or a translation service.
+
+#### Scenario: German claims
+- **WHEN** two qualifying claims have `language: de`
+- **THEN** the stub receives at most 4 requests: per claim `query` with `languageCode=de` and `query_en` with `languageCode=en`, each with `pageSize`, `maxAgeDays` and `key`
+
+#### Scenario: English claim and duplicates
+- **WHEN** a qualifying claim has `language: en-GB`, and a second claim has the same `query` and `languageCode`
+- **THEN** one request is sent for the pair
+
+#### Scenario: Threshold and cap
+- **WHEN** claims have `check_worthiness` 0.7, 0.2, 0.9, 0.8 and 0.6 and defaults apply
+- **THEN** the claims 0.7, 0.9 and 0.8 are searched in that order and no others
+
+#### Scenario: Concurrency bound
+- **WHEN** four queries are planned and `max_concurrency` is 2
+- **THEN** the stub never sees more than 2 requests in flight
+
+### Requirement: Fact check result mapping
+The adapter SHALL build the FactCheckResult per the shared requirements "FactCheckResult object", "Query order", "Query object" and "FactCheck object": it maps the provider's `claims[]` and `claimReview[]` members to the FactCheck members (missing ones null) and counts `requests_used` (HTTP requests sent, retries included) and `cached` (queries answered from the cache).
+
+#### Scenario: Mapping
+- **WHEN** the provider returns a claim with one review carrying publisher, url, title, date, rating and language
+- **THEN** the FactCheck holds `claim`, `claimant`, `claim_date`, `publisher`, `site`, `url`, `title`, `rating`, `language`, `review_date`, `for_claim` and `query`
+
+### Requirement: Fact check list assembly
+The adapter SHALL assemble `fact_checks` per the shared requirement "Fact check list assembly": drop reviews without `url` and repeated `url`s (first in planning order kept), sort by parseable `review_date` descending (unparseable last, ties stable) and cap at `max_results` (default 10).
+
+#### Scenario: Duplicates and order
+- **WHEN** the German and English query of one claim return the review `https://correctiv.org/x`, plus a review without url and an older review
+- **THEN** `fact_checks` holds the review once with the German `query`, then the older one, and `queries` lists the German then the English search
+
+#### Scenario: Cap
+- **WHEN** 14 distinct reviews are returned and `max_results` is 10
+- **THEN** `fact_checks` holds the 10 newest, newest first
+
+### Requirement: Fact check rating table
+The adapter SHALL derive `rating_normalized` from `textualRating` by a built-in table of common English and major European terms, matched case-insensitively after trimming whitespace and trailing punctuation, without an LLM call. The table SHALL map at least False, Falsch, Faux, Falso to `false`; Misleading, Irreführend, Trompeur to `misleading`; Partly true, Teilweise richtig, Mixture to `mixed`; True, Richtig, Vrai to `true`. Other or missing ratings are `unrated`; `rating` is kept verbatim.
+
+#### Scenario: Terms
+- **WHEN** ratings are `Faux`, `Irreführend`, `Mixture`, ` FALSCH. ` and `Fehlender Kontext`
+- **THEN** `rating_normalized` is `false`, `misleading`, `mixed`, `false` and `unrated`, and `rating` is unchanged
+
+### Requirement: Fact check cache
+The adapter SHALL keep an in-memory cache of successful provider answers keyed by `(query, languageCode)` for `cache_ttl` (default 24h), serve a hit without a request (Query `cached: true`), not cache failures and persist nothing.
+
+#### Scenario: Repeated job
+- **WHEN** an identical job runs within `cache_ttl`
+- **THEN** the stub receives no request, `requests_used` is 0, `cached` equals the number of queries and every Query has `cached: true`
+
+#### Scenario: Failure not cached
+- **WHEN** a query fails and the same job runs again
+- **THEN** the second job sends a request for it again
+
+### Requirement: Fact check failures
+The adapter SHALL retry a 429 or 5xx answer once after a backoff (a 429's `Retry-After` seconds, capped at 5s). A query still failing, or with an undecodable answer or another non-2xx status, gets `status: failed`, `claims: 0` and `error` `{code: search_failed, message}`. The analyzer fails with `adapter_error` only when every query failed or the `topic_extraction` result is not a JSON object; timeout and cancellation map to `timeout` and `cancelled`.
+
+#### Scenario: Partial failure
+- **WHEN** one of three queries answers 429 twice and the others succeed
+- **THEN** the analyzer succeeds, that Query is `failed` with `search_failed`, and `requests_used` counts both attempts
+
+#### Scenario: Every query fails
+- **WHEN** every query answers 503 twice
+- **THEN** the analyzer fails with `adapter_error`
+
+### Requirement: Fact check rejected key
+On HTTP 400, 401 or 403 the adapter SHALL fail with `adapter_error`, send no request not yet sent, and say in the message that the api_key is invalid or the Fact Check Tools API is not enabled for the key's Google Cloud project.
+
+#### Scenario: API not enabled
+- **WHEN** the first answer is HTTP 403
+- **THEN** the analyzer fails with `adapter_error`, the message names the api_key or the API not being enabled, and no later query is sent
+
+### Requirement: Fact check key redaction
+The API key SHALL be sent only as the `key` query parameter and SHALL NOT appear in any error message, log line or result string, also when the provider echoes the key or the request URL in its body.
+
+#### Scenario: Provider echoes the URL
+- **WHEN** the provider answers 400 with a message containing the request URL and `key=<api key>`
+- **THEN** the error message contains neither the key nor its URL-encoded form
+
+### Requirement: Fact check skip
+When no claim qualifies, including a missing or empty `claims` member, the adapter SHALL send no request and return the skip reason `no_checkable_claims`.
+
+#### Scenario: Opinion-only and older extractor
+- **WHEN** `claims` is `[]` or the extraction has no `claims` member
+- **THEN** the run is skipped with `no_checkable_claims` and the stub received zero requests
