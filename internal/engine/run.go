@@ -93,6 +93,7 @@ func (r *run) settleLocked(i int, status string, reason *string, err *job.RunErr
 	}
 	now := r.e.now()
 	a.Status, a.Reason, a.Error, a.Result, a.FinishedAt = status, reason, err, result, &now
+	a.Availability, a.Note = job.Availability(a, r.j.Analyzers) // deps settled before dependents, so final now
 	if a.StartedAt != nil {
 		a.DurationMS = job.Ptr(now.Sub(*a.StartedAt).Milliseconds())
 	}

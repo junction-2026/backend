@@ -59,16 +59,27 @@ func newStack(t *testing.T, yaml string, gated ...string) *stack {
 	h.Register("instant", func(_ context.Context, req adapter.Request) (any, error) {
 		return map[string]string{"by": req.AnalyzerID}, nil
 	})
+	h.Register("fail", func(context.Context, adapter.Request) (any, error) { return nil, errors.New("boom") })
 	p := filepath.Join(t.TempDir(), "r.yaml")
 	require.NoError(t, os.WriteFile(p, []byte(yaml), 0o600))
 	reg, err := registry.Load(p, registry.Options{HandlerExists: h.Has})
 	require.NoError(t, err)
-	s.eng = engine.New(reg, engine.Config{Executor: &adapter.Executor{Handlers: h}})
+	s.eng = engine.New(reg, engine.Config{Executor: nothingExec{&adapter.Executor{Handlers: h}}})
 	t.Cleanup(s.eng.Close)
 	wsh := ws.New(s.eng, ws.Options{Logger: quiet})
 	s.srv = httptest.NewServer(httpapi.NewHandler(httpapi.Config{Service: s.eng, Registry: reg, Events: wsh, Logger: quiet}))
 	t.Cleanup(s.srv.Close)
 	return s
+}
+
+// nothingExec makes analyzer "ns" skip at run time like news_search with no topics.
+type nothingExec struct{ engine.Executor }
+
+func (x nothingExec) Execute(ctx context.Context, def *registry.Analyzer, req adapter.Request) (json.RawMessage, error) {
+	if def.ID == "ns" {
+		return nil, &adapter.Skip{Reason: adapter.ReasonNoSearchableTopics}
+	}
+	return x.Executor.Execute(ctx, def, req)
 }
 
 func an(id, handler, extra string) string {
@@ -409,4 +420,57 @@ func TestServerPingsAndDiscardsClientTraffic(t *testing.T) {
 	}
 	require.Equal(t, byte(1), opcodes[0], "snapshot is a text frame")
 	require.Equal(t, []byte{9, 9}, opcodes[1:], "then pings")
+}
+
+// analyzer-run-availability: REST shows availability/note on every run (null
+// while pending or running) and settle events carry the same values.
+func TestAvailabilityInRESTAndEvents(t *testing.T) {
+	onG := "    depends_on: [g]\n"
+	s := newStack(t, "analyzers:\n"+an("g", "g", "")+an("x", "instant", onG)+an("f", "fail", onG)+
+		an("df", "instant", "    depends_on: [f]\n")+an("ns", "instant", onG)+an("ds", "instant", "    depends_on: [ns]\n")+
+		an("off", "instant", "    enabled: false\n"), "g")
+	id := s.create(t)
+	s.waitREST(t, id, func(j map[string]any) bool { return run(j, "g")["status"] == "running" })
+	j := s.rest(t, id)
+	for _, a := range []string{"g", "x", "f"} {
+		r := run(j, a)
+		require.Contains(t, r, "availability")
+		require.Contains(t, r, "note")
+		require.Nil(t, r["availability"], a)
+		require.Nil(t, r["note"], a)
+	}
+	require.Equal(t, "not_applicable", run(j, "off")["availability"])
+
+	c := dial(t, s.srv.URL, id)
+	require.Equal(t, "job.snapshot", mustRead(t, c)["type"])
+	s.release("g")
+	var settled []map[string]any
+	for {
+		ev, err := read(c)
+		if err != nil {
+			break
+		}
+		if typ := ev["type"].(string); typ == "analyzer.succeeded" || typ == "analyzer.failed" || typ == "analyzer.skipped" {
+			settled = append(settled, data(ev)["analyzer"].(map[string]any))
+		}
+	}
+	require.Len(t, settled, 6)
+
+	fin := s.rest(t, id)
+	for _, ev := range settled {
+		r := run(fin, ev["id"].(string))
+		require.Equal(t, r["availability"], ev["availability"], ev["id"])
+		require.Equal(t, r["note"], ev["note"], ev["id"])
+	}
+	unavailable := "Unavailable: the analyzer failed or is not set up, so its result is missing."
+	nothing := "Not run: the text names no concrete topics or events to search news coverage for."
+	want := map[string][2]any{"g": {"ran", nil}, "x": {"ran", nil}, "f": {"unavailable", unavailable},
+		"df": {"unavailable", unavailable}, "ns": {"not_applicable", nothing}, "ds": {"not_applicable", nothing},
+		"off": {"not_applicable", "Not run: this analyzer was not requested for this job."}}
+	for a, w := range want {
+		require.Equal(t, w[0], run(fin, a)["availability"], a)
+		require.Equal(t, w[1], run(fin, a)["note"], a)
+	}
+	require.Equal(t, "dependency_failed", run(fin, "df")["reason"])
+	require.Equal(t, "dependency_skipped", run(fin, "ds")["reason"])
 }

@@ -93,6 +93,9 @@ type AnalyzerRun struct {
 	FinishedAt *time.Time      `json:"finished_at"`
 	DurationMS *int64          `json:"duration_ms"`
 	Result     json.RawMessage `json:"result"`
+	// Availability and Note are set once by Availability when the run settles.
+	Availability *string `json:"availability"`
+	Note         *string `json:"note"`
 }
 
 // Settled reports succeeded, failed or skipped.
