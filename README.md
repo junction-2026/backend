@@ -147,6 +147,26 @@ docker build -t orchestrator . && docker run -p 8080:8080 orchestrator
 `GET /healthz` is an operational endpoint; the API is under `/api/v1`. There is no authentication:
 keep the server on a trusted network.
 
+## Source info analyzer
+
+`docs/examples/source_info.yaml` (analyzer `source_info`, adapter `source_info`) looks up the news outlet, its
+political leaning (`bias`), factuality and country behind every article `news_search` found and behind the job's
+`input.source.url` (`page_outlet`), and summarises the leaning and country mix (result shape: shared change
+`source-info-result`). It depends on `news_search` (binding `search`, required) and may bind `source: $input.source`.
+It makes no network requests and costs no quota; leaning and factuality describe the outlet, not the article, and
+`unknown` means not rated.
+
+`execution.outlets_file` (default `/etc/orchestrator/data/outlets.csv`, where the image copies `data/outlets.csv`;
+format in `data/README.md`) is read once at startup when the analyzer is enabled. Startup fails naming the analyzer
+and file when it is missing, when the header differs, when a `domain` is empty or when a host or domain is listed
+under two outlets (the row and value are named). `outlets_file` and `timeout` are the only `execution` keys.
+Analyzers with the same file share one in-memory table.
+
+A URL is matched by its exact host (lower case, no port, no trailing dot, no leading `www.`), then by its registered
+domain (public suffix list). Nothing found by `news_search` and no `input.source.url` settles the run as `skipped`
+with reason `no_sources`; a failed or skipped `news_search` gives the usual `dependency_failed` /
+`dependency_skipped`.
+
 ## Technique classifier analyzer
 
 `docs/examples/technique_classifier.yaml` (analyzer `techniques`, adapter `technique_classifier`, category `propaganda`,
