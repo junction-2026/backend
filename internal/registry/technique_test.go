@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const techModels = "      short: {endpoint: \"${S}\", headers: {Authorization: \"Bearer ${T}\"}, threshold: 0.3}\n" +
-	"      long: {endpoint: \"${L}\", threshold: 0.5, thresholds: {Doubt: 0.7}}\n"
+const techModels = "      social: {endpoint: \"${S}\", headers: {Authorization: \"Bearer ${T}\"}}\n" +
+	"      technique: {endpoint: \"${L}\", cutoff: 0.6}\n"
 
 var techEnv = map[string]string{"S": "http://s/predict", "L": "http://l/predict", "T": "tok"}
 
@@ -25,46 +25,53 @@ func TestTechniqueDefaultsAndExpansion(t *testing.T) {
 	r, err := Load(write(t, "r.yaml", techYAML(techModels)), opts(techEnv))
 	require.NoError(t, err)
 	e := r.Get("techniques").Execution
-	require.Equal(t, 80, e.ShortMaxWordsN())
-	require.Equal(t, 20, e.MaxSentencesN())
+	require.Equal(t, 80, e.SocialMaxWordsN())
+	require.Equal(t, 40, e.TechniqueMinWordsN())
 	require.Equal(t, 30*time.Second, e.Timeout)
-	require.Equal(t, "http://s/predict", e.Short.Endpoint)
-	require.Equal(t, "Bearer tok", e.Short.Headers["Authorization"])
-	require.Equal(t, 0.3, *e.Short.Threshold)
-	require.Equal(t, 0.7, e.Long.ThresholdFor("Doubt"))
-	require.Equal(t, 0.5, e.Long.ThresholdFor("Slogans"))
+	require.Equal(t, "http://s/predict", e.Social.Endpoint)
+	require.Equal(t, "Bearer tok", e.Social.Headers["Authorization"])
+	require.Equal(t, "http://l/predict", e.Technique.Endpoint)
+	require.Equal(t, 0.3, e.Social.CutoffOr(DefaultSocialCutoff))
+	require.Equal(t, 0.6, e.Technique.CutoffOr(DefaultTechniqueCutoff))
 
-	r, err = Load(write(t, "r.yaml", techYAML("      short_max_words: 10\n      max_sentences: 3\n      timeout: 5s\n"+techModels)), opts(techEnv))
+	r, err = Load(write(t, "r.yaml", techYAML("      social_max_words: 10\n      technique_min_words: 11\n      timeout: 5s\n"+techModels)), opts(techEnv))
 	require.NoError(t, err)
 	e = r.Get("techniques").Execution
-	require.Equal(t, 10, e.ShortMaxWordsN())
-	require.Equal(t, 3, e.MaxSentencesN())
+	require.Equal(t, 10, e.SocialMaxWordsN())
+	require.Equal(t, 11, e.TechniqueMinWordsN())
 	require.Equal(t, 5*time.Second, e.Timeout)
+	require.Equal(t, 0.5, (&NCIModel{}).CutoffOr(DefaultTechniqueCutoff))
+	require.Equal(t, 0.5, (*NCIModel)(nil).CutoffOr(DefaultTechniqueCutoff))
 }
 
 func TestTechniqueValidation(t *testing.T) {
-	long := "      long: {endpoint: http://l, threshold: 0.5}\n"
-	short := "      short: {endpoint: http://s, threshold: 0.3}\n"
+	tech := "      technique: {endpoint: http://l}\n"
+	social := "      social: {endpoint: http://s}\n"
 	for name, c := range map[string]struct{ exec, want string }{
-		"no short":       {long, "execution.short is required"},
-		"no long":        {short, "execution.long is required"},
-		"empty endpoint": {"      short: {endpoint: \"\", threshold: 0.3}\n" + long, "execution.short.endpoint"},
-		"no endpoint":    {short + "      long: {threshold: 0.5}\n", "execution.long.endpoint"},
-		"no threshold":   {"      short: {endpoint: http://s}\n" + long, "execution.short.threshold is required"},
-		"threshold > 1":  {short + "      long: {endpoint: http://l, threshold: 1.5}\n", "execution.long.threshold must be between 0 and 1"},
-		"threshold < 0":  {"      short: {endpoint: http://s, threshold: -0.1}\n" + long, "execution.short.threshold must be between"},
-		"unknown name":   {"      short: {endpoint: http://s, threshold: 0.3, thresholds: {Nope: 0.2}}\n" + long, `"Nope" is not a technique name`},
-		"override > 1":   {"      short: {endpoint: http://s, threshold: 0.3, thresholds: {Doubt: 2}}\n" + long, "thresholds.Doubt must be between"},
-		"zero words":     {"      short_max_words: 0\n" + short + long, "must be positive integers"},
-		"zero sentences": {"      max_sentences: -1\n" + short + long, "must be positive integers"},
-		"top endpoint":   {"      endpoint: http://x\n" + short + long, "not allowed for adapter technique_classifier"},
-		"top method":     {"      method: POST\n" + short + long, "not allowed for adapter technique_classifier"},
-		"top handler":    {"      handler: text_stats\n" + short + long, "not allowed for adapter technique_classifier"},
-		"top poll":       {"      poll_interval: 1s\n" + short + long, "not allowed for adapter technique_classifier"},
-		"top headers":    {"      headers: {A: b}\n" + short + long, "not allowed for adapter technique_classifier"},
-		"unset variable": {"      short: {endpoint: \"${NOPE_VAR}\", threshold: 0.3}\n" + long, "NOPE_VAR"},
-		"unset header":   {"      short: {endpoint: http://s, headers: {A: \"${NOPE_HDR}\"}, threshold: 0.3}\n" + long, "NOPE_HDR"},
-		"empty variable": {"      short: {endpoint: \"${EMPTY}\", threshold: 0.3}\n" + long, "execution.short.endpoint is empty"},
+		"no social":       {tech, "execution.social is required"},
+		"no technique":    {social, "execution.technique is required"},
+		"empty endpoint":  {"      social: {endpoint: \"\"}\n" + tech, "execution.social.endpoint"},
+		"no endpoint":     {social + "      technique: {cutoff: 0.5}\n", "execution.technique.endpoint"},
+		"cutoff > 1":      {social + "      technique: {endpoint: http://l, cutoff: 1.5}\n", "execution.technique.cutoff must be between 0 and 1"},
+		"cutoff < 0":      {"      social: {endpoint: http://s, cutoff: -0.1}\n" + tech, "execution.social.cutoff must be between"},
+		"zero social max": {"      social_max_words: 0\n" + social + tech, "must be positive integers"},
+		"zero tech min":   {"      technique_min_words: -1\n" + social + tech, "must be positive integers"},
+		"gap":             {"      social_max_words: 30\n" + social + tech, "technique_min_words (40) must be at most execution.social_max_words + 1 (31)"},
+		"gap explicit":    {"      social_max_words: 10\n      technique_min_words: 12\n" + social + tech, "must be at most"},
+		"old short":       {"      short: {endpoint: http://s, threshold: 0.3}\n" + social + tech, "execution.short is no longer supported: use execution.social"},
+		"old long":        {"      long: {endpoint: http://l}\n" + social + tech, "execution.long is no longer supported: use execution.technique"},
+		"old short words": {"      short_max_words: 80\n" + social + tech, "use execution.social_max_words and technique_min_words"},
+		"old sentences":   {"      max_sentences: 20\n" + social + tech, "use execution.spans.max_sentences"},
+		"old threshold":   {"      social: {endpoint: http://s, threshold: 0.3}\n" + tech, "use execution.social.cutoff"},
+		"old thresholds":  {social + "      technique: {endpoint: http://l, thresholds: {Doubt: 0.7}}\n", "use execution.technique.cutoff"},
+		"top endpoint":    {"      endpoint: http://x\n" + social + tech, "not allowed for adapter technique_classifier"},
+		"top method":      {"      method: POST\n" + social + tech, "not allowed for adapter technique_classifier"},
+		"top handler":     {"      handler: text_stats\n" + social + tech, "not allowed for adapter technique_classifier"},
+		"top poll":        {"      poll_interval: 1s\n" + social + tech, "not allowed for adapter technique_classifier"},
+		"top headers":     {"      headers: {A: b}\n" + social + tech, "not allowed for adapter technique_classifier"},
+		"unset variable":  {"      social: {endpoint: \"${NOPE_VAR}\"}\n" + tech, "NOPE_VAR"},
+		"unset header":    {"      social: {endpoint: http://s, headers: {A: \"${NOPE_HDR}\"}}\n" + tech, "NOPE_HDR"},
+		"empty variable":  {social + "      technique: {endpoint: \"${EMPTY}\"}\n", "execution.technique.endpoint is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := write(t, "r.yaml", techYAML(c.exec))
@@ -75,10 +82,13 @@ func TestTechniqueValidation(t *testing.T) {
 			require.Contains(t, err.Error(), `"techniques"`)
 		})
 	}
+	// technique_min_words = social_max_words + 1 is allowed (no overlap, no gap)
+	_, err := Load(write(t, "r.yaml", techYAML("      social_max_words: 10\n      technique_min_words: 11\n"+social+tech)), opts(nil))
+	require.NoError(t, err)
 }
 
 func TestTechniqueUnknownBlockKey(t *testing.T) {
-	_, err := Load(write(t, "r.yaml", techYAML("      short: {endpoint: http://s, threshold: 0.3, colour: red}\n      long: {endpoint: http://l, threshold: 0.5}\n")), opts(nil))
+	_, err := Load(write(t, "r.yaml", techYAML("      social: {endpoint: http://s, colour: red}\n      technique: {endpoint: http://l}\n")), opts(nil))
 	require.ErrorContains(t, err, "colour")
 }
 
@@ -108,8 +118,12 @@ func TestTechniqueDisabledLoadsWithUnsetVariables(t *testing.T) {
 }
 
 func TestTechniqueKeysOnlyForTechniqueAdapter(t *testing.T) {
+	for _, k := range []string{"social_max_words: 3", "technique_min_words: 3", "social: {endpoint: http://s}", "technique: {endpoint: http://l}"} {
+		_, err := Load(write(t, "r.yaml", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, "+k+"}\n"), opts(nil))
+		require.ErrorContains(t, err, "only allowed for adapter technique_classifier", k)
+	}
 	_, err := Load(write(t, "r.yaml", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, max_sentences: 3}\n"), opts(nil))
-	require.ErrorContains(t, err, "only allowed for adapter technique_classifier")
+	require.ErrorContains(t, err, "no longer supported")
 }
 
 func TestTechniqueExampleLoads(t *testing.T) {
@@ -122,7 +136,7 @@ func TestTechniqueExampleLoads(t *testing.T) {
 	require.NoError(t, err)
 	b = []byte(strings.ReplaceAll(string(b), DefaultSpanPrompt, prompt))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "techniques.yaml"), b, 0o600))
-	env := map[string]string{"TECHNIQUE_SHORT_URL": "http://s", "TECHNIQUE_LONG_URL": "http://l", "ML_API_TOKEN": "tok",
+	env := map[string]string{"NCI_SOCIAL_URL": "http://s", "NCI_TECHNIQUE_URL": "http://l", "ML_API_TOKEN": "tok",
 		"TECHNIQUE_SPAN_URL": "http://span", "SPAN_LLM_BASE_URL": "http://llm/v1", "SPAN_LLM_API_KEY": "k", "SPAN_LLM_MODEL": "m"}
 	r, err := Load(dir, opts(env))
 	require.NoError(t, err)
@@ -132,13 +146,18 @@ func TestTechniqueExampleLoads(t *testing.T) {
 	require.Equal(t, []string{"translation"}, a.DependsOn)
 	require.Equal(t, map[string]string{"text": "$analyzers.translation"}, a.Input.Bindings)
 	e := a.Execution
-	require.Equal(t, "http://s", e.Short.Endpoint)
-	require.Equal(t, "http://l", e.Long.Endpoint)
-	require.Equal(t, "Bearer tok", e.Long.Headers["Authorization"])
-	require.Equal(t, 0.3, *e.Short.Threshold)
-	require.Equal(t, 0.5, *e.Long.Threshold)
+	require.Equal(t, "http://s", e.Social.Endpoint)
+	require.Equal(t, "http://l", e.Technique.Endpoint)
+	require.Equal(t, "Bearer tok", e.Technique.Headers["Authorization"])
+	require.Equal(t, "Bearer tok", e.Social.Headers["Authorization"])
+	require.Equal(t, 0.3, *e.Social.Cutoff)
+	require.Equal(t, 0.5, *e.Technique.Cutoff)
+	require.Equal(t, 80, e.SocialMaxWordsN())
+	require.Equal(t, 40, e.TechniqueMinWordsN())
 	require.True(t, a.LLM.Include)
-	require.Contains(t, a.LLM.Description, "spans")
+	for _, s := range []string{"spans", "English translation", "several", "low score", "not a technique", "nci-technique", "nci-social"} {
+		require.Contains(t, a.LLM.Description, s)
+	}
 	sp := e.Spans
 	require.Equal(t, "http://span", sp.SentenceModel.Endpoint)
 	require.Equal(t, "Bearer tok", sp.SentenceModel.Headers["Authorization"])

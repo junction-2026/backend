@@ -100,12 +100,17 @@ type Execution struct {
 	News           NewsSearch     `yaml:"-"`
 
 	// fact_check (BaseURL, APIKey, MaxResults, MaxConcurrency and CacheTTL are shared); MaxClaims is also the topic_extraction cap
-	// technique_classifier only: Short/Long are the two ML services, chosen by word count
-	ShortMaxWords *int            `yaml:"short_max_words"`
-	MaxSentences  *int            `yaml:"max_sentences"`
-	Short         *TechniqueModel `yaml:"short"`
-	Long          *TechniqueModel `yaml:"long"`
-	Spans         *TechniqueSpans `yaml:"spans"`
+	// technique_classifier only: Technique/Social are the NCI models, selected by word count
+	SocialMaxWords    *int            `yaml:"social_max_words"`
+	TechniqueMinWords *int            `yaml:"technique_min_words"`
+	Technique         *NCIModel       `yaml:"technique"`
+	Social            *NCIModel       `yaml:"social"`
+	Spans             *TechniqueSpans `yaml:"spans"`
+	// keys of the earlier technique_classifier, decoded only to reject them naming their replacement
+	OldShortMaxWords any `yaml:"short_max_words"`
+	OldMaxSentences  any `yaml:"max_sentences"`
+	OldShort         any `yaml:"short"`
+	OldLong          any `yaml:"long"`
 
 	MinCheckWorthiness *float64 `yaml:"min_check_worthiness"`
 	MaxClaims          *int     `yaml:"max_claims"`

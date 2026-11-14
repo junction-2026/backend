@@ -22,7 +22,7 @@ type techniqueSpan struct {
 	End       int    `json:"end"`
 }
 
-// detectedTechnique is a Detection of `detected`; those in sentences[].techniques carry no spans.
+// detectedTechnique is a Detection of `detected` with its spans.
 type detectedTechnique struct {
 	techniqueDetection
 	Spans []techniqueSpan `json:"spans"`
@@ -144,7 +144,7 @@ func (x *Executor) sentenceSpans(ctx context.Context, def *registry.Analyzer, re
 	out := map[string][]techniqueSpan{}
 	for i, st := range sents {
 		for _, d := range det {
-			if scores[i][d.Name] >= m.ThresholdFor(d.Name) {
+			if scores[i].scores[d.Name] >= m.ThresholdFor(d.Name) {
 				out[d.Name] = append(out[d.Name], techniqueSpan{d.Name, st.Text, st.Start, st.End})
 			}
 		}

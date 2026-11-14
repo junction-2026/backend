@@ -253,13 +253,11 @@ func TestTechniqueSpanFailuresKeepClassification(t *testing.T) {
 			r := runTech(t, d, techReq(tr[c.lang], c.lang, content[c.lang]))
 			r0 := base[c.lang]
 			require.Equal(t, c.want, r.SpanStatus)
-			require.Equal(t, r0.Techniques, r.Techniques)
-			require.Equal(t, r0.Sentences, r.Sentences)
-			require.Equal(t, r0.OffsetsIn, r.OffsetsIn)
+			require.Equal(t, r0.Results, r.Results)
 			require.Len(t, r.Detected, len(r0.Detected))
 			for i, x := range r.Detected {
 				require.Equal(t, r0.Detected[i].Name, x.Name)
-				require.Equal(t, r0.Detected[i].Score, x.Score)
+				require.Equal(t, r0.Detected[i].Models, x.Models)
 				if c.want != "ok" {
 					require.Equal(t, []techniqueSpan{}, x.Spans)
 				}

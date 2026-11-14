@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// AdapterTechniqueClassifier is the propaganda technique classifier (short or long ML model chosen by text length).
+// AdapterTechniqueClassifier is the propaganda technique classifier (NCI document and/or short-post model by word count).
 const AdapterTechniqueClassifier = "technique_classifier"
 
-// TechniqueNames are the 18 SemEval-2020 Task 11 technique names, in a fixed order (the order of ties in results).
+// TechniqueNames are the 18 SemEval-2020 Task 11 technique names, in a fixed order (the order of scores and detected).
 var TechniqueNames = []string{
 	"Loaded_Language", "Appeal_to_fear-prejudice", "Exaggeration,Minimisation", "Repetition", "Flag-Waving",
 	"Name_Calling,Labeling", "Reductio_ad_hitlerum", "Black-and-White_Fallacy", "Causal_Oversimplification",
@@ -17,7 +17,31 @@ var TechniqueNames = []string{
 	"Thought-terminating_Cliches", "Bandwagon", "Slogans", "Obfuscation,Intentional_Vagueness,Confusion",
 }
 
-// TechniqueModel is one ML service of the technique_classifier adapter (the `short` or `long` block).
+// NCIModel is one classification model of the technique_classifier adapter (the `technique` or `social` block).
+type NCIModel struct {
+	Endpoint string            `yaml:"endpoint"`
+	Headers  map[string]string `yaml:"headers"`
+	Cutoff   *float64          `yaml:"cutoff"`
+	// earlier keys, decoded only to reject them naming `cutoff`
+	OldThreshold  any `yaml:"threshold"`
+	OldThresholds any `yaml:"thresholds"`
+}
+
+// Default cutoffs of the technique and social blocks.
+const (
+	DefaultTechniqueCutoff = 0.5
+	DefaultSocialCutoff    = 0.3
+)
+
+// CutoffOr is the configured cutoff, else def (tests may build models without Load; nil-safe).
+func (m *NCIModel) CutoffOr(def float64) float64 {
+	if m == nil || m.Cutoff == nil {
+		return def
+	}
+	return *m.Cutoff
+}
+
+// TechniqueModel is the span step's sentence model (`spans.sentence_model`).
 type TechniqueModel struct {
 	Endpoint   string             `yaml:"endpoint"`
 	Headers    map[string]string  `yaml:"headers"`
@@ -70,74 +94,99 @@ func (s TechniqueSpans) MaxInputCharsN() int {
 	return intOr(s.MaxInputChars, DefaultMaxInputChars)
 }
 
-// Defaults of the technique_classifier settings; tests build Executions without Load.
-func (e Execution) ShortMaxWordsN() int { return intOr(e.ShortMaxWords, 80) }
-func (e Execution) MaxSentencesN() int  { return intOr(e.MaxSentences, 20) }
+// Defaults of the technique_classifier word bounds; tests build Executions without Load.
+func (e Execution) SocialMaxWordsN() int    { return intOr(e.SocialMaxWords, 80) }
+func (e Execution) TechniqueMinWordsN() int { return intOr(e.TechniqueMinWords, 40) }
 
 // checkTechnique validates the technique_classifier settings and rejects them on other adapters.
 func (a *Analyzer) checkTechnique() error {
 	e := &a.Execution
+	for _, o := range []struct {
+		set       bool
+		key, repl string
+	}{
+		{e.OldShort != nil, "short", "social"},
+		{e.OldLong != nil, "long", "technique"},
+		{e.OldShortMaxWords != nil, "short_max_words", "social_max_words and technique_min_words"},
+		{e.OldMaxSentences != nil, "max_sentences", "spans.max_sentences (sentences are no longer classified)"},
+	} {
+		if o.set {
+			return fmt.Errorf("execution.%s is no longer supported: use execution.%s", o.key, o.repl)
+		}
+	}
 	if e.Adapter != AdapterTechniqueClassifier {
-		if e.ShortMaxWords != nil || e.MaxSentences != nil || e.Short != nil || e.Long != nil || e.Spans != nil {
-			return fmt.Errorf("execution.short_max_words, max_sentences, short, long and spans are only allowed for adapter %s", AdapterTechniqueClassifier)
+		if e.SocialMaxWords != nil || e.TechniqueMinWords != nil || e.Technique != nil || e.Social != nil || e.Spans != nil {
+			return fmt.Errorf("execution.social_max_words, technique_min_words, technique, social and spans are only allowed for adapter %s", AdapterTechniqueClassifier)
 		}
 		return nil
 	}
 	if e.Endpoint != "" || e.Method != "" || e.Handler != "" || e.PollInterval != 0 || len(e.Headers) > 0 {
-		return fmt.Errorf("execution.endpoint, method, handler, poll_interval and headers are not allowed for adapter %s (set them in the short and long blocks)", e.Adapter)
+		return fmt.Errorf("execution.endpoint, method, handler, poll_interval and headers are not allowed for adapter %s (set them in the technique and social blocks)", e.Adapter)
 	}
 	if len(a.Input.Bindings) != 1 || !strings.HasPrefix(a.Input.Bindings["text"], "$analyzers.") {
 		return fmt.Errorf("input.bindings for adapter %s must be exactly text: $analyzers.<id>", e.Adapter)
 	}
-	if e.ShortMaxWords != nil && *e.ShortMaxWords < 1 || e.MaxSentences != nil && *e.MaxSentences < 1 {
-		return fmt.Errorf("execution.short_max_words and execution.max_sentences must be positive integers")
+	if e.SocialMaxWords != nil && *e.SocialMaxWords < 1 || e.TechniqueMinWords != nil && *e.TechniqueMinWords < 1 {
+		return fmt.Errorf("execution.social_max_words and execution.technique_min_words must be positive integers")
+	}
+	if e.TechniqueMinWordsN() > e.SocialMaxWordsN()+1 {
+		return fmt.Errorf("execution.technique_min_words (%d) must be at most execution.social_max_words + 1 (%d) so every text gets a model",
+			e.TechniqueMinWordsN(), e.SocialMaxWordsN()+1)
+	}
+	for _, b := range []struct {
+		name string
+		m    *NCIModel
+	}{{"technique", e.Technique}, {"social", e.Social}} {
+		switch {
+		case b.m == nil:
+			return fmt.Errorf("execution.%s is required for adapter %s", b.name, e.Adapter)
+		case b.m.OldThreshold != nil || b.m.OldThresholds != nil:
+			return fmt.Errorf("execution.%s.threshold and thresholds are no longer supported: use execution.%s.cutoff (one cutoff per model)", b.name, b.name)
+		case strings.TrimSpace(b.m.Endpoint) == "":
+			return fmt.Errorf("execution.%s.endpoint is required", b.name)
+		case b.m.Cutoff != nil && !inUnit(*b.m.Cutoff):
+			return fmt.Errorf("execution.%s.cutoff must be between 0 and 1", b.name)
+		}
+	}
+	s := e.Spans
+	if s == nil {
+		return nil
+	}
+	switch {
+	case s.LLM == nil:
+		return fmt.Errorf("execution.spans.llm is required when execution.spans is set")
+	case s.Timeout <= 0:
+		return fmt.Errorf("execution.spans.timeout is required and must be positive")
+	case s.MaxSentences != nil && *s.MaxSentences < 1 || s.MaxPhrasesPerTechnique != nil && *s.MaxPhrasesPerTechnique < 1 ||
+		s.MaxInputChars != nil && *s.MaxInputChars < 1:
+		return fmt.Errorf("execution.spans.max_sentences, max_phrases_per_technique and max_input_chars must be positive integers")
+	}
+	for _, k := range []string{"model", "messages"} {
+		if _, ok := s.LLM.ExtraBody[k]; ok {
+			return fmt.Errorf("execution.spans.llm.extra_body.%s is not allowed (it would replace the request's %s)", k, k)
+		}
+	}
+	m := s.SentenceModel
+	switch {
+	case m == nil:
+		return fmt.Errorf("execution.spans.sentence_model is required for adapter %s", e.Adapter)
+	case strings.TrimSpace(m.Endpoint) == "":
+		return fmt.Errorf("execution.spans.sentence_model.endpoint is required")
+	case m.Threshold == nil:
+		return fmt.Errorf("execution.spans.sentence_model.threshold is required")
+	case !inUnit(*m.Threshold):
+		return fmt.Errorf("execution.spans.sentence_model.threshold must be between 0 and 1")
 	}
 	known := map[string]bool{}
 	for _, n := range TechniqueNames {
 		known[n] = true
 	}
-	models := []struct {
-		name string
-		m    *TechniqueModel
-	}{{"short", e.Short}, {"long", e.Long}}
-	if s := e.Spans; s != nil {
+	for n, t := range m.Thresholds {
 		switch {
-		case s.LLM == nil:
-			return fmt.Errorf("execution.spans.llm is required when execution.spans is set")
-		case s.Timeout <= 0:
-			return fmt.Errorf("execution.spans.timeout is required and must be positive")
-		case s.MaxSentences != nil && *s.MaxSentences < 1 || s.MaxPhrasesPerTechnique != nil && *s.MaxPhrasesPerTechnique < 1 ||
-			s.MaxInputChars != nil && *s.MaxInputChars < 1:
-			return fmt.Errorf("execution.spans.max_sentences, max_phrases_per_technique and max_input_chars must be positive integers")
-		}
-		for _, k := range []string{"model", "messages"} {
-			if _, ok := s.LLM.ExtraBody[k]; ok {
-				return fmt.Errorf("execution.spans.llm.extra_body.%s is not allowed (it would replace the request's %s)", k, k)
-			}
-		}
-		models = append(models, struct {
-			name string
-			m    *TechniqueModel
-		}{"spans.sentence_model", s.SentenceModel})
-	}
-	for _, b := range models {
-		switch {
-		case b.m == nil:
-			return fmt.Errorf("execution.%s is required for adapter %s", b.name, e.Adapter)
-		case strings.TrimSpace(b.m.Endpoint) == "":
-			return fmt.Errorf("execution.%s.endpoint is required", b.name)
-		case b.m.Threshold == nil:
-			return fmt.Errorf("execution.%s.threshold is required", b.name)
-		case !inUnit(*b.m.Threshold):
-			return fmt.Errorf("execution.%s.threshold must be between 0 and 1", b.name)
-		}
-		for n, t := range b.m.Thresholds {
-			switch {
-			case !known[n]:
-				return fmt.Errorf("execution.%s.thresholds: %q is not a technique name", b.name, n)
-			case !inUnit(t):
-				return fmt.Errorf("execution.%s.thresholds.%s must be between 0 and 1", b.name, n)
-			}
+		case !known[n]:
+			return fmt.Errorf("execution.spans.sentence_model.thresholds: %q is not a technique name", n)
+		case !inUnit(t):
+			return fmt.Errorf("execution.spans.sentence_model.thresholds.%s must be between 0 and 1", n)
 		}
 	}
 	return nil
@@ -147,31 +196,30 @@ func inUnit(f float64) bool { return f >= 0 && f <= 1 } // false for NaN
 
 // expandTechnique expands ${VAR} in the endpoints and headers of an enabled analyzer and loads the span LLM.
 func (e *Execution) expandTechnique(getenv func(string) (string, bool)) error {
-	models := []struct {
-		name string
-		m    *TechniqueModel
-	}{{"short", e.Short}, {"long", e.Long}}
-	if e.Spans != nil {
-		models = append(models, struct {
-			name string
-			m    *TechniqueModel
-		}{"spans.sentence_model", e.Spans.SentenceModel})
+	type block struct {
+		name     string
+		endpoint *string
+		headers  *map[string]string
 	}
-	for _, b := range models {
+	blocks := []block{{"technique", &e.Technique.Endpoint, &e.Technique.Headers}, {"social", &e.Social.Endpoint, &e.Social.Headers}}
+	if e.Spans != nil {
+		blocks = append(blocks, block{"spans.sentence_model", &e.Spans.SentenceModel.Endpoint, &e.Spans.SentenceModel.Headers})
+	}
+	for _, b := range blocks {
 		var err error
-		if b.m.Endpoint, err = expand(b.m.Endpoint, getenv); err != nil {
+		if *b.endpoint, err = expand(*b.endpoint, getenv); err != nil {
 			return fmt.Errorf("execution.%s.endpoint: %w", b.name, err)
 		}
-		if strings.TrimSpace(b.m.Endpoint) == "" {
+		if strings.TrimSpace(*b.endpoint) == "" {
 			return fmt.Errorf("execution.%s.endpoint is empty", b.name)
 		}
-		hdr := make(map[string]string, len(b.m.Headers))
-		for k, v := range b.m.Headers {
+		hdr := make(map[string]string, len(*b.headers))
+		for k, v := range *b.headers {
 			if hdr[k], err = expand(v, getenv); err != nil {
 				return fmt.Errorf("execution.%s.headers.%s: %w", b.name, k, err)
 			}
 		}
-		b.m.Headers = hdr
+		*b.headers = hdr
 	}
 	if e.Spans != nil {
 		return e.Spans.loadLLM(getenv)
