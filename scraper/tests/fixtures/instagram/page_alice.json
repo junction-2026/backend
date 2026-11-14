@@ -1,0 +1,44 @@
+[
+  {
+    "xig_user_by_username": {
+      "pk": "1001",
+      "id": "17841400000000001",
+      "username": "alice",
+      "full_name": "Alice Example",
+      "biography": "  Birds & books.\nOpinions are mine.  \n",
+      "follower_count": 4321,
+      "following_count": 87,
+      "all_media_count": 3,
+      "is_verified": true,
+      "is_private": false
+    }
+  },
+  {
+    "xig_user_by_username": {
+      "id": "17841400000000001",
+      "polaris_ordered_timeline_connection": {
+        "edges": [
+          {
+            "node": {
+              "code": "CpC333"
+            }
+          },
+          {
+            "node": {
+              "code": "CpB222"
+            }
+          },
+          {
+            "node": {
+              "code": "CpA111"
+            }
+          }
+        ],
+        "page_info": {
+          "has_next_page": false,
+          "end_cursor": null
+        }
+      }
+    }
+  }
+]

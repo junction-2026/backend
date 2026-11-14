@@ -74,15 +74,6 @@ def test_facebook_personal_profile(client):
     assert e["code"] == "unsupported_account_type" and e["details"]["account_type"] == "personal_profile"
 
 
-@pytest.mark.parametrize("url,platform", [
-    ("https://www.instagram.com/alice", "instagram"), ("https://threads.net/@alice", "threads")])
-def test_platform_module_not_installed(client, url, platform):
-    r = scrape(client, url)
-    assert r.status_code == 503
-    e = r.json()["error"]
-    assert e["code"] == "platform_not_configured" and e["details"]["platform"] == platform
-
-
 def test_unknown_route_uses_envelope(client):
     r = client.get("/nope")
     assert r.status_code == 404 and r.json()["error"]["code"] == "invalid_request"

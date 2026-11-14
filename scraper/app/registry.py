@@ -3,12 +3,11 @@
 Order matters only for mastodon, which accepts any host that is not a listed platform, so it stays last.
 """
 from .errors import ScrapeError
-from .platforms import bluesky, facebook, mastodon, x
+from .platforms import bluesky, facebook, instagram, mastodon, threads, x
 from .platforms.base import Recognized
-from .platforms.pending import INSTAGRAM, THREADS
 from .urls import normalize
 
-MODULES = [bluesky, INSTAGRAM, THREADS, facebook, x, mastodon]
+MODULES = [bluesky, instagram, threads, facebook, x, mastodon]
 
 
 def resolve(url: str):

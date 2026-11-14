@@ -10,7 +10,7 @@ modules are not installed. This change adds the two modules so those URLs return
 
 - `scraper/app/platforms/facebook.py`: public Facebook pages and page posts through headless chromium (Playwright), reading the page's own GraphQL responses.
 - `scraper/app/platforms/x.py`: X profiles and posts through twscrape with a cookie account pool built from `TWITTER_AUTH_TOKEN` and `TWITTER_CT0`.
-- URL recognition for both platforms moves from `platforms/pending.py` into the modules; `app/registry.py` gets one entry each.
+- URL recognition for both platforms moves from `platforms/pending.py` into the modules; `app/registry.py` gets one entry each. With the sibling Instagram/Threads modules no platform is pending any more, so `pending.py` is deleted.
 - `scraper/Dockerfile` installs chromium for Playwright; `pyproject.toml` gains `twscrape` and `playwright`.
 - Recorded fixtures and offline tests; the existing "module not installed" test no longer lists Facebook and X.
 
