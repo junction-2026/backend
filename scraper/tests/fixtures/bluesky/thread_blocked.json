@@ -1,0 +1,10 @@
+{
+  "thread": {
+    "$type": "app.bsky.feed.defs#blockedPost",
+    "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+    "blocked": true,
+    "author": {
+      "did": "did:plc:alice1234567890abcdefghij"
+    }
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "thread": {
+    "$type": "app.bsky.feed.defs#threadViewPost",
+    "post": {
+      "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+      "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae",
+      "author": {
+        "did": "did:plc:alice1234567890abcdefghij",
+        "handle": "alice.bsky.social",
+        "displayName": "Alice Example",
+        "createdAt": "2023-05-01T10:00:00.000Z"
+      },
+      "record": {
+        "$type": "app.bsky.feed.post",
+        "text": "Is anyone else seeing this?",
+        "createdAt": "2026-11-17T10:00:00.000Z"
+      },
+      "replyCount": 7,
+      "repostCount": 1,
+      "likeCount": 3,
+      "quoteCount": 0,
+      "indexedAt": "2026-11-17T10:00:01.000Z"
+    },
+    "replies": [
+      {
+        "$type": "app.bsky.feed.defs#threadViewPost",
+        "post": {
+          "uri": "at://did:plc:bob1234567890abcdefghijkl/app.bsky.feed.post/3kr1aaaaaaaaaa",
+          "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae",
+          "author": {
+            "did": "did:plc:bob1234567890abcdefghijkl",
+            "handle": "bob.example.com",
+            "displayName": "",
+            "createdAt": "2023-06-01T10:00:00.000Z"
+          },
+          "record": {
+            "$type": "app.bsky.feed.post",
+            "text": "Yes, here too",
+            "createdAt": "2026-11-17T11:00:00.000Z",
+            "reply": {
+              "root": {
+                "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+                "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+              },
+              "parent": {
+                "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+                "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+              }
+            }
+          },
+          "replyCount": 1,
+          "repostCount": 1,
+          "likeCount": 3,
+          "quoteCount": 0,
+          "indexedAt": "2026-11-11T10:00:01.000Z"
+        },
+        "replies": [
+          {
+            "$type": "app.bsky.feed.defs#threadViewPost",
+            "post": {
+              "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3kr2aaaaaaaaaa",
+              "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae",
+              "author": {
+                "did": "did:plc:alice1234567890abcdefghij",
+                "handle": "alice.bsky.social",
+                "displayName": "Alice Example",
+                "createdAt": "2023-05-01T10:00:00.000Z"
+              },
+              "record": {
+                "$type": "app.bsky.feed.post",
+                "text": "Thanks for confirming",
+                "createdAt": "2026-11-17T12:00:00.000Z",
+                "reply": {
+                  "root": {
+                    "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+                    "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+                  },
+                  "parent": {
+                    "uri": "at://did:plc:bob1234567890abcdefghijkl/app.bsky.feed.post/3kr1aaaaaaaaaa",
+                    "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+                  }
+                }
+              },
+              "replyCount": 2,
+              "repostCount": 1,
+              "likeCount": 3,
+              "quoteCount": 0,
+              "indexedAt": "2026-11-12T10:00:01.000Z"
+            },
+            "replies": []
+          }
+        ]
+      },
+      {
+        "$type": "app.bsky.feed.defs#notFoundPost",
+        "uri": "at://x/app.bsky.feed.post/gone",
+        "notFound": true
+      },
+      {
+        "$type": "app.bsky.feed.defs#threadViewPost",
+        "post": {
+          "uri": "at://did:plc:bob1234567890abcdefghijkl/app.bsky.feed.post/3kr3aaaaaaaaaa",
+          "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae",
+          "author": {
+            "did": "did:plc:bob1234567890abcdefghijkl",
+            "handle": "bob.example.com",
+            "displayName": "",
+            "createdAt": "2023-06-01T10:00:00.000Z"
+          },
+          "record": {
+            "$type": "app.bsky.feed.post",
+            "text": "Not for me",
+            "createdAt": "2026-11-17T10:30:00.000Z",
+            "reply": {
+              "root": {
+                "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+                "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+              },
+              "parent": {
+                "uri": "at://did:plc:alice1234567890abcdefghij/app.bsky.feed.post/3k07aaaaaaaaaa",
+                "cid": "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgf5kpqcsgz7soitae"
+              }
+            }
+          },
+          "replyCount": 3,
+          "repostCount": 1,
+          "likeCount": 3,
+          "quoteCount": 0,
+          "indexedAt": "2026-11-13T10:00:01.000Z"
+        },
+        "replies": []
+      }
+    ]
+  }
+}
