@@ -46,3 +46,11 @@ func LLMTitleChecked(inputs map[string]any) bool {
 	title, _ := inputs[jobTitleKey].(string)
 	return titleChecked(title, content)
 }
+
+// TermContextLanguage is the wiki language term_context will look terms up in: the translation's source language, else en.
+func TermContextLanguage(inputs map[string]any) string {
+	if l := readSourceLanguage(inputs["translation"]); l != "" {
+		return l
+	}
+	return "en"
+}
