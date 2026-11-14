@@ -290,6 +290,7 @@ func TestTranslationDocsExample(t *testing.T) {
 	pd := r.Get("propaganda_detection")
 	require.Equal(t, []string{"translation"}, pd.DependsOn)
 	require.Equal(t, map[string]string{"text": "$analyzers.translation"}, pd.Input.Bindings)
+	require.Contains(t, pd.LLM.Description, "English machine translation")
 
 	_, err = Load(f, opts(map[string]string{"PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
 	require.ErrorContains(t, err, "MISTRAL_API_KEY")

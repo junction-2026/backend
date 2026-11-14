@@ -99,7 +99,7 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 	require.NoError(t, json.Unmarshal(llmBody, &req))
 	require.Equal(t, "gpt-test", req.Model)
 	user := req.Messages[1].Content
-	require.Contains(t, user, `"id":"propaganda_detection","description":"Binary classifier for propaganda in the whole text.`)
+	require.Contains(t, user, `"id":"propaganda_detection","description":"Binary classifier for propaganda in the English machine translation of the input text`)
 	require.Contains(t, user, `"result":{"result":[{"label":"PROPAGANDA","score":0.97}],"latency_ms":12}`)
 	require.NotContains(t, user, "text_stats")
 
