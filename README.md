@@ -83,3 +83,32 @@ docker build -t orchestrator . && docker run -p 8080:8080 orchestrator
 
 `GET /healthz` is an operational endpoint; the API is under `/api/v1`. There is no authentication:
 keep the server on a trusted network.
+
+## Jobs from a social-media URL
+
+`POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of
+`input` (shared change `social-media-scrape-input`). The job answers 201 at once with `input: null` and status
+`queued` or `scraping`; the orchestrator then calls the scraper service (`POST {SCRAPER_URL}/scrape`), maps the
+post text (post URL) or the posting history, newest first (profile URL), to `input.content` and keeps the full
+scrape result in `input.source.metadata.scrape`. A failed scrape ends the job `failed` with `scrape.error.code`
+(for example `account_private`, `unsupported_url`, `scraper_unavailable`, `timeout`, `no_text_content`) and
+skips analyzers and finalization with `input_unavailable`.
+
+| Variable | Default | |
+|---|---|---|
+| `SCRAPER_URL` | unset | scraper base URL, e.g. `http://scraper:8003`; unset: requests with `scrape` answer 503 `scrape_unavailable` |
+| `SCRAPER_TOKEN` | | sent as `Authorization: Bearer <token>`; required when `SCRAPER_URL` is set |
+| `SCRAPER_TIMEOUT` | `120s` | Go duration; a slower scrape fails with `timeout` |
+
+None of the three values is logged or returned by the API.
+
+```
+curl -s -X POST http://localhost:8080/api/v1/jobs -H 'Content-Type: application/json' \
+  -d '{"scrape": {"url": "https://bsky.app/profile/alice.bsky.social/post/3kxyz", "max_posts": 10}}'
+```
+
+Follow the job with `GET /api/v1/jobs/{id}` or the event stream (`scrape.started`, then `scrape.succeeded` or
+`scrape.failed`). `docs/examples/bot_detection.yaml` is a disabled example analyzer for the bot detector
+service (port 8001): it binds `$input` and `$input.source`, so it receives the profile, history and comments.
+Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
+the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.

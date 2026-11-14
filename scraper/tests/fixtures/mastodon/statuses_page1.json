@@ -1,0 +1,74 @@
+[
+  {
+    "id": "5003",
+    "created_at": "2026-11-14T09:30:15.123Z",
+    "in_reply_to_id": null,
+    "url": "https://mastodon.example/@alice/5003",
+    "uri": "https://mastodon.example/users/alice/statuses/5003",
+    "content": "<p>Status 5003</p>",
+    "replies_count": 3,
+    "reblogs_count": 2,
+    "favourites_count": 5,
+    "account": {
+      "id": "1001",
+      "username": "alice",
+      "acct": "alice",
+      "display_name": "Alice",
+      "note": "<p>Birds &amp; books.<br>Opinions are mine.</p><p>She/her</p>",
+      "url": "https://mastodon.example/@alice",
+      "followers_count": 321,
+      "following_count": 12,
+      "statuses_count": 1500,
+      "bot": false,
+      "locked": false
+    }
+  },
+  {
+    "id": "5002",
+    "created_at": "2026-11-13T09:30:15.123Z",
+    "in_reply_to_id": null,
+    "url": "https://mastodon.example/@alice/5002",
+    "uri": "https://mastodon.example/users/alice/statuses/5002",
+    "content": "<p>Status 5002</p>",
+    "replies_count": 3,
+    "reblogs_count": 2,
+    "favourites_count": 5,
+    "account": {
+      "id": "1001",
+      "username": "alice",
+      "acct": "alice",
+      "display_name": "Alice",
+      "note": "<p>Birds &amp; books.<br>Opinions are mine.</p><p>She/her</p>",
+      "url": "https://mastodon.example/@alice",
+      "followers_count": 321,
+      "following_count": 12,
+      "statuses_count": 1500,
+      "bot": false,
+      "locked": false
+    }
+  },
+  {
+    "id": "5001",
+    "created_at": "2026-11-12T09:30:15.123Z",
+    "in_reply_to_id": null,
+    "url": "https://mastodon.example/@alice/5001",
+    "uri": "https://mastodon.example/users/alice/statuses/5001",
+    "content": "<p>Status 5001</p>",
+    "replies_count": 3,
+    "reblogs_count": 2,
+    "favourites_count": 5,
+    "account": {
+      "id": "1001",
+      "username": "alice",
+      "acct": "alice",
+      "display_name": "Alice",
+      "note": "<p>Birds &amp; books.<br>Opinions are mine.</p><p>She/her</p>",
+      "url": "https://mastodon.example/@alice",
+      "followers_count": 321,
+      "following_count": 12,
+      "statuses_count": 1500,
+      "bot": false,
+      "locked": false
+    }
+  }
+]

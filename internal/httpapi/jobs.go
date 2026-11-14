@@ -21,7 +21,7 @@ import (
 
 var (
 	contentTypes = map[string]bool{"text/plain": true, "text/markdown": true, "text/html": true}
-	jobStatuses  = map[string]bool{job.StatusQueued: true, job.StatusRunning: true, job.StatusFinalizing: true,
+	jobStatuses  = map[string]bool{job.StatusQueued: true, job.StatusScraping: true, job.StatusRunning: true, job.StatusFinalizing: true,
 		job.StatusCompleted: true, job.StatusCancelled: true, job.StatusFailed: true}
 )
 
@@ -75,7 +75,13 @@ func parseCreate(body json.RawMessage) (engine.CreateRequest, fields) {
 		return req, f
 	}
 
-	if in, ok := f.optObject(top, "input", "input"); ok {
+	_, hasInput := member(top, "input")
+	if sc, hasScrape := member(top, "scrape"); hasScrape {
+		if hasInput {
+			f["input"] = "exactly one of input and scrape is allowed"
+		}
+		req.Scrape = parseScrape(sc, f)
+	} else if in, ok := f.optObject(top, "input", "input"); ok {
 		content, present := f.str(in, "content", "input.content")
 		switch {
 		case !present && f["input.content"] == nil:
@@ -95,7 +101,7 @@ func parseCreate(body json.RawMessage) (engine.CreateRequest, fields) {
 			parseSource(src, &req.Input.Source, f)
 		}
 	} else if f["input"] == nil {
-		f["input"] = "is required"
+		f["input"] = "input or scrape is required"
 	}
 
 	if raw, present := member(top, "analyzers"); present {
@@ -127,6 +133,42 @@ func parseCreate(body json.RawMessage) (engine.CreateRequest, fields) {
 		}
 	}
 	return req, f
+}
+
+// parseScrape validates a ScrapeRequest and applies its defaults.
+func parseScrape(raw json.RawMessage, f fields) *job.ScrapeRequest {
+	m, ok := object(raw)
+	if !ok {
+		f["scrape"] = "must be an object"
+		return nil
+	}
+	sr := &job.ScrapeRequest{MaxPosts: 20, MaxComments: 50}
+	if v, ok := f.str(m, "url", "scrape.url"); !ok {
+		if f["scrape.url"] == nil {
+			f["scrape.url"] = "is required"
+		}
+	} else if u, err := url.Parse(v); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || len(v) > 2048 {
+		f["scrape.url"] = "must be an absolute http(s) URL of at most 2048 characters"
+	} else {
+		sr.URL = v
+	}
+	f.intRange(m, "max_posts", "scrape.max_posts", 1, 100, &sr.MaxPosts)
+	f.intRange(m, "max_comments", "scrape.max_comments", 0, 200, &sr.MaxComments)
+	return sr
+}
+
+// intRange reads an optional integer member in [lo, hi] into dst.
+func (f fields) intRange(m map[string]json.RawMessage, key, path string, lo, hi int, dst *int) {
+	raw, present := member(m, key)
+	if !present {
+		return
+	}
+	var n int
+	if json.Unmarshal(raw, &n) != nil || n < lo || n > hi {
+		f[path] = fmt.Sprintf("must be an integer between %d and %d", lo, hi)
+		return
+	}
+	*dst = n
 }
 
 func parseSource(m map[string]json.RawMessage, s *job.Source, f fields) {
@@ -179,6 +221,8 @@ func (a *api) createJob(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.As(err, &unknown):
 		WriteError(w, http.StatusUnprocessableEntity, "unknown_analyzer", "unknown analyzer id", map[string]any{"analyzer_ids": unknown.IDs})
+	case errors.Is(err, engine.ErrScrapeUnavailable):
+		WriteError(w, http.StatusServiceUnavailable, "scrape_unavailable", "no scraper is configured on this server", nil)
 	case errors.As(err, &notSel):
 		WriteError(w, http.StatusUnprocessableEntity, "analyzer_not_selectable", "analyzer cannot be selected", map[string]any{"analyzer_ids": notSel.IDs})
 	case err != nil:

@@ -1,0 +1,77 @@
+{
+  "ancestors": [],
+  "descendants": [
+    {
+      "id": "6002",
+      "created_at": "2026-11-15T09:30:15.123Z",
+      "in_reply_to_id": "6001",
+      "url": "https://mastodon.example/@carol@other.example/6002",
+      "uri": "https://mastodon.example/users/carol@other.example/statuses/6002",
+      "content": "<p>@alice nice</p>",
+      "replies_count": 3,
+      "reblogs_count": 2,
+      "favourites_count": 5,
+      "account": {
+        "id": "1003",
+        "username": "carol@other.example",
+        "acct": "carol@other.example",
+        "display_name": "",
+        "note": "",
+        "url": "https://mastodon.example/@carol@other.example",
+        "followers_count": 321,
+        "following_count": 12,
+        "statuses_count": 1500,
+        "bot": false,
+        "locked": false
+      }
+    },
+    {
+      "id": "6001",
+      "created_at": "2026-11-14T09:30:15.123Z",
+      "in_reply_to_id": "112233445566778899",
+      "url": "https://mastodon.example/@bob/6001",
+      "uri": "https://mastodon.example/users/bob/statuses/6001",
+      "content": "<p>First!</p>",
+      "replies_count": 3,
+      "reblogs_count": 2,
+      "favourites_count": 5,
+      "account": {
+        "id": "1002",
+        "username": "bob",
+        "acct": "bob",
+        "display_name": "Bob",
+        "note": "",
+        "url": "https://mastodon.example/@bob",
+        "followers_count": 321,
+        "following_count": 12,
+        "statuses_count": 1500,
+        "bot": false,
+        "locked": false
+      }
+    },
+    {
+      "id": "6003",
+      "created_at": "2026-11-16T09:30:15.123Z",
+      "in_reply_to_id": "6002",
+      "url": "https://mastodon.example/@bob/6003",
+      "uri": "https://mastodon.example/users/bob/statuses/6003",
+      "content": "<p>third</p>",
+      "replies_count": 3,
+      "reblogs_count": 2,
+      "favourites_count": 5,
+      "account": {
+        "id": "1002",
+        "username": "bob",
+        "acct": "bob",
+        "display_name": "Bob",
+        "note": "",
+        "url": "https://mastodon.example/@bob",
+        "followers_count": 321,
+        "following_count": 12,
+        "statuses_count": 1500,
+        "bot": false,
+        "locked": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "1001",
+  "username": "alice",
+  "acct": "alice",
+  "display_name": "Alice",
+  "note": "<p>Birds &amp; books.<br>Opinions are mine.</p><p>She/her</p>",
+  "url": "https://mastodon.example/@alice",
+  "followers_count": 321,
+  "following_count": 12,
+  "statuses_count": 1500,
+  "bot": false,
+  "locked": false
+}
