@@ -1,0 +1,62 @@
+{
+  "data": {
+    "threaded_conversation_with_injections_v2": {
+      "instructions": [
+        {
+          "type": "TimelineAddEntries",
+          "entries": [
+            {
+              "entryId": "conversationthread-099",
+              "content": {
+                "entryType": "TimelineTimelineModule",
+                "items": [
+                  {
+                    "entryId": "conversationthread-099-tweet-1790000000000000099",
+                    "item": {
+                      "itemContent": {
+                        "itemType": "TimelineTweet",
+                        "tweet_results": {
+                          "result": {
+                            "__typename": "Tweet",
+                            "rest_id": "1790000000000000099",
+                            "core": {
+                              "user_results": {
+                                "result": {
+                                  "__typename": "User",
+                                  "rest_id": "1003",
+                                  "core": {
+                                    "screen_name": "carol",
+                                    "name": "Carol"
+                                  },
+                                  "legacy": {
+                                    "description": "",
+                                    "followers_count": 1,
+                                    "friends_count": 1,
+                                    "statuses_count": 1
+                                  }
+                                }
+                              }
+                            },
+                            "legacy": {
+                              "created_at": "Sat Nov 14 09:31:00 +0000 2026",
+                              "full_text": "Oldest reply",
+                              "favorite_count": 0,
+                              "reply_count": 0,
+                              "retweet_count": 0,
+                              "quote_count": 0,
+                              "in_reply_to_status_id_str": "1790000000000000000"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

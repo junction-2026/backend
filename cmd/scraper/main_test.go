@@ -48,16 +48,12 @@ func TestHealthcheck(t *testing.T) {
 	assert.Equal(t, 1, runHealthcheck("0.0.0.0:"+closed))
 }
 
-func TestRegisterPlatformsInstallsBlueskyMastodonInstagramAndThreads(t *testing.T) {
+func TestRegisterPlatformsInstallsTheModules(t *testing.T) {
 	ss.Default = ss.NewRegistry()
 	registerPlatforms(ss.Config{Token: "t", Timeout: 1})
-	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Instagram, ss.Threads} {
+	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Instagram, ss.Threads, ss.Facebook, ss.Twitter} {
 		_, ok := ss.Default.Lookup(p)
 		assert.True(t, ok, p)
-	}
-	for _, p := range []string{ss.Facebook, ss.Twitter} {
-		_, ok := ss.Default.Lookup(p)
-		assert.False(t, ok, p)
 	}
 }
 

@@ -1,9 +1,0 @@
-{
-  "alice": {"id": 1001, "username": "alice", "displayname": "Alice A.", "rawDescription": "Birds &amp; books.\nOpinions are mine.",
-            "created": "2015-03-01T10:00:00+00:00", "followersCount": 321, "friendsCount": 12, "statusesCount": 1500,
-            "verified": false, "blue": true, "protected": false},
-  "bob": {"id": 1002, "username": "bob", "displayname": "Bob", "rawDescription": "", "created": "2020-01-01T00:00:00+00:00",
-          "followersCount": 5, "friendsCount": 6, "statusesCount": 7, "verified": false, "blue": false, "protected": true},
-  "carol": {"id": 1003, "username": "carol", "displayname": "Carol", "rawDescription": "", "created": "2021-01-01T00:00:00+00:00",
-            "followersCount": 1, "friendsCount": 1, "statusesCount": 1, "verified": null, "blue": null, "protected": false}
-}
