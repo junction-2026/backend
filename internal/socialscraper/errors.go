@@ -71,6 +71,15 @@ func UpstreamTimeout(platform string) *Error {
 	return newError("upstream_timeout", http.StatusGatewayTimeout, "the platform did not answer in time", platform)
 }
 
+// LoginRequired is a page that shows a login wall instead of its content (web only).
+func LoginRequired(platform string) *Error {
+	return newError("login_required", http.StatusForbidden, "the page requires a login and cannot be scraped", platform)
+}
+
+func NoTextContent(platform string) *Error {
+	return newError("no_text_content", http.StatusUnprocessableEntity, "the page has no text to analyze", platform)
+}
+
 func InternalError(platform string) *Error {
 	return newError("internal_error", http.StatusInternalServerError, "unexpected internal error", platform)
 }

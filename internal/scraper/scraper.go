@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	neturl "net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/junction-2026/backend/internal/job"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
@@ -35,13 +38,21 @@ type post struct {
 
 // scrapeResult holds the members the mapping needs; everything else stays in the raw body.
 type scrapeResult struct {
-	Platform    string            `json:"platform"`
-	URLKind     string            `json:"url_kind"`
-	Username    string            `json:"username"`
-	DisplayName *string           `json:"display_name"`
-	Post        *post             `json:"post"`
-	Posts       []post            `json:"posts"`
-	Warnings    []json.RawMessage `json:"warnings"`
+	Platform    string  `json:"platform"`
+	URLKind     string  `json:"url_kind"`
+	Username    string  `json:"username"`
+	DisplayName *string `json:"display_name"`
+	Post        *post   `json:"post"`
+	Posts       []post  `json:"posts"`
+	// url_kind page
+	Text         *string           `json:"text"`
+	FinalURL     string            `json:"final_url"`
+	Domain       *string           `json:"domain"`
+	CanonicalURL *string           `json:"canonical_url"`
+	Title        *string           `json:"title"`
+	Author       *string           `json:"author"`
+	PublishedAt  *string           `json:"published_at"`
+	Warnings     []json.RawMessage `json:"warnings"`
 }
 
 func fail(code, msg string) *job.ScrapeError { return &job.ScrapeError{Code: code, Message: msg} }
@@ -91,18 +102,51 @@ func (c *Client) mapError(e *ss.Error) *job.ScrapeError {
 	return out
 }
 
+// pageURL is the canonical URL when it is on the fetched page's registered domain (a page cannot borrow another
+// outlet's record), otherwise the final URL, otherwise the requested one.
+func pageURL(requested string, r *scrapeResult) string {
+	if r.CanonicalURL != nil && r.Domain != nil {
+		if u, err := neturl.Parse(*r.CanonicalURL); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+			if d, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(u.Hostname())); err == nil && d == *r.Domain {
+				return *r.CanonicalURL
+			}
+		}
+	}
+	if r.FinalURL != "" {
+		return r.FinalURL
+	}
+	return requested
+}
+
 // mapResult validates a ScrapeResult and maps it to the Input (shared "Scraped input content/source").
 func mapResult(url string, raw []byte) (*Result, error) {
 	var r scrapeResult
 	if json.Unmarshal(raw, &r) != nil || // also rejects non-objects; null leaves Platform empty
-		r.Platform == "" || r.URLKind == "" || (r.URLKind == "post" && r.Post == nil) {
+		r.Platform == "" || r.URLKind == "" || (r.URLKind == "post" && r.Post == nil) || (r.URLKind == "page" && r.Text == nil) {
 		return nil, errUnavailable
 	}
 	in := job.Input{ContentType: "text/plain", Source: job.Source{URL: url, Platform: r.Platform, Author: r.Username}}
 	if r.DisplayName != nil {
 		in.Source.Title = *r.DisplayName
 	}
-	if r.URLKind == "post" {
+	switch r.URLKind {
+	case "page": // shared "Scraped page source"
+		in.Content = *r.Text
+		in.Source.URL = pageURL(url, &r)
+		in.Source.Author, in.Source.Title = "", ""
+		if r.Title != nil {
+			in.Source.Title = *r.Title
+		}
+		if r.Author != nil {
+			in.Source.Author = *r.Author
+		}
+		if r.PublishedAt != nil {
+			if t, err := time.Parse(time.RFC3339, *r.PublishedAt); err == nil {
+				t = t.UTC()
+				in.Source.PublishedAt = &t
+			}
+		}
+	case "post":
 		in.Content = r.Post.Text
 		if r.Post.CreatedAt != nil {
 			if t, err := time.Parse(time.RFC3339, *r.Post.CreatedAt); err == nil {
@@ -110,7 +154,7 @@ func mapResult(url string, raw []byte) (*Result, error) {
 				in.Source.PublishedAt = &t
 			}
 		}
-	} else { // profile (and, tolerantly, any unknown kind): the history, newest first as delivered
+	default: // profile (and, tolerantly, any unknown kind): the history, newest first as delivered
 		var texts []string
 		for _, p := range r.Posts {
 			if strings.TrimSpace(p.Text) != "" {

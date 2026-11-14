@@ -32,3 +32,11 @@ func TestLoggerRedactsMessagesAttrsErrorsAndTraces(t *testing.T) {
 	assert.Contains(t, out, `"n":3`)
 	assert.Contains(t, out, `"level":"INFO"`)
 }
+
+func TestOxylabsCredentialsRedacted(t *testing.T) {
+	r := NewRedactor(env(map[string]string{"OXYLABS_WEB_API_KEY": "key-123456", "OXYLABS_USERNAME": "user-abc", "OXYLABS_PASSWORD": "pw-xyz789"}))
+	got := r.Redact("failed key-123456 as user-abc with pw-xyz789")
+	assert.NotContains(t, got, "key-123456")
+	assert.NotContains(t, got, "user-abc")
+	assert.NotContains(t, got, "pw-xyz789")
+}
