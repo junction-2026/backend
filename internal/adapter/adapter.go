@@ -1,5 +1,5 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
-// propaganda_detection, mistral_translation, news_search and custom (in-process handlers), following analyzer-service-protocol,
+// propaganda_detection, mistral_translation, technique_classifier, news_search and custom (in-process handlers), following analyzer-service-protocol,
 // plus llm (OpenAI-compatible chat completions) for the finalizer and the topic_extraction task.
 package adapter
 
@@ -41,6 +41,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.custom(ctx, def, req)
 	case registry.AdapterPropagandaDetection:
 		return x.propaganda(ctx, def, req)
+	case registry.AdapterTechniqueClassifier:
+		return x.techniqueClassifier(ctx, def, req)
 	case registry.AdapterMistralTranslation:
 		return x.mistralTranslation(ctx, def, req)
 	case registry.AdapterFactCheck:
@@ -98,6 +100,9 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 				}
 			}
 		}
+	}
+	if def.Execution.Adapter == registry.AdapterTechniqueClassifier {
+		out[jobContentKey] = j.Input.Content // for sentence offsets in the original text
 	}
 	return out
 }
