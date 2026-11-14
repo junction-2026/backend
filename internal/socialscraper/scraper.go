@@ -38,6 +38,14 @@ func (s *Scraper) Scrape(ctx context.Context, rawURL string, req Request) (*Resu
 		return nil, PlatformNotConfigured(target.Platform)
 	}
 	res, err := s.run(ctx, mod, target, req)
+	if err != nil && target.Platform == Mastodon && isUnsupported(err) {
+		// The host does not serve the Mastodon REST API: scrape the URL as a web page in the same scrape.
+		target = Target{Platform: Web, URLKind: KindPage, URL: target.URL}
+		if mod, ok = s.reg.Lookup(Web); !ok {
+			return nil, PlatformNotConfigured(Web)
+		}
+		res, err = s.run(ctx, mod, target, req)
+	}
 	if err != nil {
 		return nil, s.mapError(err, target.Platform)
 	}
@@ -56,6 +64,11 @@ func (s *Scraper) Scrape(ctx context.Context, rawURL string, req Request) (*Resu
 		res.Warnings = []Warning{}
 	}
 	return res, nil
+}
+
+func isUnsupported(err error) bool {
+	var se *Error
+	return errors.As(err, &se) && se.Code == "unsupported_url"
 }
 
 type outcome struct {
