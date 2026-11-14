@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -606,4 +609,82 @@ func TestPropagandaDetectionJobSucceeds(t *testing.T) {
 	require.Equal(t, job.RunSucceeded, r.Status)
 	require.JSONEq(t, body, string(r.Result))
 	require.JSONEq(t, `{"text":"Fake  news!"}`, got) // normalized_content (tags stripped), not raw content
+}
+
+// translationYAML is the docs example with the endpoints replaced.
+func translationYAML(mistral, propaganda string) string {
+	return "analyzers:\n" +
+		"  - id: translation\n    execution: {adapter: mistral_translation, endpoint: \"" + mistral + "\", api_key: sk-secret-key}\n" +
+		"  - id: propaganda_detection\n    depends_on: [translation]\n    input: {bindings: {text: $analyzers.translation}}\n" +
+		"    execution: {adapter: propaganda_detection, endpoint: \"" + propaganda + "\"}\n"
+}
+
+func TestTranslationFeedsPropagandaDetection(t *testing.T) {
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(old)
+
+	var mu sync.Mutex
+	var bodies []string
+	prop := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+		w.Write([]byte(`{"result":[{"label":"NO_PROPAGANDA","score":0.8}],"latency_ms":1}`))
+	}))
+	defer prop.Close()
+	mistralStatus := 200
+	mis := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(mistralStatus)
+		if mistralStatus != 200 {
+			w.Write([]byte(`{"message":"provider-detail"}`))
+			return
+		}
+		content, _ := json.Marshal(map[string]any{"source_language": "uk", "translated_text": "Hello world"})
+		reply, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(content)}}}})
+		w.Write(reply)
+	}))
+	defer mis.Close()
+	e := newEngine(t, translationYAML(mis.URL, prop.URL), Config{}, nil)
+
+	j, err := e.Create(CreateRequest{Input: job.Input{Content: "Привіт, світе"}})
+	require.NoError(t, err)
+	done := waitDone(t, e, j.ID)
+	tr := ar(done, "translation")
+	require.Equal(t, job.RunSucceeded, tr.Status)
+	var res struct {
+		Text string `json:"translated_text"`
+	}
+	require.NoError(t, json.Unmarshal(tr.Result, &res))
+	require.Equal(t, "Hello world", res.Text)
+	require.Equal(t, job.RunSucceeded, ar(done, "propaganda_detection").Status)
+	mu.Lock()
+	require.Len(t, bodies, 1)
+	require.JSONEq(t, `{"text":"Hello world"}`, bodies[0])
+	mu.Unlock()
+
+	// translation fails: propaganda is skipped and gets no request
+	mistralStatus = 401
+	j, err = e.Create(CreateRequest{Input: job.Input{Content: "Привіт, світе"}})
+	require.NoError(t, err)
+	done = waitDone(t, e, j.ID)
+	tr = ar(done, "translation")
+	require.Equal(t, job.RunFailed, tr.Status)
+	require.Equal(t, job.CodeAdapterError, tr.Error.Code)
+	pd := ar(done, "propaganda_detection")
+	require.Equal(t, job.RunSkipped, pd.Status)
+	require.Equal(t, job.ReasonDependencyFailed, *pd.Reason)
+	mu.Lock()
+	require.Len(t, bodies, 1)
+	mu.Unlock()
+
+	out, _ := json.Marshal(done)
+	for _, s := range []string{string(out), logs.String()} {
+		require.NotContains(t, s, "sk-secret-key")
+		require.NotContains(t, s, "Bearer")
+		require.NotContains(t, s, mis.URL)
+		require.NotContains(t, s, "provider-detail")
+	}
 }

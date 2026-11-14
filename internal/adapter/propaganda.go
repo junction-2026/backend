@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/junction-2026/backend/internal/registry"
 )
@@ -12,10 +13,9 @@ import (
 // propaganda calls an IDA-SERICS/PropagandaDetection service: one POST of
 // {"text": normalized_content}; a validated response object is the result.
 func (x *Executor) propaganda(ctx context.Context, def *registry.Analyzer, req Request) (json.RawMessage, error) {
-	content, _ := req.Inputs["content"].(map[string]any) // registry forbids bindings, so this is the default shape
-	text, ok := content["normalized_content"].(string)
+	text, ok := propagandaText(def, req.Inputs)
 	if !ok {
-		return nil, adapterErr("job input has no normalized_content")
+		return nil, adapterErr("no text to analyze")
 	}
 	body, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {
@@ -37,6 +37,29 @@ func (x *Executor) propaganda(ctx context.Context, def *registry.Analyzer, req R
 		return nil, adapterErr("invalid propaganda detection response: %s", msg)
 	}
 	return raw, nil
+}
+
+// propagandaText is the job's normalized_content (default or text: $input) or,
+// for text: $analyzers.<id>, that dependency's translated_text. The latter
+// never falls back to normalized_content.
+func propagandaText(def *registry.Analyzer, in map[string]any) (string, bool) {
+	if !strings.HasPrefix(def.Input.Bindings["text"], "$analyzers.") {
+		key := "content"
+		if def.Input.Bindings["text"] == "$input" {
+			key = "text"
+		}
+		input, _ := in[key].(map[string]any)
+		s, ok := input["normalized_content"].(string)
+		return s, ok
+	}
+	b, err := json.Marshal(in["text"])
+	var r struct {
+		T *string `json:"translated_text"`
+	}
+	if err != nil || json.Unmarshal(b, &r) != nil || r.T == nil {
+		return "", false
+	}
+	return *r.T, true
 }
 
 // checkPropaganda returns what is wrong with raw (a JSON object), or "".

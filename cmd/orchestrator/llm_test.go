@@ -27,8 +27,9 @@ func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(
 func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
 
 // exampleRegistry is the shipped docs examples plus text_stats, with the
-// prompt path pointed at the repository's prompt file.
-func exampleRegistry(t *testing.T) string {
+// prompt path pointed at the repository's prompt file and the translation
+// analyzer pointed at mistralURL.
+func exampleRegistry(t *testing.T, mistralURL string) string {
 	t.Helper()
 	dir := t.TempDir()
 	prompt, err := filepath.Abs("../../config/finalizer/prompt.md")
@@ -37,6 +38,7 @@ func exampleRegistry(t *testing.T) string {
 		b, err := os.ReadFile("../../" + f)
 		require.NoError(t, err)
 		b = []byte(strings.Replace(string(b), "/etc/orchestrator/finalizer/prompt.md", prompt, 1))
+		b = []byte(strings.Replace(string(b), "adapter: mistral_translation\n", "adapter: mistral_translation\n      endpoint: "+mistralURL+"\n", 1))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.Base(f)), b, 0o600))
 	}
 	return dir
@@ -51,6 +53,8 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
+		case "/v1/mistral":
+			io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"content":"{\"source_language\":\"en\",\"translated_text\":\"They are all traitors.\"}"}}]}`)
 		case "/predict":
 			io.WriteString(w, `{"result":[{"label":"PROPAGANDA","score":0.97}],"latency_ms":12}`)
 		case "/v1/chat/completions":
@@ -64,7 +68,7 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 	}))
 	defer stub.Close()
 	var logs syncBuf
-	s := startLog(t, map[string]string{"ANALYZERS_CONFIG": exampleRegistry(t), "PROPAGANDA_DETECTION_URL": stub.URL + "/predict",
+	s := startLog(t, map[string]string{"ANALYZERS_CONFIG": exampleRegistry(t, stub.URL+"/v1/mistral"), "MISTRAL_API_KEY": "mk", "PROPAGANDA_DETECTION_URL": stub.URL + "/predict",
 		"FINALIZER_BASE_URL": stub.URL + "/v1", "FINALIZER_API_KEY": llmKey, "FINALIZER_MODEL": "gpt-test"}, &logs)
 
 	res, err := http.Get(s.base + "/api/v1/analyzers")
@@ -95,7 +99,7 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 	require.NoError(t, json.Unmarshal(llmBody, &req))
 	require.Equal(t, "gpt-test", req.Model)
 	user := req.Messages[1].Content
-	require.Contains(t, user, `"id":"propaganda_detection","description":"Binary classifier for propaganda in the whole text.`)
+	require.Contains(t, user, `"id":"propaganda_detection","description":"Binary classifier for propaganda in the English machine translation of the input text`)
 	require.Contains(t, user, `"result":{"result":[{"label":"PROPAGANDA","score":0.97}],"latency_ms":12}`)
 	require.NotContains(t, user, "text_stats")
 
@@ -108,8 +112,8 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 
 // Acceptance criterion 8 (startup): each missing field names itself; the key is never printed.
 func TestLLMFinalizerStartupChecks(t *testing.T) {
-	dir := exampleRegistry(t)
-	base := map[string]string{"ANALYZERS_CONFIG": dir, "PROPAGANDA_DETECTION_URL": "http://pd",
+	dir := exampleRegistry(t, "http://mistral")
+	base := map[string]string{"ANALYZERS_CONFIG": dir, "MISTRAL_API_KEY": "mk", "PROPAGANDA_DETECTION_URL": "http://pd",
 		"FINALIZER_BASE_URL": "http://llm", "FINALIZER_API_KEY": llmKey, "FINALIZER_MODEL": "m"}
 	for _, c := range []struct{ name, unset, want string }{
 		{"empty base_url", "FINALIZER_BASE_URL", "execution.base_url is empty"},
