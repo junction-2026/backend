@@ -14,6 +14,8 @@ dependencies = [
   "pydantic>=2.7,<3",
   "atproto>=0.0.55",
   "instaloader>=4.16,<5",
+  "twscrape>=0.17,<1",
+  "playwright>=1.49,<2",
 ]
 
 [project.optional-dependencies]
