@@ -110,6 +110,13 @@ func TestLoadRejects(t *testing.T) {
 		{"invalid schema", "analyzers:\n  - id: a\n" + custom + "    output: {schema: {type: 12}}\n", "output.schema"},
 		{"unset env", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: \"${NOPE}/x\"}\n", "environment variable NOPE is not set"},
 		{"unset env in header", "analyzers:\n  - id: a\n    execution: {adapter: http_sync, endpoint: http://x, headers: {A: \"${NOPE}\"}}\n", "NOPE"},
+		{"propaganda without endpoint", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection}\n", "endpoint is required"},
+		{"propaganda empty endpoint", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: \"\"}\n", "endpoint is required"},
+		{"propaganda GET", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, method: GET}\n", "method must be POST"},
+		{"propaganda handler", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, handler: text_stats}\n", "handler"},
+		{"propaganda poll_interval", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, poll_interval: 2s}\n", "poll_interval"},
+		{"propaganda bindings", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {x: $input}}\n", "bindings are not allowed"},
+		{"propaganda unset env", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: \"${PROPAGANDA_DETECTION_URL}\"}\n", "environment variable PROPAGANDA_DETECTION_URL is not set"},
 		{"empty file", "", "no analyzers defined"},
 		{"empty mapping", "{}\n", "no analyzers defined"},
 		{"empty list", "analyzers: []\n", "no analyzers defined"},
@@ -169,4 +176,39 @@ func TestClosureAndOutputValidation(t *testing.T) {
 	require.ErrorContains(t, b.ValidateOutput([]byte(`{}`)), "score")
 	require.ErrorContains(t, b.ValidateOutput([]byte(`{"score": 1, "nested": {"n": 1.5}}`)), "/nested/n")
 	require.NoError(t, r.Get("a").ValidateOutput([]byte(`{"anything": true}`)))
+}
+
+func TestPropagandaDetectionLoads(t *testing.T) {
+	p := write(t, "r.yaml", `analyzers:
+  - id: a
+    execution: {adapter: propaganda_detection, endpoint: "${U}", method: POST, headers: {Authorization: "Bearer ${T}"}}
+  - id: off
+    enabled: false
+    execution: {adapter: propaganda_detection, endpoint: "${UNSET}"}
+`)
+	r, err := Load(p, opts(map[string]string{"U": "http://svc/predict", "T": "tok"}))
+	require.NoError(t, err)
+	e := r.Get("a").Execution
+	require.Equal(t, "http://svc/predict", e.Endpoint)
+	require.Equal(t, "POST", e.Method)
+	require.Equal(t, 30*time.Second, e.Timeout)
+	require.Equal(t, "Bearer tok", e.Headers["Authorization"])
+	require.False(t, r.Get("off").Enabled)
+}
+
+func TestPropagandaDetectionDocsExample(t *testing.T) {
+	r, err := Load("../../docs/examples/propaganda_detection.yaml", opts(map[string]string{"PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
+	require.NoError(t, err)
+	a := r.Get("propaganda_detection")
+	require.NotNil(t, a)
+	require.True(t, a.Enabled)
+	require.Equal(t, "Propaganda detection", a.Name)
+	require.Equal(t, "propaganda", a.Category)
+	require.Equal(t, AdapterPropagandaDetection, a.Execution.Adapter)
+	require.Equal(t, "http://svc/predict", a.Execution.Endpoint)
+	require.Equal(t, 30*time.Second, a.Execution.Timeout)
+	require.Empty(t, a.Execution.Headers)
+
+	_, err = Load("../../docs/examples/propaganda_detection.yaml", opts(nil))
+	require.ErrorContains(t, err, "PROPAGANDA_DETECTION_URL")
 }
