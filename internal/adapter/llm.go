@@ -54,7 +54,7 @@ func LLMUserMessage(def *registry.Analyzer, content string, entries []json.RawMe
 }
 
 // LLM calls the OpenAI-compatible {base_url}/chat/completions endpoint of the
-// llm def (finalizer or topic_extraction) and returns the JSON object decoded from the model's reply
+// llm def (finalizer, topic_extraction or technique spans) and returns the JSON object decoded from the model's reply
 // plus the provider's usage object (nil when absent). Errors are *job.RunError
 // and never contain the API key or the URL.
 func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage json.RawMessage, err error) {
@@ -69,8 +69,11 @@ func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage j
 		},
 	}
 	schema, name := any(FinalizationSchema), "finalization"
-	if e.TopicExtraction() {
+	switch {
+	case e.TopicExtraction():
 		schema, name = TopicExtractionSchema, "topic_extraction"
+	case e.Adapter == registry.AdapterTechniqueClassifier: // the spans.llm Execution
+		schema, name = TechniqueSpanSchema, "technique_spans"
 	}
 	switch e.ResponseFormat {
 	case registry.FormatJSONSchema:

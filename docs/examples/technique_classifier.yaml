@@ -3,7 +3,10 @@
 # It needs the `translation` analyzer of propaganda_detection.yaml (or any analyzer with that id that
 # returns translated_text and source_language). Set TECHNIQUE_SHORT_URL and TECHNIQUE_LONG_URL to the
 # services' prediction endpoints (e.g. http://technique-short:8000/predict) and ML_API_TOKEN to their
-# bearer token. Add this file to the directory in ANALYZERS_CONFIG and set all three variables.
+# bearer token. The optional `spans` block marks the exact phrases of the user's original text that carry each
+# detected technique: TECHNIQUE_SPAN_URL is the sentence model (nci-social) used for English input, SPAN_LLM_BASE_URL,
+# SPAN_LLM_API_KEY and SPAN_LLM_MODEL an OpenAI-compatible LLM used for other languages. Add this file to the
+# directory in ANALYZERS_CONFIG and set the variables (remove `spans` to run without highlights).
 analyzers:
   - id: techniques
     name: Propaganda techniques
@@ -28,6 +31,25 @@ analyzers:
         headers:
           Authorization: Bearer ${ML_API_TOKEN}
         threshold: 0.5
+      spans:
+        timeout: 15s                 # span deadline; must be shorter than timeout; on expiry span_status: timeout
+        max_sentences: 20            # English: sentences of the original text scored (the first 20)
+        max_phrases_per_technique: 5 # other languages: accepted phrases per technique
+        max_input_chars: 20000       # other languages: characters of the original text sent to the LLM
+        sentence_model:
+          endpoint: ${TECHNIQUE_SPAN_URL}
+          headers:
+            Authorization: Bearer ${ML_API_TOKEN}
+          threshold: 0.5
+          # thresholds: {Doubt: 0.6}   # per-technique overrides
+        llm:
+          base_url: ${SPAN_LLM_BASE_URL}
+          api_key: ${SPAN_LLM_API_KEY}
+          model: ${SPAN_LLM_MODEL}
+          prompt_file: /etc/orchestrator/technique_spans/prompt.md   # image default from config/technique_spans/prompt.md
+          temperature: 0
+          max_tokens: 1000
+          response_format: json_schema
     # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).
     llm:
       include: true
@@ -35,6 +57,8 @@ analyzers:
         Multi-label classifier for the 18 SemEval-2020 propaganda techniques on the English machine
         translation of the input text. `techniques` holds an independent score (0-1) per technique and
         `detected` those at or above their threshold; `sentences` are the sentences that carry a detected
-        technique. `model` is `short` (BERTweet, threshold 0.3) or `long` (ModernBERT, threshold 0.5), chosen
-        by word count; scores of different models are not comparable and are not calibrated probabilities.
-        A detection is an indicator of a technique, not proof of propaganda.
+        technique. Each `detected` entry has `spans`: exact phrases of the user's original text (UTF-16
+        offsets) that carry it, empty when none was found or `span_status` is not `ok`. `model` is `short`
+        (BERTweet, threshold 0.3) or `long` (ModernBERT, threshold 0.5), chosen by word count; scores of
+        different models are not comparable and are not calibrated probabilities. A detection is an indicator
+        of a technique, not proof of propaganda.

@@ -38,7 +38,8 @@ type (
 )
 
 // techniqueClassifier scores the English translation for the 18 propaganda techniques: one batch POST
-// {"text": [full text, sentence 1..N]} to the short or the long model, chosen by word count.
+// {"text": [full text, sentence 1..N]} to the short or the long model, chosen by word count. Then the span step
+// (technique_spans.go) adds detected[].spans in Job.input.content.
 func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyzer, req Request) (json.RawMessage, error) {
 	e := def.Execution
 	text, lang, ok := translationOf(req.Inputs["text"])
@@ -141,10 +142,15 @@ func (x *Executor) techniqueClassifier(ctx context.Context, def *registry.Analyz
 	for i, h := range hits {
 		sentences[i] = sentenceDetection{h.s.Text, offs[i][0], offs[i][1], h.dets}
 	}
+	sp, err := x.techniqueSpans(ctx, def, req, content, lang, detections(doc, thresholds))
+	if err != nil {
+		return nil, err
+	}
 	out, err := json.Marshal(map[string]any{
 		"model": modelName, "words": words, "threshold": model.ThresholdFor(""), "thresholds": thresholds,
-		"techniques": all, "detected": detections(doc, thresholds), "max_score": all[0].Score,
+		"techniques": all, "detected": sp.detected, "max_score": all[0].Score,
 		"sentences": sentences, "offsets_in": offsIn, "sentences_truncated": truncated, "latency_ms": latency,
+		"span_method": sp.method, "span_status": sp.status, "spans_truncated": sp.truncated,
 	})
 	if err != nil {
 		return nil, adapterErr("classifier result is not serializable")
@@ -235,10 +241,16 @@ func parseTechniqueResponse(b []byte, want int) (scores []map[string]float64, la
 
 func inUnit(f float64) bool { return f >= 0 && f <= 1 }
 
-// techniqueRedactor hides every configured header value of both models (and a bearer token without its scheme).
+// techniqueRedactor hides every configured header value of all models and the span LLM, its api_key (and a bearer
+// token without its scheme).
 func techniqueRedactor(e registry.Execution) func(string) string {
 	var keys []string
-	for _, m := range []*registry.TechniqueModel{e.Short, e.Long} {
+	models := []*registry.TechniqueModel{e.Short, e.Long}
+	if s := e.Spans; s != nil {
+		models = append(models, s.SentenceModel)
+		keys = append(keys, secrets(&s.Exec)...)
+	}
+	for _, m := range models {
 		if m == nil {
 			continue
 		}
