@@ -147,6 +147,37 @@ docker build -t orchestrator . && docker run -p 8080:8080 orchestrator
 `GET /healthz` is an operational endpoint; the API is under `/api/v1`. There is no authentication:
 keep the server on a trusted network.
 
+## Technique classifier analyzer
+
+`docs/examples/technique_classifier.yaml` (analyzer `techniques`, adapter `technique_classifier`, category `propaganda`,
+`depends_on: [translation]`, `input.bindings: {text: $analyzers.translation}`) scores the English translation for the 18
+SemEval-2020 Task 11 propaganda techniques and finds the sentences that carry them (result shape: shared change
+`technique-classifier-result`). Add the file next to an analyzer `translation` (see `propaganda_detection.yaml`) and set:
+
+| Variable | |
+|---|---|
+| `TECHNIQUE_SHORT_URL` | prediction endpoint of the short-text model (BERTweet) |
+| `TECHNIQUE_LONG_URL` | prediction endpoint of the long-text model (ModernBERT) |
+| `ML_API_TOKEN` | sent as `Authorization: Bearer <token>` to both; never logged, returned or put in error messages |
+
+The model is chosen by the word count of `translated_text` (whitespace-separated): up to `short_max_words` (default 80)
+the `short` model, otherwise the `long` model; `input.source` is ignored. The text is split at `.`, `!`, `?` and
+newlines (fragments under 3 words are dropped) and one `POST {"text": [full text, sentence 1, ..., sentence N]}` goes
+to the chosen service, N at most `max_sentences` (default 20; `sentences_truncated` is true when more were left
+unscored). The answer must be `{"result": [[{label, score} x 18], ...], "latency_ms"?}`, one list per text sent with
+exactly the 18 technique names and scores in 0..1, else the analyzer fails with `invalid_output`. There is no retry and
+no fallback to the other model (HTTP errors are `adapter_error`, a slow answer `timeout`; default `timeout: 30s`).
+
+Each of the `short` and `long` blocks takes `endpoint` (required), `headers`, `threshold` (required, 0..1) and an
+optional `thresholds` map of per-technique overrides (technique name: 0..1); string values accept `${VAR}`. The
+example uses 0.3 for the short and 0.5 for the long model. An enabled analyzer with an unset variable, a missing block,
+an empty endpoint, a threshold outside 0..1 or an unknown technique name in `thresholds` aborts startup; a disabled one
+loads. The result has the scores, the `detected` techniques and the `sentences` with `start`/`end` offsets in UTF-16
+code units: into `Job.input.content` (`offsets_in: original`) when the source language is English and every reported
+sentence is found there verbatim, else into the translation (`offsets_in: translation`). Detections are indicators, not
+proof, and scores of the two models are not comparable. Add `llm: {include: true, description: ...}` (as in the
+example) to let the LLM finalizer see the result. Every job that runs it makes one request to one ML service.
+
 ## Jobs from a social-media URL
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of

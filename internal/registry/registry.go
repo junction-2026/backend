@@ -99,6 +99,12 @@ type Execution struct {
 	News           NewsSearch     `yaml:"-"`
 
 	// fact_check (BaseURL, APIKey, MaxResults, MaxConcurrency and CacheTTL are shared); MaxClaims is also the topic_extraction cap
+	// technique_classifier only: Short/Long are the two ML services, chosen by word count
+	ShortMaxWords *int            `yaml:"short_max_words"`
+	MaxSentences  *int            `yaml:"max_sentences"`
+	Short         *TechniqueModel `yaml:"short"`
+	Long          *TechniqueModel `yaml:"long"`
+
 	MinCheckWorthiness *float64 `yaml:"min_check_worthiness"`
 	MaxClaims          *int     `yaml:"max_claims"`
 	PageSize           *int     `yaml:"page_size"`
@@ -417,6 +423,9 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 		}
 	}
+	if err := a.checkTechnique(); err != nil {
+		return err
+	}
 	if e.Adapter == AdapterMistralTranslation {
 		switch {
 		case e.Method != "" || e.Handler != "" || e.PollInterval != 0:
@@ -482,6 +491,7 @@ func (a *Analyzer) normalize(opt Options) error {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
 		}
 	case AdapterNewsSearch: // base_url, not endpoint
+	case AdapterTechniqueClassifier: // endpoints are in the short and long blocks
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -550,6 +560,11 @@ func (a *Analyzer) normalize(opt Options) error {
 		}
 		if e.Adapter == AdapterNewsSearch {
 			if err := e.expandNewsSearch(opt.Getenv); err != nil {
+				return err
+			}
+		}
+		if e.Adapter == AdapterTechniqueClassifier {
+			if err := e.expandTechnique(opt.Getenv); err != nil {
 				return err
 			}
 		}
