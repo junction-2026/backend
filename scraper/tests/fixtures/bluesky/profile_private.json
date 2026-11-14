@@ -1,0 +1,17 @@
+{
+  "did": "did:plc:alice1234567890abcdefghij",
+  "handle": "alice.bsky.social",
+  "displayName": "Alice Example",
+  "createdAt": "2023-05-01T10:00:00.000Z",
+  "followersCount": 1,
+  "followsCount": 1,
+  "postsCount": 1,
+  "labels": [
+    {
+      "src": "did:plc:alice1234567890abcdefghij",
+      "uri": "did:plc:alice1234567890abcdefghij",
+      "val": "!no-unauthenticated",
+      "cts": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}

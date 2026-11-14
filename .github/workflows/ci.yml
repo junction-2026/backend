@@ -51,6 +51,22 @@ jobs:
       - name: Build
         if: hashFiles('go.mod') != ''
         run: go build ./...
+  scraper:
+    # Python scraper service (scraper/): offline tests and an image build. Go jobs are unaffected.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4      # PIN BY SHA
+      - uses: actions/setup-python@v5  # PIN BY SHA
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: scraper/pyproject.toml}
+      - name: Install
+        working-directory: scraper
+        run: pip install -e ".[dev]"
+      - name: Test
+        working-directory: scraper
+        run: pytest -q
+      - name: Build image
+        run: docker build -t junction-scraper:ci scraper
   image:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs: repo-ci

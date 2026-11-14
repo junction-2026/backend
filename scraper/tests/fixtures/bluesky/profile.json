@@ -1,0 +1,17 @@
+{
+  "did": "did:plc:alice1234567890abcdefghij",
+  "handle": "alice.bsky.social",
+  "displayName": "Alice Example",
+  "createdAt": "2023-05-01T10:00:00.000Z",
+  "description": "Writes about birds.\nDMs closed.",
+  "followersCount": 120,
+  "followsCount": 80,
+  "postsCount": 40,
+  "indexedAt": "2023-05-01T10:00:00.000Z",
+  "labels": [],
+  "verification": {
+    "verifiedStatus": "valid",
+    "trustedVerifierStatus": "none",
+    "verifications": []
+  }
+}
