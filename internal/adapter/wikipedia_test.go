@@ -565,3 +565,47 @@ func TestWikiFirstFailureCancelsRemaining(t *testing.T) {
 	require.Contains(t, re.Message, "HTTP 404")
 	require.Less(t, s.count(), 6)
 }
+
+// A de passage with a date against an en passage without values is a discrepancy; coverage and passages are
+// the same as without the comparison and a cached rerun gives the same members.
+func TestWikiCrossLanguageEndToEnd(t *testing.T) {
+	s := newWikiStub(t, map[string]string{"de|Angela Merkel": "merkel_de", "en|Angela Merkel": "merkel_en"})
+	dir := t.TempDir()
+	c := wc("Angela Merkel war Kanzlerin.", "Angela Merkel", "Angela Merkel", 0.8, "Angela Merkel")
+	first := runWiki(t, &Executor{}, wikiDef(s.URL, dir, nil), wikiRequest("de", c)).Claims[0]
+	require.Equal(t, CrossDiscrepancy, *first.CrossLanguage)
+	require.Equal(t, []crossLangDiff{
+		{"de", *first.Wikis[0].URL, []comparedValue{{"date", "1954-07-17", "17. Juli 1954"}}},
+		{"en", *first.Wikis[1].URL, []comparedValue{}}}, first.CrossLanguageDifferences)
+
+	second := runWiki(t, &Executor{}, wikiDef(s.URL, dir, nil), wikiRequest("de", c)).Claims[0]
+	require.True(t, second.Wikis[0].Cached)
+	require.Equal(t, first.CrossLanguage, second.CrossLanguage)
+	require.Equal(t, first.CrossLanguageDifferences, second.CrossLanguageDifferences)
+
+	for i := range first.Wikis { // the comparison reads and writes nothing of the WikiLookup
+		w := first.Wikis[i]
+		state, _ := crossLanguage(first.Wikis)
+		require.NotNil(t, state)
+		cov, ev := wikiCoverage(c, w)
+		require.Equal(t, cov, w.Coverage)
+		require.Equal(t, ev, w.EvidenceSentence)
+	}
+}
+
+func TestWikiCrossLanguageNullAndGap(t *testing.T) {
+	s := newWikiStub(t, map[string]string{"en|Angela Merkel": "merkel_en"})
+	c := wc("Angela Merkel war Kanzlerin.", "Angela Merkel", "Angela Merkel", 0.8, "Angela Merkel")
+	gap := runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("de", c)).Claims[0] // de has no page
+	require.Equal(t, CrossGap, *gap.CrossLanguage)
+	require.Nil(t, gap.CrossLanguageDifferences)
+
+	single := runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("en", c)).Claims[0]
+	require.Nil(t, single.CrossLanguage)
+	none := runWiki(t, &Executor{}, wikiDef(s.URL, t.TempDir(), nil), wikiRequest("de", pensClaim)).Claims[0]
+	require.Nil(t, none.CrossLanguage)
+
+	raw, err := (&Executor{}).Execute(context.Background(), wikiDef(s.URL, t.TempDir(), nil), wikiRequest("de", pensClaim))
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"cross_language":null,"cross_language_differences":null`)
+}
