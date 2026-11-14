@@ -1,0 +1,19 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "searchinfo": {
+   "totalhits": 1
+  },
+  "search": [
+   {
+    "ns": 0,
+    "title": "Angela Merkel",
+    "pageid": 41,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "<span class=\"searchmatch\">Angela Merkel</span> was Chancellor of Germany from 2005 to 2021. She led the CDU.",
+    "timestamp": "2026-10-01T00:00:00Z"
+   }
+  ]
+ }
+}

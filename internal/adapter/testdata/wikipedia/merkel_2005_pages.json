@@ -1,0 +1,20 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 41,
+    "ns": 0,
+    "title": "Angela Merkel",
+    "extract": "Angela Merkel is a German politician who was Chancellor of Germany from 2005 to 2021. She led the CDU.",
+    "revisions": [
+     {
+      "revid": 7000041,
+      "parentid": 7000040,
+      "timestamp": "2026-06-02T00:00:00Z"
+     }
+    ]
+   }
+  ]
+ }
+}
