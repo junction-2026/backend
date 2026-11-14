@@ -50,7 +50,7 @@ A definition SHALL accept the optional members `applies_to` with `content_types`
 - **THEN** the analyzer applies to every input, gets the default inputs and has no output schema
 
 ### Requirement: Execution settings
-`execution` SHALL have `adapter` (`http_sync`, `http_async`, `propaganda_detection` or `custom`), `endpoint`, `method` (default `POST`), `headers` (map), `timeout` (duration, default `30s`), `poll_interval` (duration, default `1s`, used by `http_async`) and `handler` (`custom` only). The adapter `propaganda_detection` SHALL use `endpoint`, `headers` and `timeout`; its `method` SHALL be absent or `POST`, and `handler` and `poll_interval` SHALL be rejected for it.
+`execution` SHALL have `adapter` (`http_sync`, `http_async`, `propaganda_detection`, `custom` or `llm`), `endpoint`, `method` (default `POST`), `headers` (map), `timeout` (duration, default `30s`; see LLM settings), `poll_interval` (duration, default `1s`, used by `http_async`) and `handler` (`custom` only). The adapter `propaganda_detection` SHALL use `endpoint`, `headers` and `timeout`; its `method` SHALL be absent or `POST`, and `handler` and `poll_interval` SHALL be rejected for it.
 
 #### Scenario: Execution defaults
 - **WHEN** an `http_async` execution only sets an endpoint
@@ -65,7 +65,7 @@ A definition SHALL accept the optional members `applies_to` with `content_types`
 - **THEN** loading fails with an error naming the file and analyzer id
 
 ### Requirement: Environment placeholders
-`${VAR}` placeholders in `execution.endpoint` and in `execution.headers` values SHALL be expanded from the process environment once at load time. A variable that is not set and is referenced by an enabled analyzer SHALL abort startup with an error naming the variable and the analyzer; disabled analyzers are not expanded. Expanded values SHALL NOT be logged and no error message SHALL contain one.
+`${VAR}` placeholders in `execution.endpoint`, in `execution.headers` values and in every string of the `llm` settings (including inside `extra_body`) SHALL be expanded from the process environment once at load time. A variable that is not set and is referenced by an enabled analyzer SHALL abort startup with an error naming the variable and the analyzer; disabled analyzers are not expanded. Expanded values SHALL NOT be logged and no error message SHALL contain one.
 
 #### Scenario: Expansion
 - **WHEN** an enabled analyzer has `endpoint: ${BASE}/sentiment` and `BASE=http://svc`
@@ -78,6 +78,10 @@ A definition SHALL accept the optional members `applies_to` with `content_types`
 #### Scenario: Disabled analyzer
 - **WHEN** a disabled analyzer references an unset variable
 - **THEN** loading succeeds
+
+#### Scenario: LLM values
+- **WHEN** an enabled `llm` finalizer has `headers: {X-Title: "${V}"}` and `extra_body: {provider: {order: ["${V}"]}}` with `V=x`
+- **THEN** the header value is `x` and `extra_body.provider.order` is `["x"]`
 
 ### Requirement: Dependency graph validation
 Loading SHALL reject `depends_on` ids that are not defined, dependency cycles (including a self dependency), more than one enabled analyzer with trigger `after_all_analyzers_settled`, and `depends_on` on, or pointing to, an `after_all_analyzers_settled` analyzer.
@@ -152,3 +156,62 @@ The registry SHALL compute, for a list of analyzer ids, the set containing those
 #### Scenario: Documentation and sample registry
 - **WHEN** the README is read
 - **THEN** it documents `PROPAGANDA_DETECTION_URL` and how to add the example to `ANALYZERS_CONFIG`, while `config/analyzers` does not contain the analyzer (an enabled analyzer with an unset variable aborts startup)
+
+### Requirement: LLM execution settings
+The `llm` adapter SHALL take `base_url`, `api_key` and `model` (required, no default), `prompt_file` (default `/etc/orchestrator/finalizer/prompt.md`), `temperature` (default 0), `max_tokens` (default 600), `timeout` (default 30s), `response_format` (`json_schema`, `json_object` or `none`, default `json_schema`), `headers` (map, default `{}`) and `extra_body` (object, default `{}`).
+
+#### Scenario: LLM defaults
+- **WHEN** an `llm` finalizer sets only `base_url`, `api_key`, `model` and `prompt_file`
+- **THEN** it loads with temperature 0, max_tokens 600, timeout 30s, response_format `json_schema`, no headers and an empty `extra_body`
+
+### Requirement: LLM execution validation
+Loading SHALL reject the `llm` adapter on an analyzer whose trigger is not `after_all_analyzers_settled`, an `extra_body` with the key `model` or `messages`, and for an enabled `llm` finalizer a `response_format` other than `json_schema`, `json_object` or `none`. The errors SHALL name the file, the analyzer id and the field.
+
+#### Scenario: LLM adapter on a regular analyzer
+- **WHEN** an analyzer with trigger `on_dependencies_succeeded` has `adapter: llm`
+- **THEN** loading fails with an error naming the analyzer id and `execution.adapter`
+
+#### Scenario: Unknown response format
+- **WHEN** an enabled `llm` finalizer has `response_format: xml`
+- **THEN** loading fails with an error naming the analyzer id and `execution.response_format`
+
+#### Scenario: Extra body replaces the model
+- **WHEN** an `llm` finalizer has `extra_body: {model: other}`
+- **THEN** loading fails with an error naming `execution.extra_body.model`
+
+### Requirement: LLM finalizer startup checks
+For an enabled `llm` finalizer, loading SHALL abort startup when `base_url`, `api_key` or `model` is empty after expansion or `prompt_file` cannot be read, with a message naming the analyzer and the field and never containing the API key. The prompt file SHALL be read once at load. A disabled `llm` finalizer SHALL NOT be checked.
+
+#### Scenario: Empty key
+- **WHEN** `api_key: ${FINALIZER_API_KEY}` and `FINALIZER_API_KEY` is set to an empty string
+- **THEN** startup fails with a message naming `execution.api_key`
+
+#### Scenario: Unreadable prompt
+- **WHEN** `prompt_file` names a file that does not exist
+- **THEN** startup fails with a message naming `execution.prompt_file`
+
+#### Scenario: Disabled finalizer
+- **WHEN** the `llm` finalizer is `enabled: false` and its variables are unset
+- **THEN** the server starts
+
+### Requirement: Analyzer LLM input block
+An analyzer MAY have `llm: {include: bool (default false), description: string}`. `include: true` with a description that is empty after trimming SHALL abort startup, and the block on an `after_all_analyzers_settled` analyzer SHALL be rejected; both errors name the analyzer and the field.
+
+#### Scenario: Opted-in analyzer
+- **WHEN** `propaganda_detection` has `llm: {include: true, description: "Binary classifier ..."}`
+- **THEN** it loads and its runs are sent to the `llm` finalizer with that description
+
+#### Scenario: Missing description
+- **WHEN** an analyzer has `llm: {include: true}`
+- **THEN** loading fails naming `llm.description`
+
+#### Scenario: Block on the finalizer
+- **WHEN** the finalizer itself has an `llm` block
+- **THEN** loading fails
+
+### Requirement: LLM finalizer example
+`docs/examples/final_synthesis.yaml` SHALL be the `llm` finalizer entry with `base_url: ${FINALIZER_BASE_URL}`, `api_key: ${FINALIZER_API_KEY}` and `model: ${FINALIZER_MODEL}`, and `docs/examples/propaganda_detection.yaml` SHALL have `llm: {include: true, description: ...}` with the description from the parent issue. The README SHALL document these variables and the `response_format` modes.
+
+#### Scenario: Examples run
+- **WHEN** both examples and `text_stats` are loaded with the variables pointing at stubs
+- **THEN** a job ends `completed` with a `detected` result and the LLM request contains `propaganda_detection` with its description and no `text_stats`

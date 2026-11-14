@@ -12,3 +12,9 @@ analyzers:
       timeout: 30s
       # headers:
       #   Authorization: Bearer ${PROPAGANDA_DETECTION_TOKEN}
+    # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).
+    llm:
+      include: true
+      description: >
+        Binary classifier for propaganda in the whole text. `label` is PROPAGANDA or NO_PROPAGANDA;
+        `score` is the model's confidence in that label (0–1), not a propaganda probability.
