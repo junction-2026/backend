@@ -27,6 +27,7 @@ var activityTexts = map[string]string{
 	"topic_extraction":     "Finding topics and claims",
 	"news_search":          "Searching news coverage",
 	"fact_check":           "Looking up fact-checks",
+	"term_context":         "Looking up unfamiliar terms",
 	"source_info":          "Checking the news outlets",
 	keyFinalizer:           "Writing the verdict",
 	keyScrape:              "Fetching the content",
@@ -77,6 +78,13 @@ func activityFor(def *registry.Analyzer, inputs map[string]any) (act job.Activit
 			}
 			set(d, "claims", n)
 		}
+	case key == "term_context" && ad == registry.AdapterTermContext:
+		lang := adapter.TermContextLanguage(inputs)
+		name := lang
+		if n, ok := languageNames[lang]; ok {
+			name = n
+		}
+		set("in the "+name+" Wikipedia", "language", lang)
 	case key == "techniques" && ad == registry.AdapterTechniqueClassifier:
 		if models, ok := adapter.TechniqueModels(def, inputs); ok {
 			names := make([]string, len(models))

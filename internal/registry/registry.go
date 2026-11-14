@@ -144,6 +144,12 @@ type Execution struct {
 	BaseURLTemplate string    `yaml:"base_url_template"`
 	Wiki            Wikipedia `yaml:"-"`
 
+	// term_context only (the LLM keys, max_input_chars and the wikipedia transport keys are shared); defaults in term_context.go
+	MaxTerms       *int `yaml:"max_terms"`
+	InPostMaxChars *int `yaml:"in_post_max_chars"`
+	QuoteMaxChars  *int `yaml:"quote_max_chars"`
+	ElsewhereMax   *int `yaml:"elsewhere_max"`
+
 	// source_info only: the outlet table file; Outlets is read from it at load when the analyzer is enabled.
 	OutletsFile string         `yaml:"outlets_file"`
 	Outlets     *outlets.Table `yaml:"-"`
@@ -538,6 +544,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	if err := a.checkLLMTechniques(); err != nil {
 		return err
 	}
+	if err := a.checkTermContext(opt); err != nil {
+		return err
+	}
 	if e.Adapter == AdapterMistralTranslation {
 		switch {
 		case e.Method != "" || e.Handler != "" || e.PollInterval != 0:
@@ -570,7 +579,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		if err := a.normalizeNewsSearch(); err != nil {
 			return err
 		}
-	} else if e.hasNewsOnlyKeys() || (e.hasSharedKeys() && e.Adapter != AdapterFactCheck && e.Adapter != AdapterWikipedia) {
+	} else if e.hasNewsOnlyKeys() || (e.hasSharedKeys() && e.Adapter != AdapterFactCheck && e.Adapter != AdapterWikipedia && e.Adapter != AdapterTermContext) {
 		return fmt.Errorf("execution.languages, translate, max_topics, max_news, num, min_results, per_domain, max_results, max_concurrency and cache_ttl are only allowed for adapter %s", AdapterNewsSearch)
 	}
 	if e.Adapter == AdapterFactCheck {
@@ -617,6 +626,7 @@ func (a *Analyzer) normalize(opt Options) error {
 	case AdapterSourceInfo: // no endpoint; the table file is checked below
 	case AdapterLLMTechniques: // base_url; checked in checkLLMTechniques
 	case AdapterWikipedia: // base_url_template; checked in checkWikipedia
+	case AdapterTermContext: // base_url and base_url_template; checked in checkTermContext
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -699,7 +709,7 @@ func (a *Analyzer) normalize(opt Options) error {
 				return err
 			}
 		}
-		if e.Adapter == AdapterWikipedia {
+		if e.Adapter == AdapterWikipedia || e.Adapter == AdapterTermContext {
 			if err := e.expandWikipedia(opt.Getenv); err != nil {
 				return err
 			}
@@ -716,7 +726,7 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 		}
 		e.Headers = hdr
-		if e.Adapter == AdapterLLM || e.Adapter == AdapterLLMTechniques {
+		if e.Adapter == AdapterLLM || e.Adapter == AdapterLLMTechniques || e.Adapter == AdapterTermContext {
 			if err := e.loadLLM(opt.Getenv, "execution."); err != nil {
 				return err
 			}
@@ -769,6 +779,8 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) e
 		who = "technique_classifier with spans"
 	} else if e.Adapter == AdapterLLMTechniques {
 		who = "llm_techniques analyzer"
+	} else if e.Adapter == AdapterTermContext {
+		who = "term_context analyzer"
 	}
 	for _, f := range []struct {
 		name     string
@@ -776,7 +788,7 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) e
 		required bool
 	}{
 		{"base_url", &e.BaseURL, true}, {"api_key", &e.APIKey, true}, {"model", &e.Model, true},
-		{"prompt_file", &e.PromptFile, true}, {"response_format", &e.ResponseFormat, false},
+		{"prompt_file", &e.PromptFile, e.Adapter != AdapterTermContext}, {"response_format", &e.ResponseFormat, false},
 		{"retry_model", &e.RetryModel, false},
 	} {
 		var err error
@@ -797,6 +809,9 @@ func (e *Execution) loadLLM(getenv func(string) (string, bool), prefix string) e
 		return fmt.Errorf("%sextra_body: %w", prefix, err)
 	}
 	e.ExtraBody = body.(map[string]any)
+	if e.Adapter == AdapterTermContext { // its prompts are part of the backend
+		return nil
+	}
 	b, err := os.ReadFile(e.PromptFile)
 	if err != nil {
 		return fmt.Errorf("%sprompt_file cannot be read: %w", prefix, err)
