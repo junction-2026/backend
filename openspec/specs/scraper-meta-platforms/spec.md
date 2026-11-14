@@ -143,8 +143,8 @@ The Instagram module SHALL return the profile members, `posts` newest first up t
 - **THEN** the response has the 3 newest posts, and with `max_posts` 2 the second page is not requested
 
 ### Requirement: Meta platform registration and client use
-`cmd/scraper/platforms_meta.go` SHALL register the modules with `Register("instagram", ...)` and `Register("threads", ...)`. Both modules SHALL use only the `*http.Client` injected from the core and SHALL run under the scrape context.
+`cmd/orchestrator` SHALL register the Instagram module for `instagram` (with `INSTAGRAM_SESSION_FILE`) and the Threads module for `threads` when it builds the scraper registry at startup. Both modules SHALL use only the shared `*http.Client` injected from the core and SHALL run under the scrape context.
 
 #### Scenario: Scrape through the server
-- **WHEN** `https://www.instagram.com/reel/C1a2b3c4d5/` and `https://www.threads.net/@alice` are scraped through the server with routed fixtures
-- **THEN** both answer 200 with `platform` `instagram` / `threads` and `url_kind` `post` / `profile`
+- **WHEN** jobs are created with `https://www.instagram.com/reel/C1a2b3c4d5/` and `https://www.threads.net/@alice` against the orchestrator with routed fixtures
+- **THEN** both scrapes succeed with `platform` `instagram` / `threads` and `url_kind` `post` / `profile`
