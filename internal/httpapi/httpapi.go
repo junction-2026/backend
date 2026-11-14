@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
@@ -34,7 +35,9 @@ type Config struct {
 	Events http.Handler
 	// Localizer serves GET /api/v1/jobs/{id}/localization; nil: no translation provider.
 	Localizer *localization.Service
-	Logger    *slog.Logger // default slog.Default()
+	// Chat serves POST /api/v1/jobs/{id}/chat; nil: chat answers 503 chat_unavailable.
+	Chat   *chat.Service
+	Logger *slog.Logger // default slog.Default()
 }
 
 const (
@@ -43,15 +46,16 @@ const (
 )
 
 type api struct {
-	svc Service
-	reg *registry.Registry
-	loc *localization.Service
-	log *slog.Logger
+	svc  Service
+	reg  *registry.Registry
+	loc  *localization.Service
+	chat *chat.Service
+	log  *slog.Logger
 }
 
 // NewHandler returns the complete HTTP handler: /api/v1 routes and /healthz.
 func NewHandler(c Config) http.Handler {
-	a := &api{svc: c.Service, reg: c.Registry, loc: c.Localizer, log: c.Logger}
+	a := &api{svc: c.Service, reg: c.Registry, loc: c.Localizer, chat: c.Chat, log: c.Logger}
 	if a.log == nil {
 		a.log = slog.Default()
 	}
@@ -82,6 +86,7 @@ func NewHandler(c Config) http.Handler {
 	route(basePath+"/jobs/{id}", map[string]http.HandlerFunc{"GET": a.getJob})
 	route(basePath+"/jobs/{id}/cancel", map[string]http.HandlerFunc{"POST": a.cancelJob})
 	route(basePath+"/jobs/{id}/localization", map[string]http.HandlerFunc{"GET": a.getLocalization})
+	route(basePath+"/jobs/{id}/chat", map[string]http.HandlerFunc{"POST": a.postChat})
 	route(basePath+"/analyzers", map[string]http.HandlerFunc{"GET": a.listAnalyzers})
 	if c.Events != nil {
 		route(basePath+"/jobs/{id}/events", map[string]http.HandlerFunc{"GET": c.Events.ServeHTTP})

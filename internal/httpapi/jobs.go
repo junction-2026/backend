@@ -201,7 +201,9 @@ func parseSource(m map[string]json.RawMessage, s *job.Source, f fields) {
 	}
 }
 
-func (a *api) createJob(w http.ResponseWriter, r *http.Request) {
+// readJSON reads the request body (at most maxBody) as one JSON value; it writes the 413/400 error and returns
+// false otherwise.
+func readJSON(w http.ResponseWriter, r *http.Request) (json.RawMessage, bool) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if err != nil {
 		var tooBig *http.MaxBytesError
@@ -210,12 +212,20 @@ func (a *api) createJob(w http.ResponseWriter, r *http.Request) {
 		} else {
 			WriteError(w, http.StatusBadRequest, "invalid_request", "could not read request body", nil)
 		}
-		return
+		return nil, false
 	}
 	var raw json.RawMessage
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&raw); err != nil || dec.More() {
 		WriteError(w, http.StatusBadRequest, "invalid_request", "request body is not valid JSON", nil)
+		return nil, false
+	}
+	return raw, true
+}
+
+func (a *api) createJob(w http.ResponseWriter, r *http.Request) {
+	raw, ok := readJSON(w, r)
+	if !ok {
 		return
 	}
 	req, f := parseCreate(raw)
