@@ -229,6 +229,7 @@ func (e *Engine) Create(req CreateRequest) (job.Job, error) {
 		case in != nil && !applies(a, *in): // scrape jobs: after input mapping (run.scraped)
 			run.Status, run.Reason = job.RunSkipped, job.Str(job.ReasonNotApplicable)
 		}
+		run.Availability, run.Note = job.Availability(&run, nil) // creation-time skips never depend on other runs
 		r.idx[a.ID] = len(j.Analyzers)
 		r.defs = append(r.defs, a)
 		j.Analyzers = append(j.Analyzers, run)

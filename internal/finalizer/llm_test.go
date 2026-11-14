@@ -145,9 +145,12 @@ func TestLLMSuccessAndRequest(t *testing.T) {
 	block := user[strings.Index(user, "<analyzers>\n")+len("<analyzers>\n") : strings.Index(user, "</analyzers>")]
 	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
 	require.Len(t, lines, 3, "claims, other, pd; text_stats has no llm block")
-	require.JSONEq(t, `{"id":"claims","description":"`+claimsDesc+`","status":"failed","reason":"adapter_error"}`, lines[0])
-	require.JSONEq(t, `{"id":"other","description":"`+otherDesc+`","status":"skipped","reason":"not_selected"}`, lines[1])
-	require.JSONEq(t, `{"id":"pd","description":"`+pdDesc+`","status":"succeeded","result":{"by":"pd","score":12}}`, lines[2])
+	require.JSONEq(t, `{"id":"claims","description":"`+claimsDesc+`","status":"failed","reason":"adapter_error","availability":"unavailable","note":"`+job.NoteUnavailable+`"}`, lines[0])
+	require.JSONEq(t, `{"id":"other","description":"`+otherDesc+`","status":"skipped","reason":"not_selected","availability":"not_applicable","note":"Not run: this analyzer was not requested for this job."}`, lines[1])
+	require.JSONEq(t, `{"id":"pd","description":"`+pdDesc+`","status":"succeeded","availability":"ran","result":{"by":"pd","score":12}}`, lines[2])
+	require.Contains(t, r.Messages[0].Content, `"not_applicable": there was nothing for it to check in this text`)
+	require.Contains(t, r.Messages[0].Content, `evidence is weak, mixed or contradictory, or an analyzer that applies to this text is unavailable.`)
+	require.NotContains(t, r.Messages[0].Content, "Some may be marked unavailable")
 	require.NotContains(t, user, "text_stats")
 	require.NotContains(t, user, "<schema>", "json_schema mode carries the schema in response_format")
 }
