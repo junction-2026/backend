@@ -3,9 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -14,24 +11,26 @@ import (
 	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/scraper"
+	ss "github.com/junction-2026/backend/internal/socialscraper"
 )
 
-const scrapeToken = "s3cret-scraper-token"
+type moduleFunc func(ctx context.Context, t ss.Target, req ss.Request) (*ss.Result, error)
 
-// stubScraper serves h as the scraper service.
-func stubScraper(t *testing.T, h http.HandlerFunc) *scraper.Client {
-	t.Helper()
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-	return &scraper.Client{URL: srv.URL, Token: scrapeToken}
+func (f moduleFunc) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*ss.Result, error) {
+	return f(ctx, t, req)
 }
 
-func reply(status int, body string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
+// stubScraper runs mod for every platform through the in-process scraper core.
+func stubScraper(mod moduleFunc) *scraper.Client {
+	reg := ss.NewRegistry()
+	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Instagram, ss.Threads, ss.Twitter} {
+		reg.Register(p, mod)
 	}
+	return &scraper.Client{Core: ss.New(reg, nil)}
+}
+
+func reply(res *ss.Result, err error) moduleFunc {
+	return func(context.Context, ss.Target, ss.Request) (*ss.Result, error) { return res, err }
 }
 
 func scrapeReq(url string) CreateRequest {
@@ -42,19 +41,19 @@ func scrapeReq(url string) CreateRequest {
 var scrapeRegistry = regYAML(an("a", "ok"), an("off", "ok", "    enabled: false\n"),
 	an("long", "ok", "    applies_to: {min_content_length: 1000}\n"), finDef)
 
-const postResult = `{"platform":"mastodon","url_kind":"post","username":"alice@mastodon.social","display_name":"Alice",
-"bio":null,"profile_url":null,"followers":null,"following":3,"post_count":null,"verified":null,
-"post":{"id":"1","text":"Vote no!","created_at":"2026-11-13T09:00:00Z","url":null,"likes":1,"replies":0,"reposts":null},
-"posts":[{"id":"1","text":"Vote no!","created_at":null,"url":null,"likes":null,"replies":null,"reposts":null}],
-"comments":[],"warnings":[{"code":"comments_unavailable","message":"no comments"}],
-"scraped_at":"2026-11-14T10:00:00Z","latency_ms":12,"lang":"en"}`
+func postResult() *ss.Result {
+	return &ss.Result{Platform: "mastodon", URLKind: "post", Username: "alice@mastodon.social", DisplayName: ss.Ptr("Alice"),
+		Following: ss.Ptr(3), Post: &ss.Post{ID: "1", Text: "Vote no!", CreatedAt: ss.Ptr("2026-11-13T09:00:00Z"), Likes: ss.Ptr(1), Replies: ss.Ptr(0)},
+		Posts:    []ss.Post{{ID: "1", Text: "Vote no!"}},
+		Warnings: []ss.Warning{{Code: "comments_unavailable", Message: "no comments"}}}
+}
 
 func TestScrapePostSuccess(t *testing.T) {
-	var gotAuth, gotBody, gotPath string
-	sc := stubScraper(t, func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		gotAuth, gotBody, gotPath = r.Header.Get("Authorization"), string(b), r.URL.Path
-		reply(200, postResult)(w, r)
+	var gotReq ss.Request
+	var gotTarget ss.Target
+	sc := stubScraper(func(_ context.Context, t ss.Target, req ss.Request) (*ss.Result, error) {
+		gotReq, gotTarget = req, t
+		return postResult(), nil
 	})
 	var seen map[string]any
 	capture := func(_ context.Context, req adapter.Request) (any, error) {
@@ -79,9 +78,8 @@ func TestScrapePostSuccess(t *testing.T) {
 		"analyzer.skipped:long", "analyzer.started:a", "analyzer.succeeded:a", "analysis.ready_for_finalization",
 		"analysis.finalizing", "analysis.finalized", "job.completed"}, typesFor(evs))
 
-	require.Equal(t, "/scrape", gotPath)
-	require.Equal(t, "Bearer "+scrapeToken, gotAuth)
-	require.JSONEq(t, `{"url":"`+url+`","max_posts":20,"max_comments":50}`, gotBody)
+	require.Equal(t, ss.Request{MaxPosts: 20, MaxComments: 50}, gotReq)
+	require.Equal(t, url, gotTarget.URL.String())
 
 	j := waitDone(t, e, created.ID)
 	require.Equal(t, job.StatusCompleted, j.Status)
@@ -92,7 +90,11 @@ func TestScrapePostSuccess(t *testing.T) {
 		PublishedAt: job.Ptr(time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)), Metadata: in.Source.Metadata}, in.Source)
 	var meta map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(in.Source.Metadata, &meta))
-	require.JSONEq(t, postResult, string(meta["scrape"]), "ScrapeResult verbatim, unknown members included")
+	var embedded ss.Result
+	require.NoError(t, json.Unmarshal(meta["scrape"], &embedded))
+	want := postResult()
+	want.Comments, want.ScrapedAt, want.LatencyMS = []ss.Comment{}, embedded.ScrapedAt, embedded.LatencyMS
+	require.Equal(t, *want, embedded, "the ScrapeResult is embedded as the scraper produced it")
 
 	s := j.Scrape
 	require.Equal(t, job.RunSucceeded, s.Status)
@@ -125,10 +127,9 @@ func TestScrapePostSuccess(t *testing.T) {
 }
 
 func TestScrapeProfileHistoryAsContent(t *testing.T) {
-	body := `{"platform":"bluesky","url_kind":"profile","username":"alice.bsky.social","display_name":null,
-"post":null,"comments":[],"posts":[{"id":"3","text":"B","created_at":"2026-11-13T09:00:00Z"},{"id":"2","text":""},{"id":"1","text":"A"}],
-"scraped_at":"2026-11-14T10:00:00Z","latency_ms":5}`
-	e := newEngine(t, scrapeRegistry, Config{Scraper: stubScraper(t, reply(200, body))}, map[string]adapter.Handler{"ok": ok, "final": ok})
+	res := &ss.Result{Platform: "bluesky", URLKind: "profile", Username: "alice.bsky.social",
+		Posts: []ss.Post{{ID: "3", Text: "B", CreatedAt: ss.Ptr("2026-11-13T09:00:00Z")}, {ID: "2"}, {ID: "1", Text: "A"}}}
+	e := newEngine(t, scrapeRegistry, Config{Scraper: stubScraper(reply(res, nil))}, map[string]adapter.Handler{"ok": ok, "final": ok})
 	j, err := e.Create(scrapeReq("https://bsky.app/profile/alice.bsky.social"))
 	require.NoError(t, err)
 	j = waitDone(t, e, j.ID)
@@ -137,47 +138,24 @@ func TestScrapeProfileHistoryAsContent(t *testing.T) {
 	require.Equal(t, "", j.Input.Source.Title)
 	require.Nil(t, j.Input.Source.PublishedAt, "published_at only for post URLs")
 	require.Equal(t, "profile", *j.Scrape.URLKind)
-	require.Equal(t, []json.RawMessage{}, j.Scrape.Warnings, "missing warnings default to []")
+	require.Equal(t, []json.RawMessage{}, j.Scrape.Warnings, "no warnings: []")
 }
 
+// The full error mapping is tested in internal/scraper; here the engine settles each kind of failure.
 func TestScrapeFailureMapping(t *testing.T) {
-	envelope := func(code, details string) string {
-		return `{"error":{"code":"` + code + `","message":"scraper says ` + code + `"` + details + `}}`
-	}
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closed.Close()
 	for name, c := range map[string]struct {
-		h       http.HandlerFunc
-		url     string // scraper base URL override (unreachable)
+		mod     moduleFunc
 		code    string
 		details string
 	}{
-		"account_private passes through": {h: reply(403, envelope("account_private", `,"details":{"platform":"instagram"}`)), code: "account_private", details: `{"platform":"instagram"}`},
-		"unsupported_url":                {h: reply(422, envelope("unsupported_url", "")), code: "unsupported_url"},
-		"account_not_found":              {h: reply(404, envelope("account_not_found", `,"details":{"platform":"bluesky"}`)), code: "account_not_found", details: `{"platform":"bluesky"}`},
-		"rate_limited":                   {h: reply(429, envelope("rate_limited", `,"details":{"retry_after_s":30}`)), code: "rate_limited", details: `{"retry_after_s":30}`},
-		"platform_not_configured":        {h: reply(503, envelope("platform_not_configured", `,"details":{"missing_settings":["TWITTER_CT0"]}`)), code: "platform_not_configured", details: `{"missing_settings":["TWITTER_CT0"]}`},
-		"unknown scraper code":           {h: reply(418, envelope("new_code", "")), code: "new_code"},
-		"401 unauthorized":               {h: reply(401, envelope("unauthorized", "")), code: job.CodeScraperUnavailable},
-		"invalid_request":                {h: reply(400, envelope("invalid_request", "")), code: job.CodeScraperUnavailable},
-		"validation_failed":              {h: reply(422, envelope("validation_failed", "")), code: job.CodeScraperUnavailable},
-		"500 internal_error":             {h: reply(500, envelope("internal_error", "")), code: job.CodeScraperUnavailable},
-		"error without envelope":         {h: reply(502, "Bad Gateway"), code: job.CodeScraperUnavailable},
-		"200 not an object":              {h: reply(200, `[]`), code: job.CodeScraperUnavailable},
-		"200 null":                       {h: reply(200, `null`), code: job.CodeScraperUnavailable},
-		"200 missing url_kind":           {h: reply(200, `{"platform":"x","posts":[]}`), code: job.CodeScraperUnavailable},
-		"200 post kind without post":     {h: reply(200, `{"platform":"x","url_kind":"post","post":null,"posts":[]}`), code: job.CodeScraperUnavailable},
-		"unreachable":                    {url: closed.URL, code: job.CodeScraperUnavailable},
-		"post without text":              {h: reply(200, `{"platform":"instagram","url_kind":"post","username":"a","post":{"id":"p","text":"  "},"posts":[]}`), code: job.CodeNoTextContent},
-		"profile without text":           {h: reply(200, `{"platform":"x","url_kind":"profile","username":"a","post":null,"posts":[{"id":"p","text":""}]}`), code: job.CodeNoTextContent},
+		"account_private passes through": {mod: reply(nil, ss.AccountPrivate("instagram", "private")), code: "account_private", details: `{"platform":"instagram"}`},
+		"panic":                          {mod: func(context.Context, ss.Target, ss.Request) (*ss.Result, error) { panic("boom") }, code: job.CodeScraperUnavailable},
+		"invalid result":                 {mod: reply(&ss.Result{Platform: "twitter"}, nil), code: job.CodeScraperUnavailable},
+		"profile without text":           {mod: reply(&ss.Result{Platform: "twitter", URLKind: "profile", Username: "a"}, nil), code: job.CodeNoTextContent},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sc := &scraper.Client{URL: c.url, Token: scrapeToken}
-			if c.h != nil {
-				sc = stubScraper(t, c.h)
-			}
 			f := &fakeFinalizer{}
-			e := newEngine(t, scrapeRegistry, Config{Scraper: sc, Finalizer: f}, map[string]adapter.Handler{"ok": ok, "final": ok})
+			e := newEngine(t, scrapeRegistry, Config{Scraper: stubScraper(c.mod), Finalizer: f}, map[string]adapter.Handler{"ok": ok, "final": ok})
 			created, sub := createWithEvents(t, e, scrapeReq("https://x.com/alice"))
 			evs := drain(t, sub)
 			require.Equal(t, []string{"job.snapshot", "job.started", "analyzer.skipped:off", "scrape.started", "scrape.failed",
@@ -191,8 +169,6 @@ func TestScrapeFailureMapping(t *testing.T) {
 			if c.details != "" {
 				require.JSONEq(t, c.details, string(j.Scrape.Error.Details))
 			}
-			require.NotContains(t, j.Scrape.Error.Message, scrapeToken)
-			require.NotContains(t, j.Scrape.Error.Message, "127.0.0.1")
 			require.Nil(t, j.Scrape.Platform)
 			require.Equal(t, []json.RawMessage{}, j.Scrape.Warnings)
 			for _, id := range []string{"a", "long"} {
@@ -208,22 +184,11 @@ func TestScrapeFailureMapping(t *testing.T) {
 	}
 }
 
-func TestScrapeErrorMessageRedacted(t *testing.T) {
-	var sc *scraper.Client
-	sc = stubScraper(t, func(w http.ResponseWriter, r *http.Request) {
-		reply(502, `{"error":{"code":"upstream_error","message":"failed via `+sc.URL+` with `+scrapeToken+`"}}`)(w, r)
-	})
-	e := newEngine(t, scrapeRegistry, Config{Scraper: sc}, map[string]adapter.Handler{"ok": ok, "final": ok})
-	j, err := e.Create(scrapeReq("https://x.com/alice"))
-	require.NoError(t, err)
-	j = waitDone(t, e, j.ID)
-	require.Equal(t, "upstream_error", j.Scrape.Error.Code)
-	require.NotContains(t, j.Scrape.Error.Message, scrapeToken)
-	require.NotContains(t, j.Scrape.Error.Message, sc.URL)
-}
-
 func TestScrapeTimeout(t *testing.T) {
-	sc := stubScraper(t, func(_ http.ResponseWriter, r *http.Request) { _, _ = io.Copy(io.Discard, r.Body); <-r.Context().Done() })
+	sc := stubScraper(func(ctx context.Context, _ ss.Target, _ ss.Request) (*ss.Result, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, ScrapeTimeout: 50 * time.Millisecond}, map[string]adapter.Handler{"ok": ok, "final": ok})
 	j, err := e.Create(scrapeReq("https://x.com/alice"))
 	require.NoError(t, err)
@@ -235,11 +200,11 @@ func TestScrapeTimeout(t *testing.T) {
 
 func TestCancelWhileScraping(t *testing.T) {
 	inflight, aborted := make(chan struct{}), make(chan struct{})
-	sc := stubScraper(t, func(_ http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+	sc := stubScraper(func(ctx context.Context, _ ss.Target, _ ss.Request) (*ss.Result, error) {
 		close(inflight)
-		<-r.Context().Done()
+		<-ctx.Done()
 		close(aborted)
+		return nil, ctx.Err()
 	})
 	f := &fakeFinalizer{}
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, Finalizer: f}, map[string]adapter.Handler{"ok": ok, "final": ok})
@@ -266,7 +231,7 @@ func TestCancelWhileScraping(t *testing.T) {
 	select {
 	case <-aborted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the scraper request was not aborted")
+		t.Fatal("the scrape was not aborted")
 	}
 	evs := drain(t, sub)
 	require.Equal(t, []string{"job.snapshot", "job.started", "analyzer.skipped:off", "scrape.started", "scrape.failed",
@@ -278,7 +243,10 @@ func TestCancelWhileScraping(t *testing.T) {
 
 func TestCancelQueuedScrapeJob(t *testing.T) {
 	called := make(chan struct{}, 1)
-	sc := stubScraper(t, func(w http.ResponseWriter, r *http.Request) { called <- struct{}{}; reply(200, postResult)(w, r) })
+	sc := stubScraper(func(context.Context, ss.Target, ss.Request) (*ss.Result, error) {
+		called <- struct{}{}
+		return postResult(), nil
+	})
 	e := newEngine(t, scrapeRegistry, Config{Scraper: sc, MaxParallelJobs: 1}, map[string]adapter.Handler{"ok": block, "final": ok})
 	first, err := e.Create(in("x")) // holds the only slot
 	require.NoError(t, err)

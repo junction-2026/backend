@@ -31,7 +31,7 @@ func (r *run) scrape(req job.ScrapeRequest) {
 	if err != nil {
 		var se *job.ScrapeError
 		if !errors.As(err, &se) {
-			se = &job.ScrapeError{Code: job.CodeScraperUnavailable, Message: "the scraper service is unavailable"}
+			se = &job.ScrapeError{Code: job.CodeScraperUnavailable, Message: "the scraper is unavailable"}
 		}
 		r.scrapeFailedLocked(se)
 		return

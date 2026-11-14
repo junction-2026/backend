@@ -11,7 +11,6 @@ const (
 	Mastodon  = "mastodon"
 	Instagram = "instagram"
 	Threads   = "threads"
-	Facebook  = "facebook"
 	Twitter   = "twitter"
 )
 
@@ -27,9 +26,8 @@ var (
 	igUserRe    = regexp.MustCompile(`^[A-Za-z0-9._]{1,30}$`)
 	xUserRe     = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
 	igReserved  = set("explore", "accounts", "p", "reel", "reels", "stories", "direct", "tv", "about", "legal", "web", "api")
-	fbReserved  = set("groups", "events", "watch", "marketplace", "share", "sharer.php", "photo", "photo.php", "permalink.php", "story.php", "login", "login.php", "people", "pages", "gaming", "reel", "reels", "stories", "hashtag", "help", "policies", "public", "search", "videos", "video.php")
 	xReserved   = set("explore", "home", "i", "search", "settings", "notifications", "messages", "compose", "hashtag", "intent", "share", "login", "signup", "tos", "privacy", "about", "account")
-	listedHosts = set("bsky.app", "instagram.com", "threads.net", "threads.com", "facebook.com", "twitter.com", "x.com")
+	listedHosts = set("bsky.app", "instagram.com", "threads.net", "threads.com", "facebook.com", "fb.com", "fb.watch", "twitter.com", "x.com")
 )
 
 func set(v ...string) map[string]bool {
@@ -70,8 +68,8 @@ func normalize(u *url.URL) (host string, seg []string) {
 	return host, seg
 }
 
-// Recognize maps an absolute http(s) URL to a Target, or answers 422 unsupported_url (or
-// unsupported_account_type for Facebook personal profiles). It needs no registered module.
+// Recognize maps an absolute http(s) URL to a Target, or fails with unsupported_url. It needs no
+// registered module and makes no network request.
 func Recognize(raw string) (Target, *Error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -107,22 +105,7 @@ func Recognize(raw string) (Target, *Error) {
 				return ok(Threads, KindPost, map[string]string{"username": s[0][1:], "code": s[2]})
 			}
 		}
-	case "facebook.com":
-		if len(s) == 0 {
-			break
-		}
-		if s[0] == "profile.php" {
-			return t, UnsupportedAccountType(Facebook, "personal_profile", "Facebook personal profiles are not scraped")
-		}
-		if fbReserved[s[0]] {
-			break
-		}
-		if len(s) == 1 {
-			return ok(Facebook, KindProfile, map[string]string{"page": s[0]})
-		}
-		if len(s) == 3 && s[1] == "posts" {
-			return ok(Facebook, KindPost, map[string]string{"page": s[0], "post_id": s[2]})
-		}
+	case "facebook.com", "fb.com", "fb.watch": // Facebook is not supported (and never probed as Mastodon)
 	case "twitter.com", "x.com":
 		if len(s) == 0 || xReserved[s[0]] || !xUserRe.MatchString(s[0]) {
 			break

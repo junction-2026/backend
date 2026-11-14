@@ -151,19 +151,12 @@ keep the server on a trusted network.
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of
 `input` (shared change `social-media-scrape-input`). The job answers 201 at once with `input: null` and status
-`queued` or `scraping`; the orchestrator then calls the scraper service (`POST {SCRAPER_URL}/scrape`), maps the
+`queued` or `scraping`; the orchestrator then scrapes the URL in process (see "Scraping"), maps the
 post text (post URL) or the posting history, newest first (profile URL), to `input.content` and keeps the full
 scrape result in `input.source.metadata.scrape`. A failed scrape ends the job `failed` with `scrape.error.code`
 (for example `account_private`, `unsupported_url`, `scraper_unavailable`, `timeout`, `no_text_content`) and
-skips analyzers and finalization with `input_unavailable`.
-
-| Variable | Default | |
-|---|---|---|
-| `SCRAPER_URL` | unset | scraper base URL, e.g. `http://scraper:8003`; unset: requests with `scrape` answer 503 `scrape_unavailable` |
-| `SCRAPER_TOKEN` | | sent as `Authorization: Bearer <token>`; required when `SCRAPER_URL` is set |
-| `SCRAPER_TIMEOUT` | `120s` | Go duration; a slower scrape fails with `timeout` |
-
-None of the three values is logged or returned by the API.
+skips analyzers and finalization with `input_unavailable`. Requests with `scrape` answer 503
+`scrape_unavailable` only when scraping is disabled (`SCRAPER_ENABLED=false`).
 
 ```
 curl -s -X POST http://localhost:8080/api/v1/jobs -H 'Content-Type: application/json' \
@@ -176,45 +169,38 @@ service (port 8001): it binds `$input` and `$input.source`, so it receives the p
 Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
 the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.
 
-## Scraper service
+## Scraping
 
-`cmd/scraper` serves the shared `social-scraper-api` (`GET /health`, `POST /scrape`) that the orchestrator's
-`SCRAPER_URL` points to. It is one Go binary; Bluesky and Mastodon need no credentials.
-
-```
-SCRAPER_TOKEN=<token> go run ./cmd/scraper
-docker build -f scraper.Dockerfile -t scraper .
-docker run -d --name scraper --network ml_net -p 8003:8003 -e SCRAPER_TOKEN=<token> \
-  --label 'traefik.enable=true' \
-  --label 'traefik.http.routers.scraper.rule=Host(`<scraper-host>`)' \
-  --label 'traefik.http.services.scraper.loadbalancer.server.port=8003' \
-  scraper
-curl -s -X POST http://localhost:8003/scrape -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
-  -d '{"url": "https://bsky.app/profile/alice.bsky.social", "max_posts": 5}'
-```
-
-The Traefik labels (host, entrypoints, TLS) are the operator's to add; the values above are placeholders. The
-image runs as a non-root user with `HOME=/tmp`, contains chromium for browser-based platform modules and no
-secret. `scraper -healthcheck` requests `/health` on `127.0.0.1` (the port of `SCRAPER_LISTEN_ADDR`) and exits 0
-on 200; the image's `HEALTHCHECK` uses it. `SIGTERM` stops the server gracefully within 10 s.
+The scraper runs inside the orchestrator: no separate service, image or token. At startup the orchestrator
+registers the Bluesky, Mastodon, Instagram, Threads and X modules (`internal/socialscraper`) over one shared HTTP
+client, and a job's scrape calls them directly. Bluesky and Mastodon need no credentials. Supported URLs are
+those of these five platforms; any other URL fails with `unsupported_url`.
 
 | Variable | Default | |
 |---|---|---|
-| `SCRAPER_TOKEN` | | **required**; the bearer token of `POST /scrape`. Without it the process exits with an error naming the variable |
-| `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | `30` | positive number (decimals allowed); bounds one scrape and every outbound request, a slower scrape answers 504 `upstream_timeout` |
-| `SCRAPER_LISTEN_ADDR` | `0.0.0.0:8003` | listen address |
+| `SCRAPER_ENABLED` | `true` | `true` or `false` (any case); `false`: requests with `scrape` answer 503 `scrape_unavailable`; any other value aborts startup with a message naming the variable |
+| `SCRAPER_TIMEOUT` | `120s` | Go duration; bounds one scrape, a slower scrape fails with `timeout` |
+| `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` | `30` | positive number (decimals allowed); bounds every outbound platform request, a slower answer fails with `upstream_timeout` |
 | `INSTAGRAM_SESSION_FILE` | unset | path of a JSON file `{"sessionid": "<value>", "csrftoken": "<value>", "ds_user_id": "<value>"}` with the cookies of an Instagram login; unset: anonymous |
-| `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` | unset | the `auth_token` and `ct0` cookies of an X login; both are needed for X, otherwise X URLs answer 503 `platform_not_configured` |
+| `TWITTER_AUTH_TOKEN`, `TWITTER_CT0` | unset | the `auth_token` and `ct0` cookies of an X login; both are needed for X, otherwise X URLs fail with `platform_not_configured` |
 
-All settings come from the environment; none is ever logged or returned. Logs are JSON lines on stderr
-(method, path, status, platform, url_kind, latency) with `Bearer ...` values, the secrets above and the session
-file's path and contents replaced by `[redacted]`.
+All settings come from the environment; no value is ever logged or returned. The orchestrator's JSON log lines
+replace `Bearer ...` values, the X cookies and the session file's path and contents by `[redacted]`. A panic in a
+platform module is logged (redacted, with its stack trace) and the scrape fails with `scraper_unavailable`; the
+server keeps serving.
 
-Migration notes: `INSTAGRAM_SESSION_FILE` now holds the cookie JSON shown above; a session file in the
-format the scraper used before is not read, so create the new file once from a logged-in browser session.
-`SCRAPER_X_POOL_DB` is removed: X is read with the two cookie variables only and keeps no database.
+Migration notes:
 
-The orchestrator side is configured separately (see "Jobs from a social-media URL"): `SCRAPER_URL`,
-`SCRAPER_TOKEN` (the same token) and `SCRAPER_TIMEOUT` (default `120s`, the orchestrator's bound for one scrape).
+- The scraper no longer runs as its own container: delete the scraper container and its Traefik route, and move
+  `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`, `INSTAGRAM_SESSION_FILE`, `SCRAPER_UPSTREAM_TIMEOUT_SECONDS` and
+  `SCRAPER_TIMEOUT` to the orchestrator container (same names and meaning).
+- `SCRAPER_URL`, `SCRAPER_TOKEN` and `SCRAPER_LISTEN_ADDR` are ignored; if set, startup logs one warning naming
+  each variable (never its value) and continues.
+- The browser-based platform module is removed and no browser ships in the image: URLs of that platform now fail
+  with `unsupported_url`; only the five platforms above are supported.
+- `INSTAGRAM_SESSION_FILE` holds the cookie JSON shown above; a session file in an older format is not read, so
+  create the new file once from a logged-in browser session. `SCRAPER_X_POOL_DB` is not read: X is read with the
+  two cookie variables only and keeps no database.
+
 Tests run offline: `go test ./...` serves recorded fixtures (`internal/socialscraper/<platform>/testdata/`) through
 `internal/socialscraper/scrapertest` and reaches no platform.

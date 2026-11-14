@@ -1,8 +1,0 @@
-[
-  {"data": {"node": {"timeline": {"edges": [
-    {"node": {"__typename": "Story", "post_id": "9001", "owner": {"id": "100"}, "message": {"text": "Oldest story"},
-              "creation_time": 1794475815, "url": "https://www.facebook.com/examplenews/posts/9001"}},
-    {"node": {"__typename": "Story", "post_id": "7777", "owner": {"id": "999"}, "message": {"text": "Someone else's story"},
-              "creation_time": 1794700000}}
-  ]}}}}
-]

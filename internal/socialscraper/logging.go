@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -65,7 +64,7 @@ func (r *Redactor) Redact(s string) string {
 	return s
 }
 
-// NewLogger writes JSON lines to w (os.Stderr in production) through the redactor: message and every
+// NewLogger writes JSON lines to w (the orchestrator log in production) through the redactor: message and every
 // attribute value (errors and stack traces included) are redacted before encoding.
 func NewLogger(w io.Writer, r *Redactor) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{
@@ -80,9 +79,4 @@ func NewLogger(w io.Writer, r *Redactor) *slog.Logger {
 			return a
 		},
 	}))
-}
-
-// DefaultLogger is the production logger: JSON to stderr, redacting the process environment's secrets.
-func DefaultLogger() *slog.Logger {
-	return NewLogger(os.Stderr, NewRedactor(os.Getenv, os.ReadFile))
 }
