@@ -33,7 +33,7 @@ var t0 = time.Date(2026, 3, 1, 12, 0, 0, 123456789, time.UTC)
 
 func rec(id string, age int, status string) *job.Record {
 	at := t0.Add(-time.Duration(age) * time.Second)
-	r := &job.Record{Job: job.Job{ID: id, Status: status, CreatedAt: at, Options: job.Options{Finalize: true},
+	r := &job.Record{Job: job.Job{ID: id, Status: status, CreatedAt: at, Options: job.Options{Finalize: true}, Public: true,
 		Finalization: job.Finalization{Status: job.RunPending}}}
 	if status == job.StatusCompleted || status == job.StatusFailed || status == job.StatusCancelled {
 		r.Done, r.FinishedAt = true, &at
@@ -283,4 +283,101 @@ func TestOpenErrors(t *testing.T) {
 	_, err := OpenSQLite(t.TempDir()) // a directory is not a database
 	require.Error(t, err)
 	var _ *sql.DB = open(t, filepath.Join(t.TempDir(), "x y#?.db")).db // unusual characters in the path
+}
+
+// interleaved: public jobs p1..p3 and unlisted u1, u2, newest first u2 p3 u1 p2 p1.
+func interleaved(t *testing.T, stores ...Store) {
+	t.Helper()
+	for i, id := range []string{"p1", "p2", "u1", "p3", "u2"} {
+		r := rec(id, 10-i, []string{job.StatusRunning, job.StatusCompleted}[i%2])
+		r.Public = id[0] == 'p'
+		for _, s := range stores {
+			save(t, s, r)
+			if m, ok := s.(*Memory); ok {
+				m.Put(r)
+			}
+		}
+	}
+}
+
+func TestPageExcludesNonPublicBeforePaging(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, filepath.Join(dir, "jobs.db"))
+	m := NewMemory()
+	interleaved(t, s, m)
+	for name, st := range map[string]Store{"sqlite": s, "memory": m} {
+		for _, status := range []string{"", job.StatusRunning, job.StatusCompleted} {
+			var all, want []string
+			for _, j := range []string{"p3", "p2", "p1"} {
+				r, ok := m.Get(j)
+				require.True(t, ok)
+				if status == "" || r.Status == status {
+					want = append(want, j)
+				}
+			}
+			var after *Cursor
+			for {
+				page, err := st.Page(status, after, 2)
+				require.NoError(t, err)
+				for _, j := range page {
+					require.True(t, j.Public, name)
+					all = append(all, j.ID)
+				}
+				if len(page) < 2 {
+					break
+				}
+				require.Len(t, page, 2, "%s: a page holds limit public jobs", name)
+				after = &Cursor{CreatedAt: page[1].CreatedAt, ID: page[1].ID}
+			}
+			require.Equal(t, want, all, "%s status %q", name, status)
+		}
+		first, err := st.Page("", nil, 2)
+		require.NoError(t, err)
+		require.Equal(t, "p3", first[0].ID)
+		require.Equal(t, "p2", first[1].ID)
+		rest, err := st.Page("", &Cursor{CreatedAt: first[1].CreatedAt, ID: first[1].ID}, 2)
+		require.NoError(t, err)
+		require.Len(t, rest, 1, "%s: next_cursor is null when no public job follows", name)
+	}
+}
+
+func TestUnlistedJobSurvivesReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.db")
+	s := open(t, path)
+	interleaved(t, s)
+	require.NoError(t, s.Close())
+	s = open(t, path)
+	r, ok, err := s.Load("u1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.False(t, r.Public)
+	page, err := s.Page("", nil, 0)
+	require.NoError(t, err)
+	require.Len(t, page, 3)
+}
+
+func TestMigratesDatabaseWithoutPublicColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.db")
+	s := open(t, path)
+	save(t, s, rec("old", 1, job.StatusCompleted))
+	// put the file back into its schema version 1 state: no column, no index, and a Job stored without `public`
+	for _, q := range []string{`DROP INDEX jobs_public_created`, `DROP INDEX jobs_public_status_created`, `ALTER TABLE jobs DROP COLUMN public`,
+		`UPDATE jobs SET data = json_remove(data, '$.public')`, `UPDATE schema_version SET version = 1`} {
+		_, err := s.db.Exec(q)
+		require.NoError(t, err, q)
+	}
+	require.NoError(t, s.Close())
+
+	s = open(t, path)
+	page, err := s.Page("", nil, 0)
+	require.NoError(t, err)
+	require.Len(t, page, 1, "a pre-existing job is listed")
+	require.True(t, page[0].Public)
+	r, _, _ := s.Load("old")
+	require.True(t, r.Public)
+	var public int
+	require.NoError(t, s.db.QueryRow(`SELECT public FROM jobs WHERE id = 'old'`).Scan(&public))
+	require.Equal(t, 1, public)
+	require.NoError(t, s.Close())
+	open(t, path) // idempotent: a second start changes nothing
 }

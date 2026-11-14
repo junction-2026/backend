@@ -133,6 +133,13 @@ func parseCreate(body json.RawMessage) (engine.CreateRequest, fields) {
 			}
 		}
 	}
+	if raw, present := top["public"]; present {
+		var b bool
+		if string(bytes.TrimSpace(raw)) == "null" || json.Unmarshal(raw, &b) != nil {
+			f["public"] = "must be a boolean"
+		}
+		req.Private = !b
+	}
 	return req, f
 }
 

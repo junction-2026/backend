@@ -34,6 +34,10 @@ var migrations = []string{
 	CREATE INDEX jobs_status_created ON jobs (status, created_at DESC, id);
 	CREATE INDEX jobs_unfinished ON jobs (created_at) WHERE done = 0;
 	CREATE INDEX jobs_finished ON jobs (finished_at) WHERE done = 1;`,
+	// public: job visibility (unlisted jobs are left out of Page); rows stored before it are public.
+	`ALTER TABLE jobs ADD COLUMN public INTEGER NOT NULL DEFAULT 1;
+	CREATE INDEX jobs_public_created ON jobs (public, created_at DESC, id);
+	CREATE INDEX jobs_public_status_created ON jobs (public, status, created_at DESC, id);`,
 }
 
 // SQLite is a Store whose history lives in a SQLite file. Its working set is the embedded Memory store.
@@ -129,10 +133,10 @@ func (s *SQLite) Save(j *job.Record) error {
 	}
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
-	_, err = s.db.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, data, state) VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, err = s.db.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, public, data, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET status = excluded.status, done = excluded.done, finished_at = excluded.finished_at,
 		data = excluded.data, state = excluded.state`,
-		j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), string(data), string(st))
+		j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), j.Public, string(data), string(st))
 	return err
 }
 
@@ -203,8 +207,7 @@ func (s *SQLite) Unfinished() ([]*job.Record, error) {
 }
 
 func (s *SQLite) Page(status string, after *Cursor, limit int) ([]job.Job, error) {
-	var where []string
-	var args []any
+	where, args := []string{"public = 1"}, []any{}
 	if status != "" {
 		where, args = append(where, "status = ?"), append(args, status)
 	}
@@ -213,10 +216,7 @@ func (s *SQLite) Page(status string, after *Cursor, limit int) ([]job.Job, error
 		where = append(where, "created_at <= ? AND (created_at < ? OR id > ?)") // the first term lets the index seek
 		args = append(args, at, at, after.ID)
 	}
-	q := `SELECT data FROM jobs`
-	if len(where) > 0 {
-		q += ` WHERE ` + strings.Join(where, " AND ")
-	}
+	q := `SELECT data FROM jobs WHERE ` + strings.Join(where, " AND ")
 	q += ` ORDER BY created_at DESC, id`
 	if limit > 0 {
 		q, args = q+` LIMIT ?`, append(args, limit)
