@@ -32,7 +32,7 @@ func TestCoverageAndJSONShape(t *testing.T) {
 	require.Equal(t, Coverage{Total: 6, Applicable: 5, Pending: 0, Running: 1, Succeeded: 2, Failed: 1, Skipped: 2, Settled: 5}, ComputeCoverage(runs))
 
 	ts := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
-	j := Job{ID: "j", Status: StatusQueued, CreatedAt: ts, Input: Input{Content: "x", ContentType: "text/plain", NormalizedContent: "x"}, Analyzers: []AnalyzerRun{{ID: "a", DependsOn: []string{}}}}
+	j := Job{ID: "j", Status: StatusQueued, CreatedAt: ts, Input: &Input{Content: "x", ContentType: "text/plain", NormalizedContent: "x"}, Analyzers: []AnalyzerRun{{ID: "a", DependsOn: []string{}}}}
 	b, _ := json.Marshal(j)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(b, &m))

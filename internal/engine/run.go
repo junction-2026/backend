@@ -44,6 +44,10 @@ func (r *run) main() {
 	}
 	r.slot = true
 	r.beginLocked()
+	if r.j.Scrape != nil {
+		r.startScrapeLocked()
+		return
+	}
 	r.advanceLocked()
 }
 
@@ -70,6 +74,9 @@ func (r *run) recoverJob() {
 func (r *run) beginLocked() {
 	now := r.e.now()
 	r.j.Status, r.j.StartedAt = job.StatusRunning, &now
+	if r.j.Scrape != nil {
+		r.j.Status = job.StatusScraping
+	}
 	r.emit("job.started", map[string]any{"job_id": r.j.ID})
 	for i := range r.j.Analyzers {
 		if a := r.j.Analyzers[i]; a.Status == job.RunSkipped {
@@ -279,6 +286,9 @@ func (r *run) endFinalizationLocked(raw json.RawMessage, rerr *job.RunError) {
 func (r *run) abortLocked(status string) {
 	r.cancelled = true
 	r.cancel()
+	if s := r.j.Scrape; s != nil && (s.Status == job.RunPending || s.Status == job.RunRunning) {
+		r.endScrapeLocked(&job.ScrapeError{Code: job.CodeCancelled, Message: "scrape aborted: job " + status})
+	}
 	cancelled := &job.RunError{Code: job.CodeCancelled, Message: "analyzer aborted: job " + status}
 	for i := range r.j.Analyzers {
 		switch r.j.Analyzers[i].Status {

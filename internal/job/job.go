@@ -11,6 +11,7 @@ import (
 // Job statuses.
 const (
 	StatusQueued     = "queued"
+	StatusScraping   = "scraping"
 	StatusRunning    = "running"
 	StatusFinalizing = "finalizing"
 	StatusCompleted  = "completed"
@@ -37,6 +38,7 @@ const (
 	ReasonCancelled         = "cancelled"
 	ReasonNotConfigured     = "not_configured"
 	ReasonDisabledByRequest = "disabled_by_request"
+	ReasonInputUnavailable  = "input_unavailable"
 )
 
 // Error codes of failed runs and failed finalization.
@@ -152,7 +154,8 @@ type Job struct {
 	CreatedAt    time.Time     `json:"created_at"`
 	StartedAt    *time.Time    `json:"started_at"`
 	FinishedAt   *time.Time    `json:"finished_at"`
-	Input        Input         `json:"input"`
+	Input        *Input        `json:"input"`  // null for a scrape job until its scrape succeeded; immutable once set
+	Scrape       *Scrape       `json:"scrape"` // null for a job created with input
 	Options      Options       `json:"options"`
 	Analyzers    []AnalyzerRun `json:"analyzers"`
 	Coverage     Coverage      `json:"coverage"`
@@ -167,15 +170,55 @@ type Record struct {
 }
 
 // Clone returns a copy that is safe to hand to other goroutines. Pointer and
-// slice members of runs are immutable once set, so only the run slice is
-// copied. Caller holds the lock.
+// slice members of runs and of the Scrape are immutable once set, so only the
+// run slice and the Scrape struct are copied. Caller holds the lock.
 func (j *Job) Clone() Job {
-	return Job{
+	c := Job{
 		ID: j.ID, Status: j.Status, Done: j.Done, CreatedAt: j.CreatedAt,
 		StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Input: j.Input, Options: j.Options,
 		Analyzers: append([]AnalyzerRun(nil), j.Analyzers...), Coverage: j.Coverage,
 		Finalization: j.Finalization,
 	}
+	if j.Scrape != nil {
+		s := *j.Scrape
+		c.Scrape = &s
+	}
+	return c
+}
+
+// Scrape error codes produced by the orchestrator; scraper codes pass through.
+const (
+	CodeScraperUnavailable = "scraper_unavailable"
+	CodeNoTextContent      = "no_text_content"
+)
+
+// ScrapeRequest is the shared ScrapeRequest object (also the scraper's request body).
+type ScrapeRequest struct {
+	URL         string `json:"url"`
+	MaxPosts    int    `json:"max_posts"`
+	MaxComments int    `json:"max_comments"`
+}
+
+// ScrapeError is Scrape.error. It is also the error the scraper client returns.
+type ScrapeError struct {
+	Code    string          `json:"code"`
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details,omitempty"`
+}
+
+func (e *ScrapeError) Error() string { return e.Code + ": " + e.Message }
+
+// Scrape is the shared Scrape object; Status uses the Run* values.
+type Scrape struct {
+	Status string `json:"status"`
+	ScrapeRequest
+	Platform   *string           `json:"platform"`
+	URLKind    *string           `json:"url_kind"`
+	Error      *ScrapeError      `json:"error"`
+	Warnings   []json.RawMessage `json:"warnings"` // ScrapeResult warnings verbatim
+	StartedAt  *time.Time        `json:"started_at"`
+	FinishedAt *time.Time        `json:"finished_at"`
+	DurationMS *int64            `json:"duration_ms"`
 }
 
 // Str returns a pointer to s.

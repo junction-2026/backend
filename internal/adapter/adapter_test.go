@@ -296,7 +296,7 @@ func TestCustomAdapter(t *testing.T) {
 }
 
 func TestTextStatsAndInputs(t *testing.T) {
-	j := &job.Job{ID: "j1", Input: job.Input{Content: "A  b\r\nc", ContentType: "text/plain", NormalizedContent: "A  b\nc",
+	j := &job.Job{ID: "j1", Input: &job.Input{Content: "A  b\r\nc", ContentType: "text/plain", NormalizedContent: "A  b\nc",
 		Source: job.Source{Title: "t"}},
 		Analyzers: []job.AnalyzerRun{{ID: "dep", Status: job.RunSucceeded, Result: json.RawMessage(`{"items":[]}`)}, {ID: "x", Status: job.RunFailed}}}
 

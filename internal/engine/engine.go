@@ -20,12 +20,15 @@ import (
 	"github.com/junction-2026/backend/internal/events"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
+	"github.com/junction-2026/backend/internal/scraper"
 	"github.com/junction-2026/backend/internal/store"
 )
 
 var (
 	ErrNotFound    = errors.New("job not found")
 	ErrJobFinished = errors.New("job already finished")
+	// ErrScrapeUnavailable: Create with Scrape while no scraper is configured.
+	ErrScrapeUnavailable = errors.New("no scraper configured")
 )
 
 // UnknownAnalyzerError: Create named ids that are not in the registry.
@@ -63,14 +66,16 @@ type Executor interface {
 }
 
 type Config struct {
-	MaxParallelAnalyzers int           // per job, default 8
-	MaxParallelJobs      int           // global, default 16; further jobs stay queued
-	JobRetention         time.Duration // default 24h
-	SweepInterval        time.Duration // eviction period, default 1m
-	EventBuffer          int           // per subscriber, default 256
-	Finalizer            Finalizer     // nil: finalization is skipped / not_configured
-	Executor             Executor      // default: adapter.Executor with built-in handlers
-	Store                store.Store   // default: in memory
+	MaxParallelAnalyzers int             // per job, default 8
+	MaxParallelJobs      int             // global, default 16; further jobs stay queued
+	JobRetention         time.Duration   // default 24h
+	SweepInterval        time.Duration   // eviction period, default 1m
+	EventBuffer          int             // per subscriber, default 256
+	Finalizer            Finalizer       // nil: finalization is skipped / not_configured
+	Executor             Executor        // default: adapter.Executor with built-in handlers
+	Store                store.Store     // default: in memory
+	Scraper              *scraper.Client // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
+	ScrapeTimeout        time.Duration   // default 120s
 	Now                  func() time.Time
 }
 
@@ -99,8 +104,10 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 // CreateRequest mirrors POST /jobs. Analyzers nil selects all; non-nil (even
 // empty) selects only those plus their dependencies. Finalize nil means true.
 // Input validation (blank content, content types) is the HTTP layer's job.
+// A non-nil Scrape (defaults applied by the caller) replaces Input.
 type CreateRequest struct {
 	Input     job.Input
+	Scrape    *job.ScrapeRequest
 	Analyzers []string
 	Finalize  *bool
 }
@@ -142,6 +149,9 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	}
 	if cfg.Store == nil {
 		cfg.Store = store.NewMemory()
+	}
+	if cfg.ScrapeTimeout <= 0 {
+		cfg.ScrapeTimeout = 120 * time.Second
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -185,23 +195,24 @@ func (e *Engine) now() time.Time { return e.cfg.Now().UTC() }
 // Create stores a new job (status queued), starts it asynchronously and
 // returns its initial state.
 func (e *Engine) Create(req CreateRequest) (job.Job, error) {
+	if req.Scrape != nil && e.cfg.Scraper == nil {
+		return job.Job{}, ErrScrapeUnavailable
+	}
 	selected, err := e.selection(req.Analyzers)
 	if err != nil {
 		return job.Job{}, err
 	}
-	in := req.Input
-	if in.ContentType == "" {
-		in.ContentType = "text/plain"
+	var in *job.Input
+	var scrape *job.Scrape
+	if req.Scrape != nil {
+		scrape = &job.Scrape{Status: job.RunPending, ScrapeRequest: *req.Scrape, Warnings: []json.RawMessage{}}
+	} else {
+		in = prepareInput(req.Input)
 	}
-	if in.Source.PublishedAt != nil {
-		t := in.Source.PublishedAt.UTC()
-		in.Source.PublishedAt = &t
-	}
-	in.NormalizedContent = job.Normalize(in.Content, in.ContentType)
 	finalize := req.Finalize == nil || *req.Finalize
 
 	j := &job.Record{Job: job.Job{ID: uuid.NewString(), Status: job.StatusQueued, CreatedAt: e.now(), Input: in,
-		Options: job.Options{Finalize: finalize}, Analyzers: []job.AnalyzerRun{},
+		Scrape: scrape, Options: job.Options{Finalize: finalize}, Analyzers: []job.AnalyzerRun{},
 		Finalization: job.Finalization{Status: job.RunPending}}}
 	r := &run{e: e, j: j, idx: map[string]int{}, sem: make(chan struct{}, e.cfg.MaxParallelAnalyzers)}
 	r.ctx, r.cancel = context.WithCancel(e.ctx)
@@ -215,7 +226,7 @@ func (e *Engine) Create(req CreateRequest) (job.Job, error) {
 			run.Status, run.Reason = job.RunSkipped, job.Str(job.ReasonDisabled)
 		case !selected[a.ID]:
 			run.Status, run.Reason = job.RunSkipped, job.Str(job.ReasonNotSelected)
-		case !applies(a, in):
+		case in != nil && !applies(a, *in): // scrape jobs: after input mapping (run.scraped)
 			run.Status, run.Reason = job.RunSkipped, job.Str(job.ReasonNotApplicable)
 		}
 		r.idx[a.ID] = len(j.Analyzers)
@@ -251,6 +262,19 @@ func (e *Engine) Create(req CreateRequest) (job.Job, error) {
 	}
 	e.mu.Unlock()
 	return snap, nil
+}
+
+// prepareInput applies Input defaults and computes normalized_content.
+func prepareInput(in job.Input) *job.Input {
+	if in.ContentType == "" {
+		in.ContentType = "text/plain"
+	}
+	if in.Source.PublishedAt != nil {
+		t := in.Source.PublishedAt.UTC()
+		in.Source.PublishedAt = &t
+	}
+	in.NormalizedContent = job.Normalize(in.Content, in.ContentType)
+	return &in
 }
 
 // selection returns the selected analyzer ids (with dependencies).
@@ -291,7 +315,7 @@ func dedup(ids []string) []string {
 	return out
 }
 
-// applies evaluates applies_to against the input (once, at creation).
+// applies evaluates applies_to against the input (once, at creation or after the scrape).
 func applies(a *registry.Analyzer, in job.Input) bool {
 	at := a.AppliesTo
 	if len(at.ContentTypes) > 0 {
