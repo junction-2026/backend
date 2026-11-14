@@ -50,6 +50,32 @@ finalization (`invalid_output`). Only analyzers with `llm: {include: true, descr
 the LLM (see `propaganda_detection.yaml`); with none opted in, every job ends `uncertain`. Optional
 `headers` and `extra_body` are sent as configured.
 
+## Topic extraction analyzer
+
+`docs/examples/topic_extraction.yaml` (analyzer `topic_extraction`, adapter `llm`, `execution.task:
+topic_extraction`) asks any OpenAI-compatible `POST {base_url}/chat/completions` endpoint for the
+fact-checkable **topics** (`title`, `query` search phrase, `description`) and **news** items (`headline`,
+`summary`) in the job's `normalized_content`. The result is `{topics, news, input_truncated, usage}`; empty
+lists are a success. Copy the file next to your analyzers and set (independent of the finalizer's variables):
+
+| Variable | |
+|---|---|
+| `EXTRACTOR_BASE_URL` | API base URL, e.g. `https://api.openai.com/v1` (`/chat/completions` is appended) |
+| `EXTRACTOR_API_KEY` | sent as `Authorization: Bearer <key>`; never logged, returned or put in error messages |
+| `EXTRACTOR_MODEL` | model name, e.g. `gpt-4o-mini` (no default) |
+
+Settings: `base_url`, `api_key`, `model` (required), `prompt_file` (default
+`/etc/orchestrator/extractor/prompt.md`, shipped in the image from `config/extractor/prompt.md`; it asks for at
+most 10 topics and 10 news items in the input's language and treats the text as data), `max_input_chars`
+(default `20000`; longer input is cut at the last whitespace before the limit and the result has
+`input_truncated: true`), `temperature` (default 0), `max_tokens` (default 2000), `timeout` (default `30s`),
+`response_format` (`json_schema` default, `json_object` or `none`; the schema goes in the user message in the
+last two), `headers` and `extra_body` (not `model`/`messages`); all string values accept `${VAR}`. An enabled
+analyzer with an empty `base_url`, `api_key` or `model`, or an unreadable `prompt_file`, aborts startup. Blank
+input fails with `adapter_error` without an LLM call; a reply that is not the expected shape fails only this
+analyzer (`invalid_output`). One 429/5xx answer is retried once. Add `llm: {include: true, description: ...}` to
+let the LLM finalizer see the extraction. Every job that runs it makes one paid LLM call.
+
 ```
 go run ./cmd/orchestrator            # with ANALYZERS_CONFIG=config/analyzers for the sample registry
 docker build -t orchestrator . && docker run -p 8080:8080 orchestrator
