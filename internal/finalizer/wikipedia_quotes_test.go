@@ -2,6 +2,7 @@ package finalizer
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/junction-2026/backend/internal/adapter"
+	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
 )
@@ -26,16 +29,22 @@ const wikiResult = `{"languages":["de","en"],"claims":[{"claim":"` + merkelClaim
  {"claim":"Unverifiable.","wikis":[{"language":"en","status":"found","title":"T","url":"https://en.wikipedia.org/w/index.php?title=T&oldid=2",
   "revision_id":2,"passage":"Some text 2005.","coverage":"aligned","evidence_sentence":"not in passage"}]}]}`
 
-func quotesRuntime(t *testing.T, log *slog.Logger) *Runtime {
-	y := "analyzers:\n  - id: topic_extraction\n    execution: {adapter: custom, handler: ok}\n  - id: translation\n    execution: {adapter: custom, handler: ok}\n" +
-		"  - id: wikipedia\n    depends_on: [topic_extraction, translation]\n" +
-		"    input: {bindings: {extraction: $analyzers.topic_extraction, translation: $analyzers.translation}}\n" +
-		"    execution: {adapter: wikipedia, user_agent: mailto:ops@example.org}\n    llm: {include: true, description: d}\n"
+const quoteAnalyzers = "  - id: topic_extraction\n    execution: {adapter: custom, handler: ok}\n  - id: translation\n    execution: {adapter: custom, handler: ok}\n" +
+	"  - id: wikipedia\n    depends_on: [topic_extraction, translation]\n" +
+	"    input: {bindings: {extraction: $analyzers.topic_extraction, translation: $analyzers.translation}}\n" +
+	"    execution: {adapter: wikipedia, user_agent: mailto:ops@example.org}\n    llm: {include: true, description: d}\n"
+
+func quotesRegistry(t *testing.T, extra string, env map[string]string) *registry.Registry {
 	p := filepath.Join(t.TempDir(), "r.yaml")
-	require.NoError(t, os.WriteFile(p, []byte(y), 0o600))
-	reg, err := registry.Load(p, registry.Options{HandlerExists: func(string) bool { return true }})
+	require.NoError(t, os.WriteFile(p, []byte("analyzers:\n"+quoteAnalyzers+extra), 0o600))
+	reg, err := registry.Load(p, registry.Options{HandlerExists: func(string) bool { return true },
+		Getenv: func(k string) (string, bool) { v, ok := env[k]; return v, ok }})
 	require.NoError(t, err)
-	return &Runtime{Reg: reg, Log: log}
+	return reg
+}
+
+func quotesRuntime(t *testing.T, log *slog.Logger) *Runtime {
+	return &Runtime{Reg: quotesRegistry(t, "", nil), Log: log}
 }
 
 func wikiJob(status string) *job.Job {
@@ -99,4 +108,38 @@ func TestWikipediaLabelsInFinalizerInput(t *testing.T) {
 	var e struct{ Result json.RawMessage }
 	require.NoError(t, json.Unmarshal(entries[0], &e))
 	require.JSONEq(t, wikiResult, string(e.Result))
+}
+
+// Both finalizer paths store the verified quotes in finalization.result: the valid quote is kept with the
+// WikiLookup's members, the paraphrase is dropped and finalization succeeds with the finalizer's verdict.
+func TestWikipediaQuotesThroughFinalization(t *testing.T) {
+	out := `{"verdict":"uncertain","confidence":0.5,"user_text":"u","wikipedia_quotes":[` +
+		`{"claim":"` + merkelClaim + `","language":"en","quote":" Chancellor of Germany from 2005 to 2021 "},` +
+		`{"claim":"` + merkelClaim + `","language":"en","quote":"Merkel took office in 2005"}]}`
+	want := `[{"claim":"` + merkelClaim + `","language":"en","quote":"Chancellor of Germany from 2005 to 2021","title":"Angela Merkel",` +
+		`"url":"https://en.wikipedia.org/w/index.php?title=Angela_Merkel&oldid=1250000000","revision_id":1250000000,"coverage":"conflicts"}]`
+	for name, c := range map[string]struct {
+		fin  string
+		body string
+	}{
+		"http_sync": {"  - id: final_synthesis\n    trigger: after_all_analyzers_settled\n" +
+			"    execution: {adapter: http_sync, endpoint: \"${URL}\", timeout: 5s}\n", out},
+		"llm": {llmFinYAML(""), chat(out)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStub(t, reply(c.body))
+			reg := quotesRegistry(t, c.fin, map[string]string{"URL": s.URL, "FINALIZER_BASE_URL": s.URL + "/v1/",
+				"FINALIZER_API_KEY": testKey, "FINALIZER_MODEL": "m", "PROMPT": promptFile(t)})
+			j := wikiJob(job.RunSucceeded)
+			j.Coverage, j.Input = job.ComputeCoverage(j.Analyzers), &job.Input{Content: "x"}
+			raw, err := (&Runtime{Exec: &adapter.Executor{}, Reg: reg}).Run(context.Background(),
+				engine.FinalizationInput{Job: *j, Analyzer: reg.Finalizer()})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, s.calls.Load())
+			var a map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(raw, &a))
+			require.JSONEq(t, `"uncertain"`, string(a["verdict"]))
+			require.JSONEq(t, want, string(a["wikipedia_quotes"]))
+		})
+	}
 }
