@@ -96,7 +96,7 @@ func src(t LocalizedText) any {
 }
 
 func TestLanguage(t *testing.T) {
-	for in, want := range map[string]string{"ar": "ar", "DE-at": "de", "fr-CA": "fr", " FI ": "fi", "en": "en"} {
+	for in, want := range map[string]string{"ar": "ar", "DE-at": "de", "fr-CA": "fr", " FI ": "fi", "en": "en", "ru": "ru", "RU-ru": "ru", " ru-UA ": "ru"} {
 		got, ok := Language(in)
 		require.True(t, ok, in)
 		require.Equal(t, want, got)
@@ -131,6 +131,8 @@ func TestLocalizeStatuses(t *testing.T) {
 			[]any{"translated", "fi:Le texte est trompeur.", nil}, nil, 1, 1},
 		"orchestrator fixed text in finnish": {mk("j", "orchestrator", "fr", ""), "fi",
 			[]any{"translated", insufficient["fi"], "en"}, nil, 0, 0},
+		"orchestrator fixed text in russian": {mk("j", "orchestrator", "", ""), "ru",
+			[]any{"translated", insufficient["ru"], "en"}, nil, 0, 0},
 		"orchestrator fixed text in arabic": {mk("j", "orchestrator", "", ""), "ar",
 			[]any{"translated", insufficient["ar"], "en"}, nil, 0, 0},
 		"orchestrator text in english is original": {mk("j", "orchestrator", "fr", ""), "en",

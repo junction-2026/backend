@@ -38,7 +38,7 @@ owned by uid 65532). One server per database file; sharing it between instances 
 `GET /api/v1/jobs/{id}/localization?language=<code>` (shared change `job-text-localization`) returns the
 model-written texts of a done job in a UI language: the finalizer `user_text` and the `llm_techniques` finding
 `explanation`s, each `{"status", "text", "source_language"}` with status `original` (already in that language, no
-provider call), `translated` or `unavailable` (`text: null`). Supported languages: `en`, `fr`, `ar`, `de`, `fi`,
+provider call), `translated` or `unavailable` (`text: null`). Supported languages: `en`, `fr`, `ar`, `de`, `fi`, `ru`,
 matched by primary subtag (`DE-at` is `de`). Errors: 400 `invalid_request` (no `language`), 400
 `unsupported_language` (`error.details.supported`), 404 `not_found`, 409 `job_not_finished`.
 
