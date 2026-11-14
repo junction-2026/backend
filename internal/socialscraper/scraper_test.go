@@ -64,13 +64,84 @@ func TestScrapeUnsupportedWithoutModuleCall(t *testing.T) {
 		t.Error("the module must not be called")
 		return nil, nil
 	}))
-	for _, u := range []string{"https://example.com/some/article", "https://www.facebook.com/examplenews",
-		"https://www.facebook.com/profile.php?id=100000000000001", "https://x.com/alice/status/1790000000000000000",
-		"https://bsky.app/@alice"} {
+	for _, u := range []string{"ftp://example.com/a", "http://127.0.0.1/admin", "http://localhost/", "http://10.0.0.5/x",
+		"http://[::1]/", "https://user:secret@news.example.org/a", "https://exa mple.com/a"} {
 		_, err := scrape(s, u)
 		require.NotNil(t, err, u)
 		assert.Equal(t, "unsupported_url", err.Code, u)
 	}
+}
+
+func TestWebRoutedToWebModule(t *testing.T) {
+	reg := NewRegistry()
+	var got []Target
+	reg.Register(Web, moduleFunc(func(_ context.Context, t Target, _ Request) (*Result, error) {
+		got = append(got, t)
+		return &Result{Platform: Web, URLKind: KindPage, Page: &Page{Text: "x"}}, nil
+	}))
+	reg.Register(Bluesky, moduleFunc(func(context.Context, Target, Request) (*Result, error) {
+		t.Error("bluesky module called")
+		return nil, nil
+	}))
+	s := New(reg, nil)
+	for _, u := range []string{"https://www.dw.com/en/a/a-1", "https://bsky.app/search?q=x", "https://x.com/alice/status/1"} {
+		res, err := scrape(s, u)
+		require.Nil(t, err, u)
+		assert.Equal(t, Web, res.Platform)
+	}
+	require.Len(t, got, 3)
+	assert.Equal(t, "https://www.dw.com/en/a/a-1", got[0].URL.String())
+
+	// no web module registered: platform_not_configured, never unsupported_url
+	_, err := scrape(New(NewRegistry(), nil), "https://example.com/a")
+	require.NotNil(t, err)
+	assert.Equal(t, "platform_not_configured", err.Code)
+	assert.Equal(t, "web", err.Details["platform"])
+}
+
+func TestMastodonProbeFallsBackToWeb(t *testing.T) {
+	reg := NewRegistry()
+	var order []string
+	reg.Register(Mastodon, moduleFunc(func(context.Context, Target, Request) (*Result, error) {
+		order = append(order, "mastodon")
+		return nil, UnsupportedURL(Mastodon, "the host does not serve the Mastodon REST API")
+	}))
+	reg.Register(Web, moduleFunc(func(_ context.Context, tg Target, _ Request) (*Result, error) {
+		order = append(order, "web")
+		assert.Equal(t, KindPage, tg.URLKind)
+		return &Result{Platform: Web, URLKind: KindPage, Page: &Page{Text: "x"}}, nil
+	}))
+	res, err := scrape(New(reg, nil), "https://blog.example.com/@alice")
+	require.Nil(t, err)
+	assert.Equal(t, Web, res.Platform)
+	assert.Equal(t, []string{"mastodon", "web"}, order)
+
+	// an error of a host that does serve the API is kept
+	reg.Register(Mastodon, moduleFunc(func(context.Context, Target, Request) (*Result, error) {
+		return nil, AccountNotFound(Mastodon, "gone")
+	}))
+	_, err = scrape(New(reg, nil), "https://mastodon.social/@nobody")
+	require.NotNil(t, err)
+	assert.Equal(t, "account_not_found", err.Code)
+}
+
+func TestPageResultJSON(t *testing.T) {
+	s := New(NewRegistry(), nil)
+	s.reg.Register(Web, moduleFunc(func(context.Context, Target, Request) (*Result, error) {
+		return &Result{Platform: Web, URLKind: KindPage, Username: "must be dropped", Page: &Page{Text: "hello", Host: "example.com"}}, nil
+	}))
+	res, err := scrape(s, "https://example.com/a")
+	require.Nil(t, err)
+	b, _ := json.Marshal(res)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.Contains(t, m, "username")
+	assert.Nil(t, m["username"])
+	assert.Equal(t, "hello", m["text"])
+	assert.Equal(t, "example.com", m["host"])
+	assert.Equal(t, []any{}, m["posts"])
+	assert.Nil(t, m["post"])
+	assert.Equal(t, []any{}, m["comments"])
 }
 
 func TestPlatformNotConfigured(t *testing.T) {

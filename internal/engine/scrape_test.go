@@ -270,3 +270,10 @@ func TestScrapeWithoutScraper(t *testing.T) {
 	require.ErrorIs(t, err, ErrScrapeUnavailable)
 	require.Empty(t, e.List(""))
 }
+
+// The default scrape timeout fits an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry.
+func TestDefaultScrapeTimeout(t *testing.T) {
+	e := newEngine(t, scrapeRegistry, Config{}, map[string]adapter.Handler{"ok": ok, "final": ok})
+	require.Equal(t, 360*time.Second, e.cfg.ScrapeTimeout)
+	require.Greater(t, e.cfg.ScrapeTimeout, (30+150+150)*time.Second)
+}

@@ -75,7 +75,7 @@ type Config struct {
 	Executor             Executor        // default: adapter.Executor with built-in handlers
 	Store                store.Store     // default: in memory
 	Scraper              *scraper.Client // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
-	ScrapeTimeout        time.Duration   // default 120s
+	ScrapeTimeout        time.Duration   // default 360s: an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry
 	Now                  func() time.Time
 }
 
@@ -151,7 +151,7 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 		cfg.Store = store.NewMemory()
 	}
 	if cfg.ScrapeTimeout <= 0 {
-		cfg.ScrapeTimeout = 120 * time.Second
+		cfg.ScrapeTimeout = 360 * time.Second
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now

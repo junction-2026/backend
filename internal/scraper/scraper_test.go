@@ -24,7 +24,7 @@ func (f moduleFunc) Scrape(ctx context.Context, t ss.Target, req ss.Request) (*s
 // client runs mod for every platform through the real core.
 func client(mod ss.Module) *Client {
 	reg := ss.NewRegistry()
-	for _, p := range []string{ss.Bluesky, ss.Mastodon} {
+	for _, p := range []string{ss.Bluesky, ss.Mastodon, ss.Web} {
 		reg.Register(p, mod)
 	}
 	red := ss.NewRedactor(func(k string) string { return map[string]string{"SCRAPER_TOKEN": secret}[k] })
@@ -60,9 +60,9 @@ func TestErrorMapping(t *testing.T) {
 		"not configured lists names":     {mod: ret(nil, ss.PlatformNotConfigured("mastodon", "EXAMPLE_SETTING")), code: "platform_not_configured", details: `{"platform":"mastodon","missing_settings":["EXAMPLE_SETTING"]}`},
 		"unknown code passes through":    {mod: ret(nil, &ss.Error{Code: "new_code"}), code: "new_code", details: `{"platform":"mastodon"}`},
 		"message redacted":               {mod: ret(nil, ss.UpstreamError("mastodon", "failed with "+secret)), code: "upstream_error"},
-		"unsupported_url":                {url: "https://www.facebook.com/examplenews", code: "unsupported_url"},
-		"facebook personal profile":      {url: "https://www.facebook.com/profile.php?id=100000000000001", code: "unsupported_url"},
-		"x status":                       {url: "https://x.com/alice/status/1790000000000000000", code: "unsupported_url"},
+		"unsupported_url":                {url: "http://localhost/article", code: "unsupported_url"},
+		"private address":                {url: "http://10.0.0.5/x", code: "unsupported_url"},
+		"page without text":              {mod: ret(&ss.Result{Platform: "web", URLKind: "page"}, nil), url: "https://example.com/a", code: job.CodeScraperUnavailable},
 		"internal_error":                 {mod: ret(nil, errors.New("boom")), code: job.CodeScraperUnavailable},
 		"panic":                          {mod: func(context.Context, ss.Target, ss.Request) (*ss.Result, error) { panic("boom " + secret) }, code: job.CodeScraperUnavailable},
 		"nil result":                     {mod: ret(nil, nil), code: job.CodeScraperUnavailable},

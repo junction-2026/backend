@@ -5,6 +5,7 @@ package socialscraper
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -16,8 +17,8 @@ type Request struct {
 
 // Target is a recognized URL.
 type Target struct {
-	Platform string            // bluesky or mastodon
-	URLKind  string            // profile or post
+	Platform string            // bluesky, mastodon or web
+	URLKind  string            // profile, post or page
 	URL      *url.URL          // the parsed request URL
 	IDs      map[string]string // platform-specific identifiers taken from the URL
 }
@@ -73,6 +74,42 @@ type Result struct {
 	Post        *Post     `json:"post"`
 	Comments    []Comment `json:"comments"`
 	Warnings    []Warning `json:"warnings"`
+	*Page                 // url_kind page only: its members are flattened into the result
+}
+
+// Page holds the members of a url_kind page result (shared "Web page ... members").
+type Page struct {
+	Text            string  `json:"text"`
+	RequestedURL    string  `json:"requested_url"`
+	FinalURL        string  `json:"final_url"`
+	Host            string  `json:"host"`
+	Domain          *string `json:"domain"`
+	SiteName        *string `json:"site_name"`
+	Title           *string `json:"title"`
+	Description     *string `json:"description"`
+	Lang            *string `json:"lang"`
+	CanonicalURL    *string `json:"canonical_url"`
+	PublishedAt     *string `json:"published_at"`
+	Author          *string `json:"author"`
+	WordCount       int     `json:"word_count"`
+	Truncated       bool    `json:"truncated"`
+	Extraction      string  `json:"extraction"`
+	Rendered        bool    `json:"rendered"`
+	Cached          bool    `json:"cached"`
+	Provider        string  `json:"provider"`
+	OxylabsRequests int     `json:"oxylabs_requests"`
+}
+
+// MarshalJSON writes username as null for a page (it has no profile); other kinds are unchanged.
+func (r Result) MarshalJSON() ([]byte, error) {
+	type plain Result // no methods: avoids recursion
+	if r.URLKind != KindPage {
+		return json.Marshal(plain(r))
+	}
+	return json.Marshal(struct {
+		plain
+		Username *string `json:"username"` // shadows the embedded member
+	}{plain: plain(r)})
 }
 
 // Ptr returns a pointer to v.

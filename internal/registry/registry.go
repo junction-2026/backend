@@ -36,6 +36,7 @@ const (
 	AdapterMistralTranslation  = "mistral_translation"
 	AdapterFactCheck           = "fact_check"
 	AdapterNewsSearch          = "news_search"
+	AdapterWikipedia           = "wikipedia"
 
 	DefaultFactCheckBaseURL = "https://factchecktools.googleapis.com/v1alpha1"
 
@@ -133,6 +134,14 @@ type Execution struct {
 	MaxClaims          *int     `yaml:"max_claims"`
 	PageSize           *int     `yaml:"page_size"`
 	MaxAgeDays         *int     `yaml:"max_age_days"`
+
+	// wikipedia only (min_check_worthiness, max_claims, max_concurrency, cache_ttl and timeout are shared); Wiki holds the validated values.
+	MaxHits         *int      `yaml:"max_hits"`
+	MaxPassageChars *int      `yaml:"max_passage_chars"`
+	CacheDir        string    `yaml:"cache_dir"`
+	UserAgent       string    `yaml:"user_agent"`
+	BaseURLTemplate string    `yaml:"base_url_template"`
+	Wiki            Wikipedia `yaml:"-"`
 
 	// source_info only: the outlet table file; Outlets is read from it at load when the analyzer is enabled.
 	OutletsFile string         `yaml:"outlets_file"`
@@ -522,6 +531,9 @@ func (a *Analyzer) normalize(opt Options) error {
 	if err := a.checkSourceInfo(); err != nil {
 		return err
 	}
+	if err := a.checkWikipedia(opt); err != nil {
+		return err
+	}
 	if err := a.checkLLMTechniques(); err != nil {
 		return err
 	}
@@ -557,7 +569,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		if err := a.normalizeNewsSearch(); err != nil {
 			return err
 		}
-	} else if e.hasNewsOnlyKeys() || (e.hasSharedKeys() && e.Adapter != AdapterFactCheck) {
+	} else if e.hasNewsOnlyKeys() || (e.hasSharedKeys() && e.Adapter != AdapterFactCheck && e.Adapter != AdapterWikipedia) {
 		return fmt.Errorf("execution.languages, translate, max_topics, max_news, num, min_results, per_domain, max_results, max_concurrency and cache_ttl are only allowed for adapter %s", AdapterNewsSearch)
 	}
 	if e.Adapter == AdapterFactCheck {
@@ -567,10 +579,10 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Timeout == 0 {
 			e.Timeout = 15 * time.Second
 		}
-	} else if e.MinCheckWorthiness != nil || e.PageSize != nil || e.MaxAgeDays != nil {
+	} else if e.PageSize != nil || e.MaxAgeDays != nil || (e.MinCheckWorthiness != nil && e.Adapter != AdapterWikipedia) {
 		return fmt.Errorf("execution.min_check_worthiness, page_size and max_age_days are only allowed for adapter %s", AdapterFactCheck)
 	}
-	if e.MaxClaims != nil && !e.TopicExtraction() && e.Adapter != AdapterFactCheck {
+	if e.MaxClaims != nil && !e.TopicExtraction() && e.Adapter != AdapterFactCheck && e.Adapter != AdapterWikipedia {
 		return fmt.Errorf("execution.max_claims is only allowed for adapter %s and execution.task %s", AdapterFactCheck, TaskTopicExtraction)
 	}
 	if e.Task != "" && e.Adapter != AdapterLLM {
@@ -603,6 +615,7 @@ func (a *Analyzer) normalize(opt Options) error {
 	case AdapterTechniqueClassifier: // endpoints are in the short and long blocks
 	case AdapterSourceInfo: // no endpoint; the table file is checked below
 	case AdapterLLMTechniques: // base_url; checked in checkLLMTechniques
+	case AdapterWikipedia: // base_url_template; checked in checkWikipedia
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -682,6 +695,11 @@ func (a *Analyzer) normalize(opt Options) error {
 		}
 		if e.Adapter == AdapterTechniqueClassifier {
 			if err := e.expandTechnique(opt.Getenv); err != nil {
+				return err
+			}
+		}
+		if e.Adapter == AdapterWikipedia {
+			if err := e.expandWikipedia(opt.Getenv); err != nil {
 				return err
 			}
 		}

@@ -1,0 +1,28 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "searchinfo": {
+   "totalhits": 2
+  },
+  "search": [
+   {
+    "ns": 0,
+    "title": "Christian Democratic Union of Germany",
+    "pageid": 10,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "The <span class=\"searchmatch\">CDU</span> is a party",
+    "timestamp": "2026-10-01T00:00:00Z"
+   },
+   {
+    "ns": 0,
+    "title": "CDU",
+    "pageid": 11,
+    "size": 5000,
+    "wordcount": 800,
+    "snippet": "CDU may refer",
+    "timestamp": "2026-10-01T00:00:00Z"
+   }
+  ]
+ }
+}

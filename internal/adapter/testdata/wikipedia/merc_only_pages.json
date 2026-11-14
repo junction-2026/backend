@@ -1,0 +1,36 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 20,
+    "ns": 0,
+    "title": "Mercury",
+    "extract": "Mercury most commonly refers to:",
+    "revisions": [
+     {
+      "revid": 6000020,
+      "parentid": 6000019,
+      "timestamp": "2026-07-01T00:00:00Z"
+     }
+    ],
+    "pageprops": {
+     "disambiguation": ""
+    }
+   },
+   {
+    "pageid": 30,
+    "ns": 0,
+    "title": "Hermes",
+    "extract": "Hermes is a god.",
+    "revisions": [
+     {
+      "revid": 6000030,
+      "parentid": 6000029,
+      "timestamp": "2026-07-01T00:00:00Z"
+     }
+    ]
+   }
+  ]
+ }
+}
