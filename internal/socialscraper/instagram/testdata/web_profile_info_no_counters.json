@@ -1,0 +1,12 @@
+{
+  "data": {
+    "user": {
+      "id": "1001",
+      "username": "alice",
+      "full_name": "Alice Example",
+      "biography": "Birds & books.\nOpinions are mine.",
+      "is_private": false
+    }
+  },
+  "status": "ok"
+}
