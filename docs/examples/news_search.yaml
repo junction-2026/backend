@@ -1,0 +1,39 @@
+# Example registry entry: news and web coverage of the topics and news items found by topic_extraction,
+# searched through Serper (https://serper.dev) in the text's language and in English. Needs topic_extraction
+# (docs/examples/topic_extraction.yaml) and, for the `source` language, a translation analyzer
+# (docs/examples/propaganda_detection.yaml). API keys are never logged, returned or put in error messages.
+# Quota cost per job: (topics + news) x languages x up to 2 searches (news, plus one web fallback when a news
+# search returns fewer than min_results); defaults: (3 + 2) x 2 x 2 = 20 at most; cached searches cost nothing.
+analyzers:
+  - id: news_search
+    name: News coverage search
+    category: coverage
+    trigger: on_dependencies_succeeded
+    depends_on: [topic_extraction, translation]  # drop translation to search without `source`
+    input:
+      bindings:
+        topics: $analyzers.topic_extraction
+        translation: $analyzers.translation      # optional; gives the `source` language
+    execution:
+      adapter: news_search
+      base_url: ${SERPER_BASE_URL}               # e.g. https://google.serper.dev ({base_url}/news and {base_url}/search)
+      api_key: ${SERPER_API_KEY}                 # sent as "X-API-KEY"; never logged or returned
+      languages: [source, en]                    # `source` = the translation's source_language, or ISO 639-1 codes
+      translate:                                 # Mistral translates the queries into the other languages
+        api_key: ${MISTRAL_API_KEY}              # required when a language other than `source` is searched
+        model: mistral-small-latest
+      max_topics: 3                              # first N Topic.query searched
+      max_news: 2                                # first N NewsItem.headline searched
+      num: 8                                     # results requested per search
+      min_results: 2                             # fewer news results trigger one web (/search) fallback
+      per_domain: 2                              # at most N articles per domain in the result
+      max_results: 12                            # at most N articles in the result
+      max_concurrency: 4                         # in-flight provider requests per job
+      cache_ttl: 6h                              # in-memory cache of successful Serper answers (per process)
+      timeout: 20s
+    llm:
+      include: true
+      description: >-
+        News and web articles found for the topics and news items of the text, in the text's language and in
+        English (title, outlet, date, snippet, URL). Shows whether and how outlets report the story; an empty
+        list only means nothing was found, not that a claim is false.
