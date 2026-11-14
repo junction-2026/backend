@@ -1,0 +1,20 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 40,
+    "ns": 0,
+    "title": "Angela Merkel",
+    "extract": "Angela Merkel (* 17. Juli 1954 in Hamburg) ist eine deutsche Politikerin (CDU).",
+    "revisions": [
+     {
+      "revid": 7000040,
+      "parentid": 7000039,
+      "timestamp": "2026-06-01T12:30:00+02:00"
+     }
+    ]
+   }
+  ]
+ }
+}

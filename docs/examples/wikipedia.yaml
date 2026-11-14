@@ -1,0 +1,33 @@
+# Example registry entry: what Wikipedia says about the claims that topic_extraction found, in the post's language
+# (the translation analyzer's source_language) and in English. It needs topic_extraction (topic_extraction.yaml) and
+# a translation analyzer (propaganda_detection.yaml); it calls no LLM and no translation service. Without a
+# qualifying claim the analyzer settles as skipped (no_checkable_claims) and sends no request. Any Wikipedia error
+# fails the analyzer with adapter_error (no partial result).
+analyzers:
+  - id: wikipedia
+    name: Wikipedia lookup
+    category: fact_check
+    trigger: on_dependencies_succeeded
+    depends_on: [topic_extraction, translation]
+    input:
+      bindings:
+        extraction: $analyzers.topic_extraction
+        translation: $analyzers.translation
+    execution:
+      adapter: wikipedia
+      user_agent: ${WIKIPEDIA_CONTACT}           # REQUIRED: contact URL or e-mail; sent as "JunctionOrchestrator/1.0 (<value>)" (Wikimedia User-Agent policy)
+      min_check_worthiness: 0.4                  # claims below this are not searched
+      max_claims: 3                              # claims searched, in claims order
+      max_hits: 5                                # search hits considered per lookup (1-20)
+      max_passage_chars: 1500                    # a longer lead is cut to a leading part
+      max_concurrency: 2                         # Wikipedia requests in flight per run
+      # cache_dir: /data/wikipedia              # default $DATA_DIR/wikipedia, or ./var/wikipedia when DATA_DIR is unset; must be writable
+      cache_ttl: 168h                            # on-disk answers per (language, query, search_mode); failures are not cached
+      # base_url_template: https://{lang}.wikipedia.org/w/api.php   # default; must contain {lang}
+      timeout: 20s
+    llm:
+      include: true
+      description: >-
+        What Wikipedia says about the claims found in the text, in the text's language and in English: the page,
+        its revision and a verbatim passage, with the claim's entities and numbers found in it. It shows what
+        Wikipedia says and is not a verdict: no_page or ambiguous only means no page was found.

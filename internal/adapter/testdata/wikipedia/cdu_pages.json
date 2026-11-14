@@ -1,0 +1,33 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 10,
+    "ns": 0,
+    "title": "Christian Democratic Union of Germany",
+    "extract": "The Christian Democratic Union of Germany (CDU) is a political party in Germany.",
+    "revisions": [
+     {
+      "revid": 5000010,
+      "parentid": 5000009,
+      "timestamp": "2026-08-01T10:00:00Z"
+     }
+    ]
+   },
+   {
+    "pageid": 11,
+    "ns": 0,
+    "title": "CDU",
+    "extract": "The CDU is the German party. Angela Merkel led it.",
+    "revisions": [
+     {
+      "revid": 5000011,
+      "parentid": 5000010,
+      "timestamp": "2026-08-02T10:00:00Z"
+     }
+    ]
+   }
+  ]
+ }
+}

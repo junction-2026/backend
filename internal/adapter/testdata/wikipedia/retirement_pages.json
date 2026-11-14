@@ -1,0 +1,33 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 1234,
+    "ns": 0,
+    "title": "Retirement age",
+    "extract": "Retirement age is the age at which people stop work. In 1970 it was 65.",
+    "revisions": [
+     {
+      "revid": 1250000000,
+      "parentid": 1249999999,
+      "timestamp": "2026-10-02T08:15:00Z"
+     }
+    ]
+   },
+   {
+    "pageid": 99,
+    "ns": 0,
+    "title": "Pension",
+    "extract": "A pension is a fund.",
+    "revisions": [
+     {
+      "revid": 777,
+      "parentid": 776,
+      "timestamp": "2026-09-01T00:00:00Z"
+     }
+    ]
+   }
+  ]
+ }
+}
