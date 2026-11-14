@@ -115,7 +115,20 @@ func TestLoadRejects(t *testing.T) {
 		{"propaganda GET", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, method: GET}\n", "method must be POST"},
 		{"propaganda handler", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, handler: text_stats}\n", "handler"},
 		{"propaganda poll_interval", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x, poll_interval: 2s}\n", "poll_interval"},
-		{"propaganda bindings", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {x: $input}}\n", "bindings are not allowed"},
+		{"propaganda bindings", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {x: $input}}\n", "accept only text"},
+		{"propaganda binding $input.source", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $input.source}}\n", "accept only text"},
+		{"propaganda binding $job.id", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $job.id}}\n", "accept only text"},
+		{"propaganda two bindings", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $input, more: $input}}\n", "accept only text"},
+		{"propaganda binding not in depends_on", "analyzers:\n  - id: b\n" + custom + "  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $analyzers.b}}\n", "not in depends_on"},
+		{"mistral without api_key", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation}\n", "api_key is required"},
+		{"mistral unset api_key var", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: \"${MISTRAL_API_KEY}\"}\n", "environment variable MISTRAL_API_KEY is not set"},
+		{"mistral unset model var", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, model: \"${M}\"}\n", "environment variable M is not set"},
+		{"mistral method", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, method: POST}\n", "method"},
+		{"mistral handler", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, handler: text_stats}\n", "handler"},
+		{"mistral poll_interval", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, poll_interval: 2s}\n", "poll_interval"},
+		{"mistral bindings", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k}\n    input: {bindings: {text: $input}}\n", "bindings are not allowed"},
+		{"mistral max_input_chars 0", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, max_input_chars: 0}\n", "max_input_chars"},
+		{"mistral max_input_chars negative", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: k, max_input_chars: -5}\n", "max_input_chars"},
 		{"propaganda unset env", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: \"${PROPAGANDA_DETECTION_URL}\"}\n", "environment variable PROPAGANDA_DETECTION_URL is not set"},
 		{"empty file", "", "no analyzers defined"},
 		{"empty mapping", "{}\n", "no analyzers defined"},
@@ -197,7 +210,7 @@ func TestPropagandaDetectionLoads(t *testing.T) {
 }
 
 func TestPropagandaDetectionDocsExample(t *testing.T) {
-	r, err := Load("../../docs/examples/propaganda_detection.yaml", opts(map[string]string{"PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
+	r, err := Load("../../docs/examples/propaganda_detection.yaml", opts(map[string]string{"MISTRAL_API_KEY": "k", "PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
 	require.NoError(t, err)
 	a := r.Get("propaganda_detection")
 	require.NotNil(t, a)
@@ -209,8 +222,83 @@ func TestPropagandaDetectionDocsExample(t *testing.T) {
 	require.Equal(t, 30*time.Second, a.Execution.Timeout)
 	require.Empty(t, a.Execution.Headers)
 
-	_, err = Load("../../docs/examples/propaganda_detection.yaml", opts(nil))
+	_, err = Load("../../docs/examples/propaganda_detection.yaml", opts(map[string]string{"MISTRAL_API_KEY": "k"}))
 	require.ErrorContains(t, err, "PROPAGANDA_DETECTION_URL")
+}
+
+func TestPropagandaBindingLoads(t *testing.T) {
+	p := write(t, "r.yaml", `analyzers:
+  - id: translation
+    execution: {adapter: mistral_translation, api_key: k}
+  - id: a
+    depends_on: [translation]
+    execution: {adapter: propaganda_detection, endpoint: http://x}
+    input: {bindings: {text: $analyzers.translation}}
+  - id: b
+    execution: {adapter: propaganda_detection, endpoint: http://x}
+    input: {bindings: {text: $input}}
+`)
+	r, err := Load(p, opts(nil))
+	require.NoError(t, err)
+	require.Equal(t, "$analyzers.translation", r.Get("a").Input.Bindings["text"])
+	require.Equal(t, "$input", r.Get("b").Input.Bindings["text"])
+}
+
+func TestMistralTranslationLoads(t *testing.T) {
+	p := write(t, "r.yaml", `analyzers:
+  - id: a
+    execution: {adapter: mistral_translation, api_key: "${K}"}
+  - id: b
+    execution: {adapter: mistral_translation, endpoint: "${E}", api_key: k, model: "${M}", timeout: 5s, max_input_chars: 100, headers: {X-Org: "${K}"}}
+  - id: off
+    enabled: false
+    execution: {adapter: mistral_translation, api_key: "${UNSET}", model: "${UNSET}"}
+`)
+	r, err := Load(p, opts(map[string]string{"K": "key", "E": "http://m/v1", "M": "tiny"}))
+	require.NoError(t, err)
+	a := r.Get("a").Execution
+	require.Equal(t, DefaultMistralEndpoint, a.Endpoint)
+	require.Equal(t, "key", a.APIKey)
+	require.Equal(t, "mistral-small-latest", a.Model)
+	require.Equal(t, 60*time.Second, a.Timeout)
+	require.Equal(t, 20000, a.MaxChars())
+	b := r.Get("b").Execution
+	require.Equal(t, "http://m/v1", b.Endpoint)
+	require.Equal(t, "tiny", b.Model)
+	require.Equal(t, 5*time.Second, b.Timeout)
+	require.Equal(t, 100, b.MaxChars())
+	require.Equal(t, "key", b.Headers["X-Org"])
+	require.False(t, r.Get("off").Enabled)
+
+	// an empty variable value loads (the adapter fails at run time)
+	_, err = Load(p, opts(map[string]string{"K": "", "E": "e", "M": "m"}))
+	require.NoError(t, err)
+}
+
+func TestTranslationDocsExample(t *testing.T) {
+	const f = "../../docs/examples/propaganda_detection.yaml"
+	r, err := Load(f, opts(map[string]string{"MISTRAL_API_KEY": "k", "PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
+	require.NoError(t, err)
+	tr := r.Get("translation")
+	require.NotNil(t, tr)
+	require.Equal(t, "Translation to English", tr.Name)
+	require.Equal(t, "translation", tr.Category)
+	require.Equal(t, AdapterMistralTranslation, tr.Execution.Adapter)
+	require.Equal(t, "k", tr.Execution.APIKey)
+	require.Equal(t, "mistral-small-latest", tr.Execution.Model)
+	require.Equal(t, 60*time.Second, tr.Execution.Timeout)
+	pd := r.Get("propaganda_detection")
+	require.Equal(t, []string{"translation"}, pd.DependsOn)
+	require.Equal(t, map[string]string{"text": "$analyzers.translation"}, pd.Input.Bindings)
+	require.Contains(t, pd.LLM.Description, "English machine translation")
+
+	_, err = Load(f, opts(map[string]string{"PROPAGANDA_DETECTION_URL": "http://svc/predict"}))
+	require.ErrorContains(t, err, "MISTRAL_API_KEY")
+
+	sample, err := Load("../../config/analyzers", opts(nil))
+	require.NoError(t, err)
+	require.Nil(t, sample.Get("translation"))
+	require.Nil(t, sample.Get("propaganda_detection"))
 }
 
 const llmKey = "sk-registry-SECRET"

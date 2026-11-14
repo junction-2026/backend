@@ -193,3 +193,44 @@ func TestPropagandaMissingText(t *testing.T) {
 	_, err := (&Executor{}).Execute(context.Background(), pdef("http://127.0.0.1:1"), Request{Inputs: map[string]any{}})
 	require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
 }
+
+func boundDef(endpoint, src string) *registry.Analyzer {
+	d := pdef(endpoint)
+	d.Input.Bindings = map[string]string{"text": src}
+	return d
+}
+
+func TestPropagandaTextBinding(t *testing.T) {
+	m := newKeywordMock(t)
+	input := map[string]any{"content": "<p>raw</p>", "normalized_content": "raw fake news", "content_type": "text/html", "source": "s"}
+
+	// text: $analyzers.<id> sends that result's translated_text, never normalized_content
+	_, err := (&Executor{}).Execute(context.Background(), boundDef(m.URL, "$analyzers.translation"), Request{JobID: "j1", AnalyzerID: "propaganda_detection",
+		Inputs: map[string]any{"text": json.RawMessage(`{"translated_text":"Hello world","source_language":"uk"}`)}})
+	require.NoError(t, err)
+	require.Equal(t, 1, m.calls)
+	require.JSONEq(t, `{"text":"Hello world"}`, string(m.body))
+
+	// text: $input behaves like the default
+	_, err = (&Executor{}).Execute(context.Background(), boundDef(m.URL, "$input"), Request{Inputs: map[string]any{"text": input}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"text":"raw fake news"}`, string(m.body))
+	require.Equal(t, 2, m.calls)
+
+	// a missing or non-string translated_text fails without a request and without falling back
+	for name, in := range map[string]map[string]any{
+		"no result":   {},
+		"nil result":  {"text": json.RawMessage(nil)},
+		"null":        {"text": json.RawMessage(`null`)},
+		"missing":     {"text": json.RawMessage(`{"source_language":"uk"}`)},
+		"not string":  {"text": json.RawMessage(`{"translated_text":5}`)},
+		"null string": {"text": json.RawMessage(`{"translated_text":null}`)},
+		"with input":  {"content": input, "text": json.RawMessage(`{}`)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Executor{}).Execute(context.Background(), boundDef(m.URL, "$analyzers.translation"), Request{Inputs: in})
+			require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
+			require.Equal(t, 2, m.calls)
+		})
+	}
+}
