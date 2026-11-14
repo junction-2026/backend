@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ const topicKey = "sk-extractor-SECRET-key"
 type topicMock struct {
 	*httptest.Server
 	calls atomic.Int32
+	mu    sync.Mutex // concurrent requests (timeout/cancel tests) write the fields below
 	path  string
 	hdr   http.Header
 	body  map[string]any
@@ -31,8 +33,11 @@ func newTopicMock(t *testing.T, h func(w http.ResponseWriter, r *http.Request)) 
 	m := &topicMock{}
 	m.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		m.path, m.hdr, m.body = r.URL.Path, r.Header.Clone(), nil
-		json.Unmarshal(b, &m.body)
+		var body map[string]any
+		json.Unmarshal(b, &body)
+		m.mu.Lock()
+		m.path, m.hdr, m.body = r.URL.Path, r.Header.Clone(), body
+		m.mu.Unlock()
 		m.calls.Add(1)
 		h(w, r)
 	}))

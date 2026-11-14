@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,8 +138,8 @@ func TestPropagandaInvalidResponses(t *testing.T) {
 }
 
 func TestPropagandaRedirectNotFollowed(t *testing.T) {
-	var hits int
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
 	defer target.Close()
 	for _, code := range []int{301, 302, 307, 308} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +150,7 @@ func TestPropagandaRedirectNotFollowed(t *testing.T) {
 		require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
 		require.NotContains(t, err.Error(), target.URL)
 	}
-	require.Zero(t, hits)
+	require.Zero(t, hits.Load())
 }
 
 func TestPropagandaConnectionErrorAndNoRetry(t *testing.T) {
@@ -160,12 +161,12 @@ func TestPropagandaConnectionErrorAndNoRetry(t *testing.T) {
 	require.Equal(t, job.CodeAdapterError, runErr(t, err).Code)
 	require.NotContains(t, err.Error(), url)
 
-	var calls int
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(502) }))
+	var calls atomic.Int32
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(502) }))
 	defer srv.Close()
 	_, err = pexec(context.Background(), pdef(srv.URL), "t")
 	require.Error(t, err)
-	require.Equal(t, 1, calls)
+	require.EqualValues(t, 1, calls.Load())
 }
 
 func TestPropagandaTimeoutAndCancel(t *testing.T) {
