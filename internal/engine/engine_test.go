@@ -410,7 +410,7 @@ func TestSubscribeSnapshotAndSlowConsumer(t *testing.T) {
 	evs := drain(t, late)
 	require.Len(t, evs, 1)
 	require.Equal(t, "job.snapshot", evs[0].Type)
-	require.EqualValues(t, 13, evs[0].Seq) // job.started, 5x(started, succeeded), ready, completed
+	require.EqualValues(t, 14, evs[0].Seq) // job.started, planned, 5x(started, succeeded), ready, completed
 	require.True(t, evs[0].Data.(map[string]any)["job"].(job.Job).Done)
 	require.Nil(t, late.Err())
 	_, err = e.Subscribe("nope")

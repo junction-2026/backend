@@ -738,6 +738,46 @@ service (port 8001): it binds `$input` and `$input.source`, so it receives the p
 Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
 the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.
 
+## Live progress events
+
+The event stream (`GET /api/v1/jobs/{id}/events`, shared change `live-analyzer-progress`) carries a run plan,
+user-facing activities, progress counters and compact result previews, so a client can show a live progress view
+without reading full results. Every member is additive; `GET /api/v1/jobs/{id}` and the Job object do not change.
+
+- `analysis.planned` `{analyzers: [PlanEntry], total}`: directly after `job.started` (text jobs) or `scrape.succeeded`
+  (scrape jobs), once; never for a failed scrape or after cancellation. A PlanEntry is
+  `{id, name, activity_key, depends_on, phase}`; `phase` is 1 + the highest planned dependency phase, the finalizer
+  (`depends_on: ["*"]`, `activity_key: "finalizer"`) comes last. Disabled, not-selected and hidden analyzers are not
+  planned; the finalizer is planned when finalization will run.
+- **Activity** `{key, text, detail, params}` on `analyzer.started`, `analysis.finalizing` and `scrape.started`:
+  fixed English `text` from a built-in table (unknown keys use the analyzer name), `detail` and `params` from facts
+  known at start, never from an LLM or translation call. `news_search`: `params.languages`, detail "in German and
+  English"; `fact_check`: `params.claims`; `techniques`: `params.models` ("document model", "short-post model");
+  `llm_techniques`: `params.title_checked`; `scrape`: `params.host`. A fact that cannot be determined is left out
+  and `detail` is null.
+- **Progress** `{done, running, total}` on `analyzer.started`, every settle event after the plan,
+  `analysis.finalizing` (`done == total - 1`), `analysis.finalized` and `analysis.finalization_failed`
+  (`done == total`). `done` grows by one per settle event of a planned analyzer.
+- `analyzer.failed` and `analyzer.skipped` also carry `availability` and `note` (equal to `data.analyzer`'s);
+  `analyzer.succeeded` carries `preview`.
+- **Previews** are built in code from the result (null for other analyzers, such as `text_stats`):
+  `translation` `{source_language, translated}`; `propaganda_detection` `{label, score}`; `topic_extraction`
+  `{claims, topics, claims_total, topics_total}` (first 5 texts); `news_search` `{articles, outlets (max 6),
+  languages}`; `fact_check` `{fact_checks, top (first 3: publisher, rating, rating_normalized, url)}`; `source_info`
+  `{summary, page_outlet}`; `techniques` `{models, explanation_language, glossary_version, detected_total, detected}`
+  with at most 8 `{label, name, definition, why, score, models, spans (max 3: start, end, text, why)}`, best score
+  first; `llm_techniques` `{source: "llm", title_checked, explanation_language, glossary_version, findings_total,
+  findings}` with at most 6 findings of the three closed labels by confidence, each with `span {field, start, end,
+  text}`. Offsets are UTF-16 offsets into `input.content` (or `input.source.title` for `field: "title"`). A missing
+  or wrong-typed result member yields null (`[]` for lists); a preview that cannot be built is null.
+- `job.snapshot` carries `data.job` plus `plan`, `progress` (both null before the plan), `previews` (succeeded
+  planned analyzers) and `activities` (running planned analyzers and the running finalizer), equal to what the
+  events carried.
+
+Registry: an analyzer entry takes an optional `ui: {hidden: false, activity_key: <id>}`. Hidden analyzers keep their
+run and events but are left out of the plan, progress, previews and activities; `text_stats` is hidden unless its
+entry sets `ui.hidden: false`. `ui` is not shown by `GET /api/v1/analyzers`.
+
 ## Scraping
 
 The scraper runs inside the orchestrator: no separate service, image or token. At startup the orchestrator
