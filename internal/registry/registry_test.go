@@ -663,3 +663,31 @@ func TestFactCheckAndNewsSearchCoexist(t *testing.T) {
 	_, err = Load(write(t, "d.yaml", strings.Replace(y, "max_results: 6", "num: 3, max_results: 6", 1)), opts(nil))
 	require.ErrorContains(t, err, "only allowed for adapter news_search")
 }
+
+func TestUIBlock(t *testing.T) {
+	load := func(ui string) (*Registry, error) {
+		return Load(write(t, "r.yaml", "analyzers:\n  - id: a\n"+ui+custom+"  - id: text_stats\n"+custom), opts(nil))
+	}
+	r, err := load("")
+	require.NoError(t, err)
+	a := r.Get("a")
+	require.False(t, a.HiddenFromProgress())
+	require.Equal(t, "a", a.ActivityKey())
+	require.True(t, r.Get("text_stats").HiddenFromProgress(), "text_stats is hidden by default")
+
+	r, err = load("    ui: {hidden: true, activity_key: translation}\n")
+	require.NoError(t, err)
+	require.True(t, r.Get("a").HiddenFromProgress())
+	require.Equal(t, "translation", r.Get("a").ActivityKey())
+
+	r, err = Load(write(t, "r.yaml", "analyzers:\n  - id: text_stats\n    ui: {hidden: false}\n"+custom), opts(nil))
+	require.NoError(t, err)
+	require.False(t, r.Get("text_stats").HiddenFromProgress())
+
+	for name, ui := range map[string]string{"unknown key": "    ui: {colour: red}\n", "wrong type": "    ui: {hidden: 3}\n",
+		"bad key": "    ui: {activity_key: \"Bad Key\"}\n"} {
+		_, err := load(ui)
+		require.Error(t, err, name)
+		require.Contains(t, err.Error(), "r.yaml", name)
+	}
+}

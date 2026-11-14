@@ -397,7 +397,10 @@ func (e *Engine) Subscribe(id string) (*events.Subscription, error) {
 	}
 	r.j.Lock()
 	defer r.j.Unlock()
-	return e.bus.Subscribe(id, func() any { return map[string]any{"job": r.j.Clone()} }), nil
+	return e.bus.Subscribe(id, func() any {
+		s := r.j.Snapshot()
+		return map[string]any{"job": r.j.Clone(), "plan": s.Plan, "progress": s.Progress, "previews": s.Previews, "activities": s.Activities}
+	}), nil
 }
 
 // Cancel cancels a job and returns its final state (status cancelled).
@@ -412,7 +415,8 @@ func (e *Engine) Cancel(id string) (job.Job, error) {
 		return job.Job{}, ErrJobFinished
 	}
 	if r.j.Status == job.StatusQueued {
-		r.beginLocked() // leaves queued: job.started and creation-skip events precede the cancellation
+		r.cancelled = true // no plan after cancellation was accepted
+		r.beginLocked()    // leaves queued: job.started and creation-skip events precede the cancellation
 	}
 	r.abortLocked(job.StatusCancelled)
 	return r.j.Clone(), nil
