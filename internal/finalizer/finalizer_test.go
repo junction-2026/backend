@@ -110,14 +110,23 @@ func newEngine(t *testing.T, yaml string, s *stub, h map[string]adapter.Handler,
 	reg := load(t, yaml, s.URL, hs)
 	exec := &adapter.Executor{Handlers: hs}
 	cfg.Executor = exec
-	cfg.Finalizer = New(reg, exec, nil)
+	fin := New(reg, exec, nil)
+	require.NotNil(t, fin)
+	cfg.Finalizer = gatedFinalizer{fin}
+	cfg.MaxParallelJobs = 1 // required by create(), see gate_test.go
 	e := engine.New(reg, cfg)
 	t.Cleanup(e.Close)
 	return e
 }
 
+// create starts a job and subscribes to it before it can emit anything: the
+// subscription sees job.snapshot, job.started and every later event. e must
+// come from newEngine.
 func create(t *testing.T, e *engine.Engine, req engine.CreateRequest) (job.Job, *events.Subscription) {
 	t.Helper()
+	gate, err := e.Create(engine.CreateRequest{Input: job.Input{Content: gateContent}, Analyzers: []string{}})
+	require.NoError(t, err)
+	defer close(gateCh(gate.ID)) // also on failure, so e.Close can finish
 	j, err := e.Create(req)
 	require.NoError(t, err)
 	sub, err := e.Subscribe(j.ID)
@@ -182,9 +191,9 @@ func waitDone(t *testing.T, e *engine.Engine, id string) job.Job {
 func run(t *testing.T, s *stub, extraFin string, r engine.CreateRequest) (job.Job, []events.Event) {
 	t.Helper()
 	e := newEngine(t, an("ok1", "ok")+an("ok2", "ok")+finYAML(extraFin), s, map[string]adapter.Handler{"ok": okHandler}, engine.Config{})
-	_, sub := create(t, e, r)
+	created, sub := create(t, e, r)
 	evs := drain(t, sub)
-	j, err := e.Get(evs[len(evs)-1].Data.(map[string]any)["job"].(job.Job).ID)
+	j, err := e.Get(created.ID)
 	require.NoError(t, err)
 	return j, evs
 }
@@ -429,7 +438,10 @@ func TestNotConfigured(t *testing.T) {
 			require.True(t, fin == nil, "must be a true nil interface")
 			e := engine.New(reg, engine.Config{Executor: exec, Finalizer: fin})
 			defer e.Close()
-			j := runsOf(t, e, req("x"))
+			// No event assertions here and no finalizer to gate on, so no create().
+			j, err := e.Create(req("x"))
+			require.NoError(t, err)
+			j = waitDone(t, e, j.ID)
 			require.Equal(t, job.RunSkipped, j.Finalization.Status)
 			require.Equal(t, job.ReasonNotConfigured, *j.Finalization.Reason)
 			require.Equal(t, job.StatusCompleted, j.Status)
@@ -458,9 +470,19 @@ func TestSlowAnalyzerDelaysOnlyFinalization(t *testing.T) {
 	require.Equal(t, job.StatusRunning, g.Status)
 	close(release)
 	evs := append(seen, drain(t, sub)...)
-	require.Less(t, idx(evs, "analyzer.succeeded"), idx(evs, "analysis.ready_for_finalization"))
-	require.EqualValues(t, 1, s.calls.Load())
 	require.Equal(t, 2, count(evs, "analyzer.succeeded"))
+	require.Less(t, lastIdx(evs, "analyzer.succeeded"), idx(evs, "analysis.ready_for_finalization"))
+	require.EqualValues(t, 1, s.calls.Load())
+}
+
+func lastIdx(evs []events.Event, typ string) (n int) {
+	n = -1
+	for i, t := range types(evs) {
+		if t == typ {
+			n = i
+		}
+	}
+	return
 }
 
 func hasType(evs []events.Event, typ string) bool { return idx(evs, typ) >= 0 }
@@ -505,7 +527,7 @@ func TestExampleRegistryEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 60*time.Second, reg.Finalizer().Execution.Timeout)
 	exec := &adapter.Executor{Handlers: hs}
-	e := engine.New(reg, engine.Config{Executor: exec, Finalizer: New(reg, exec, nil)})
+	e := engine.New(reg, engine.Config{Executor: exec, Finalizer: gatedFinalizer{New(reg, exec, nil)}, MaxParallelJobs: 1})
 	defer e.Close()
 	j := runsOf(t, e, req("hello"))
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
@@ -518,7 +540,7 @@ func TestErrorLogHasOnlyJobIDAndCode(t *testing.T) {
 	hs := handlers(map[string]adapter.Handler{"ok": okHandler})
 	reg := load(t, an("ok1", "ok")+finYAML(""), s.URL, hs)
 	exec := &adapter.Executor{Handlers: hs}
-	e := engine.New(reg, engine.Config{Executor: exec, Finalizer: New(reg, exec, slog.New(slog.NewTextHandler(&buf, nil)))})
+	e := engine.New(reg, engine.Config{Executor: exec, Finalizer: gatedFinalizer{New(reg, exec, slog.New(slog.NewTextHandler(&buf, nil)))}, MaxParallelJobs: 1})
 	defer e.Close()
 	j := runsOf(t, e, req("x"))
 	out := buf.String()
