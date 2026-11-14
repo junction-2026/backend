@@ -12,8 +12,8 @@ analyzer `fact_check` looks them up in Google Fact Check Tools (ClaimReview).
   `execution.max_claims`, default 5); `config/extractor/prompt.md` defines what a claim is, with two examples.
 - New adapter `fact_check` (`internal/adapter/factcheck.go`): query planning, bounded concurrency, one retry on 429/5xx,
   in-memory cache, rating table, API key redaction.
-- Engine: an adapter can settle its run as skipped after `analyzer.started` (`adapter.SkipError`); used for
-  `no_checkable_claims`.
+- Engine: reuses the adapter-reported skip of project#10 (`adapter.Skip`, canonical `analysis-engine` requirement
+  "Adapter-reported skip") for `no_checkable_claims`; no engine change.
 - Registry: adapter `fact_check` and its execution keys; `max_claims` on the topic_extraction llm entry.
 - Docs: `docs/examples/fact_check.yaml`, `max_claims` in `docs/examples/topic_extraction.yaml`, README section.
 
@@ -30,10 +30,9 @@ backend-local requirements (configuration, request shape, cache, engine hook, ex
 
 ### Modified Capabilities
 - `analyzer-adapters`: claims in topic extraction, prompt, `fact_check` adapter
-- `analysis-engine`: adapter-reported skip
 - `analyzer-registry`: `fact_check` settings and validation, `max_claims`, examples
 
 ## Impact
 
-`internal/adapter/{adapter,topic,factcheck}.go`, `internal/engine/run.go`, `internal/registry/registry.go`, tests,
+`internal/adapter/{adapter,topic,factcheck}.go`, `internal/registry/registry.go`, tests,
 `config/extractor/prompt.md`, `docs/examples/{fact_check,topic_extraction}.yaml`, `README.md`.

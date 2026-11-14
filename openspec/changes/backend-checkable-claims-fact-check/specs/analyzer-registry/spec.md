@@ -28,3 +28,14 @@ The `topic_extraction` llm entry SHALL accept `execution.max_claims` (>=1, defau
 #### Scenario: Example loads
 - **WHEN** the example files are loaded with their variables set
 - **THEN** the registry is valid
+
+### Requirement: Shared execution keys
+`max_results`, `max_concurrency` and `cache_ttl` SHALL be accepted by both `news_search` and `fact_check`, each with its own defaults, and rejected on every other adapter; the other `news_search` keys SHALL be rejected on `fact_check`.
+
+#### Scenario: Both analyzers in one registry
+- **WHEN** a registry holds a `news_search` and a `fact_check` entry that both set `max_results`, `max_concurrency` and `cache_ttl`
+- **THEN** it loads and each analyzer has its own values
+
+#### Scenario: News-only key on fact_check
+- **WHEN** a `fact_check` entry sets `num`
+- **THEN** loading fails with an error naming news_search as the only adapter allowing it

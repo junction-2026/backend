@@ -595,3 +595,25 @@ func TestFactCheckDocsExample(t *testing.T) {
 	_, err = Load(dir, opts(env))
 	require.ErrorContains(t, err, "GOOGLE_FACTCHECK_API_KEY")
 }
+
+// fact_check and news_search share max_results, max_concurrency and cache_ttl and must coexist in one registry.
+func TestFactCheckAndNewsSearchCoexist(t *testing.T) {
+	y := "analyzers:\n  - id: topic_extraction\n" + custom + "  - id: translation\n" + custom +
+		"  - id: news_search\n    depends_on: [topic_extraction, translation]\n" +
+		"    input: {bindings: {topics: $analyzers.topic_extraction, translation: $analyzers.translation}}\n" +
+		"    execution: {adapter: news_search, base_url: http://serper/, api_key: sk, translate: {api_key: mk}, max_results: 7, max_concurrency: 2, cache_ttl: 2h}\n" +
+		"  - id: fact_check\n    depends_on: [topic_extraction]\n    input: {bindings: {extraction: $analyzers.topic_extraction}}\n" +
+		"    execution: {adapter: fact_check, api_key: fk, max_results: 6, max_concurrency: 3, cache_ttl: 1h}\n"
+	r, err := Load(write(t, "c.yaml", y), opts(nil))
+	require.NoError(t, err)
+	n, f := r.Get("news_search").Execution, r.Get("fact_check").Execution
+	require.Equal(t, 7, n.News.MaxResults)
+	require.Equal(t, 2*time.Hour, n.News.CacheTTL)
+	require.Equal(t, 6, f.MaxResultsN())
+	require.Equal(t, 3, f.MaxConcurrencyN())
+	require.Equal(t, time.Hour, f.CacheTTLD())
+
+	// news-only keys stay rejected on fact_check
+	_, err = Load(write(t, "d.yaml", strings.Replace(y, "max_results: 6", "num: 3, max_results: 6", 1)), opts(nil))
+	require.ErrorContains(t, err, "only allowed for adapter news_search")
+}

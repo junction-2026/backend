@@ -212,7 +212,7 @@ func TestFactCheckSkipWithoutRequests(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got, err := runFC(context.Background(), &Executor{}, fcDef(s.URL), ext)
 			require.Nil(t, got)
-			var sk *SkipError
+			var sk *Skip
 			require.ErrorAs(t, err, &sk)
 			require.Equal(t, "no_checkable_claims", sk.Reason)
 		})
@@ -327,7 +327,8 @@ func TestFactCheckCache(t *testing.T) {
 
 	// after the TTL a new request is sent
 	d := fcDef(s.URL)
-	d.Execution.CacheTTL = time.Millisecond
+	ms := time.Millisecond
+	d.Execution.CacheTTL = &ms
 	y := &Executor{}
 	_, err = runFC(context.Background(), y, d, extraction(de2[0]))
 	require.NoError(t, err)
@@ -477,4 +478,36 @@ func TestFactCheckTimeoutAndCancel(t *testing.T) {
 	_, err = runFC(ctx, &Executor{}, fcDef(s.URL), extraction(de2[0]))
 	require.ErrorAs(t, err, &re)
 	require.Equal(t, job.CodeCancelled, re.Code)
+}
+
+func TestFactCacheHardCap(t *testing.T) {
+	var c factCache
+	for i := 0; i < maxCacheEntries+200; i++ {
+		c.put(fmt.Sprint("k", i), []providerClaim{{}}, time.Hour)
+	}
+	require.LessOrEqual(t, len(c.m), maxCacheEntries)
+	got, ok := c.get(fmt.Sprint("k", maxCacheEntries+199))
+	require.True(t, ok, "the newest entry is cached")
+	require.Len(t, got, 1)
+
+	// expired entries are dropped first
+	var d factCache
+	for i := 0; i < maxCacheEntries; i++ {
+		d.put(fmt.Sprint("old", i), nil, time.Nanosecond)
+	}
+	d.put("fresh", nil, time.Hour)
+	time.Sleep(time.Millisecond)
+	d.put("fresh2", nil, time.Hour)
+	require.Equal(t, 2, len(d.m))
+}
+
+func TestFactCheckOversizedAnswerNotCached(t *testing.T) {
+	big := `{"claims":[{"text":"` + strings.Repeat("x", maxCachedAnswer) + `"}]}`
+	s := newFCStub(t, func(fcReq, int) (int, string) { return 200, big })
+	x := &Executor{}
+	for i := 0; i < 2; i++ {
+		_, err := runFC(context.Background(), x, fcDef(s.URL), extraction(cl{"A", "en", "q", "q", 0.9}))
+		require.NoError(t, err)
+	}
+	require.Equal(t, 2, s.count())
 }

@@ -21,16 +21,19 @@ import (
 // Skip reason of fact_check (shared capability fact-check-result).
 const ReasonNoCheckableClaims = "no_checkable_claims"
 
+// maxCachedAnswer is the largest provider answer (bytes) worth keeping in memory.
+const maxCachedAnswer = 256 << 10
+
 // factBackoff is the wait before the single retry of a 429/5xx (a var for tests).
 var factBackoff = time.Second
 
 // factCache holds successful provider answers per (languageCode, query).
 type factCache struct {
 	mu sync.Mutex
-	m  map[string]cacheEntry
+	m  map[string]factCacheEntry
 }
 
-type cacheEntry struct {
+type factCacheEntry struct {
 	claims  []providerClaim
 	expires time.Time
 }
@@ -50,17 +53,22 @@ func (c *factCache) put(key string, claims []providerClaim, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.m == nil {
-		c.m = map[string]cacheEntry{}
+		c.m = map[string]factCacheEntry{}
 	}
-	if len(c.m) >= 1024 { // shortcut: sweep on write only when large; no size cap, fine for a 24h TTL
-		now := time.Now()
+	if _, ok := c.m[key]; !ok && len(c.m) >= maxCacheEntries { // hard cap: drop expired, then the soonest-expiring
+		now, oldest := time.Now(), ""
 		for k, e := range c.m {
 			if now.After(e.expires) {
 				delete(c.m, k)
+			} else if oldest == "" || e.expires.Before(c.m[oldest].expires) {
+				oldest = k
 			}
 		}
+		if len(c.m) >= maxCacheEntries {
+			delete(c.m, oldest)
+		}
 	}
-	c.m[key] = cacheEntry{claims, time.Now().Add(ttl)}
+	c.m[key] = factCacheEntry{claims, time.Now().Add(ttl)}
 }
 
 // providerClaim is one entry of the Fact Check Tools `claims` array.
@@ -125,7 +133,7 @@ func (x *Executor) factCheck(ctx context.Context, def *registry.Analyzer, req Re
 	}
 	plan := planFactChecks(ext["claims"], e.MinWorthiness(), e.FactCheckMaxClaims())
 	if len(plan) == 0 {
-		return nil, &SkipError{ReasonNoCheckableClaims}
+		return nil, &Skip{Reason: ReasonNoCheckableClaims}
 	}
 
 	f := &factRun{x: x, e: e, redact: []string{e.APIKey, url.QueryEscape(e.APIKey)}}
@@ -259,7 +267,9 @@ func (f *factRun) search(p plannedQuery, q *factQuery) []providerClaim {
 			if json.Unmarshal(body, &r) != nil {
 				return fail("fact check answer could not be decoded")
 			}
-			f.x.factCache.put(key, r.Claims, f.e.CacheTTLD())
+			if len(body) <= maxCachedAnswer { // an oversized answer is served once, not kept
+				f.x.factCache.put(key, r.Claims, f.e.CacheTTLD())
+			}
 			q.Status, q.Claims = "succeeded", len(r.Claims)
 			return r.Claims
 		case status == 400 || status == 401 || status == 403:

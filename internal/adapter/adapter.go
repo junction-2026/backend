@@ -1,5 +1,5 @@
 // Package adapter executes one analyzer: http_sync, http_async (polling),
-// propaganda_detection, mistral_translation and custom (in-process handlers), following analyzer-service-protocol,
+// propaganda_detection, mistral_translation, news_search and custom (in-process handlers), following analyzer-service-protocol,
 // plus llm (OpenAI-compatible chat completions) for the finalizer and the topic_extraction task.
 package adapter
 
@@ -27,7 +27,8 @@ type Executor struct {
 	Client   *http.Client // defaults to http.DefaultClient (no client timeout; ctx governs)
 	Handlers *Handlers
 
-	factCache factCache // fact_check answers; the zero value is ready
+	news      newsCache // news_search: in-memory Serper answers of this process
+	factCache factCache // fact_check: in-memory Fact Check answers; the zero value is ready
 }
 
 func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Request) (json.RawMessage, error) {
@@ -44,6 +45,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.mistralTranslation(ctx, def, req)
 	case registry.AdapterFactCheck:
 		return x.factCheck(ctx, def, req)
+	case registry.AdapterNewsSearch:
+		return x.newsSearch(ctx, def, req)
 	case registry.AdapterLLM:
 		if def.Execution.TopicExtraction() {
 			return x.topicExtraction(ctx, def, req)
@@ -52,12 +55,6 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 	}
 	return nil, adapterErr("unknown adapter %q", def.Execution.Adapter)
 }
-
-// SkipError is returned by an adapter that has nothing to do: the engine settles
-// the run as skipped with Reason (after analyzer.started) instead of failing it.
-type SkipError struct{ Reason string }
-
-func (e *SkipError) Error() string { return "skipped: " + e.Reason }
 
 func adapterErr(format string, args ...any) *job.RunError {
 	return &job.RunError{Code: job.CodeAdapterError, Message: fmt.Sprintf(format, args...)}

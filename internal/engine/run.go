@@ -175,9 +175,9 @@ func (r *run) exec(i int, inputs map[string]any) {
 	ctx, cancel := context.WithTimeout(r.ctx, def.Execution.Timeout)
 	defer cancel()
 	raw, err := r.e.cfg.Executor.Execute(ctx, def, adapter.Request{JobID: r.j.ID, AnalyzerID: def.ID, Inputs: inputs})
-	var skip *adapter.SkipError
-	if errors.As(err, &skip) {
-		r.skipRun(i, skip.Reason)
+	var skip *adapter.Skip
+	if errors.As(err, &skip) { // the adapter decided at run time that there is nothing to do
+		r.finishRun(i, nil, nil, &skip.Reason)
 		return
 	}
 	rerr := classify(ctx, err)
@@ -186,7 +186,7 @@ func (r *run) exec(i int, inputs map[string]any) {
 			rerr = &job.RunError{Code: job.CodeInvalidOutput, Message: verr.Error()}
 		}
 	}
-	r.finishRun(i, raw, rerr)
+	r.finishRun(i, raw, rerr, nil)
 }
 
 func (r *run) startRun(i int) bool {
@@ -204,30 +204,21 @@ func (r *run) startRun(i int) bool {
 	return true
 }
 
-func (r *run) finishRun(i int, raw json.RawMessage, rerr *job.RunError) {
+func (r *run) finishRun(i int, raw json.RawMessage, rerr *job.RunError, skipReason *string) {
 	r.j.Lock()
 	defer r.j.Unlock()
 	defer r.recoverJob()
 	if r.j.Done || r.j.Analyzers[i].Status != job.RunRunning { // cancelled meanwhile
 		return
 	}
-	if rerr != nil {
+	switch {
+	case skipReason != nil:
+		r.settleLocked(i, job.RunSkipped, skipReason, nil, nil)
+	case rerr != nil:
 		r.settleLocked(i, job.RunFailed, nil, rerr, nil)
-	} else {
+	default:
 		r.settleLocked(i, job.RunSucceeded, nil, nil, raw)
 	}
-	r.advanceLocked()
-}
-
-// skipRun settles a running analyzer as skipped (adapter-reported reason).
-func (r *run) skipRun(i int, reason string) {
-	r.j.Lock()
-	defer r.j.Unlock()
-	defer r.recoverJob()
-	if r.j.Done || r.j.Analyzers[i].Status != job.RunRunning { // cancelled meanwhile
-		return
-	}
-	r.settleLocked(i, job.RunSkipped, job.Str(reason), nil, nil)
 	r.advanceLocked()
 }
 

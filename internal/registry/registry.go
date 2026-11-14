@@ -34,6 +34,7 @@ const (
 	AdapterPropagandaDetection = "propaganda_detection"
 	AdapterMistralTranslation  = "mistral_translation"
 	AdapterFactCheck           = "fact_check"
+	AdapterNewsSearch          = "news_search"
 
 	DefaultFactCheckBaseURL = "https://factchecktools.googleapis.com/v1alpha1"
 
@@ -84,14 +85,39 @@ type Execution struct {
 
 	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation and llm topic_extraction only
 
-	// fact_check (BaseURL and APIKey above); MaxClaims is also the topic_extraction cap
-	MinCheckWorthiness *float64      `yaml:"min_check_worthiness"`
-	MaxClaims          *int          `yaml:"max_claims"`
-	PageSize           *int          `yaml:"page_size"`
-	MaxAgeDays         *int          `yaml:"max_age_days"`
-	MaxResults         *int          `yaml:"max_results"`
-	MaxConcurrency     *int          `yaml:"max_concurrency"`
-	CacheTTL           time.Duration `yaml:"cache_ttl"`
+	// news_search only (api_key and base_url are shared); News holds the validated values with defaults.
+	Languages      []string       `yaml:"languages"`
+	Translate      *NewsTranslate `yaml:"translate"`
+	MaxTopics      *int           `yaml:"max_topics"`
+	MaxNews        *int           `yaml:"max_news"`
+	Num            *int           `yaml:"num"`
+	MinResults     *int           `yaml:"min_results"`
+	PerDomain      *int           `yaml:"per_domain"`
+	MaxResults     *int           `yaml:"max_results"`
+	MaxConcurrency *int           `yaml:"max_concurrency"`
+	CacheTTL       *time.Duration `yaml:"cache_ttl"`
+	News           NewsSearch     `yaml:"-"`
+
+	// fact_check (BaseURL, APIKey, MaxResults, MaxConcurrency and CacheTTL are shared); MaxClaims is also the topic_extraction cap
+	MinCheckWorthiness *float64 `yaml:"min_check_worthiness"`
+	MaxClaims          *int     `yaml:"max_claims"`
+	PageSize           *int     `yaml:"page_size"`
+	MaxAgeDays         *int     `yaml:"max_age_days"`
+}
+
+// NewsTranslate configures the Mistral translation of news_search queries.
+type NewsTranslate struct {
+	APIKey   string `yaml:"api_key"`
+	Model    string `yaml:"model"`
+	Endpoint string `yaml:"endpoint"`
+}
+
+// NewsSearch is the validated news_search configuration (defaults applied).
+type NewsSearch struct {
+	Languages                                                                  []string // "source" or lower-case ISO 639-1
+	Translate                                                                  NewsTranslate
+	MaxTopics, MaxNews, Num, MinResults, PerDomain, MaxResults, MaxConcurrency int
+	CacheTTL                                                                   time.Duration
 }
 
 func intOr(p *int, d int) int {
@@ -101,7 +127,7 @@ func intOr(p *int, d int) int {
 	return *p
 }
 
-// Defaults of the optional settings; tests build Executions without Load.
+// Defaults of the fact_check and extractor settings; tests build Executions without Load.
 func (e Execution) ExtractorMaxClaims() int { return intOr(e.MaxClaims, 5) }
 func (e Execution) FactCheckMaxClaims() int { return intOr(e.MaxClaims, 3) }
 func (e Execution) PageSizeN() int          { return intOr(e.PageSize, 5) }
@@ -115,10 +141,10 @@ func (e Execution) MinWorthiness() float64 {
 	return *e.MinCheckWorthiness
 }
 func (e Execution) CacheTTLD() time.Duration {
-	if e.CacheTTL <= 0 {
+	if e.CacheTTL == nil || *e.CacheTTL <= 0 {
 		return 24 * time.Hour
 	}
-	return e.CacheTTL
+	return *e.CacheTTL
 }
 
 // checkFactCheck validates the fact_check settings of one analyzer.
@@ -131,7 +157,7 @@ func (a *Analyzer) checkFactCheck() error {
 		return fmt.Errorf("input.bindings for adapter %s must be exactly extraction: $analyzers.<id>", e.Adapter)
 	case e.MinCheckWorthiness != nil && (*e.MinCheckWorthiness < 0 || *e.MinCheckWorthiness > 1):
 		return fmt.Errorf("execution.min_check_worthiness must be between 0 and 1")
-	case e.CacheTTL < 0:
+	case e.CacheTTL != nil && *e.CacheTTL <= 0:
 		return fmt.Errorf("execution.cache_ttl must be positive")
 	}
 	for name, p := range map[string]*int{"max_claims": e.MaxClaims, "page_size": e.PageSize, "max_age_days": e.MaxAgeDays,
@@ -412,6 +438,13 @@ func (a *Analyzer) normalize(opt Options) error {
 			e.Timeout = 60 * time.Second
 		}
 	}
+	if e.Adapter == AdapterNewsSearch {
+		if err := a.normalizeNewsSearch(); err != nil {
+			return err
+		}
+	} else if e.hasNewsOnlyKeys() || (e.hasSharedKeys() && e.Adapter != AdapterFactCheck) {
+		return fmt.Errorf("execution.languages, translate, max_topics, max_news, num, min_results, per_domain, max_results, max_concurrency and cache_ttl are only allowed for adapter %s", AdapterNewsSearch)
+	}
 	if e.Adapter == AdapterFactCheck {
 		if err := a.checkFactCheck(); err != nil {
 			return err
@@ -419,9 +452,8 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Timeout == 0 {
 			e.Timeout = 15 * time.Second
 		}
-	} else if e.MinCheckWorthiness != nil || e.PageSize != nil || e.MaxAgeDays != nil || e.MaxResults != nil ||
-		e.MaxConcurrency != nil || e.CacheTTL != 0 {
-		return fmt.Errorf("execution.min_check_worthiness, page_size, max_age_days, max_results, max_concurrency and cache_ttl are only allowed for adapter %s", AdapterFactCheck)
+	} else if e.MinCheckWorthiness != nil || e.PageSize != nil || e.MaxAgeDays != nil {
+		return fmt.Errorf("execution.min_check_worthiness, page_size and max_age_days are only allowed for adapter %s", AdapterFactCheck)
 	}
 	if e.MaxClaims != nil && !e.TopicExtraction() && e.Adapter != AdapterFactCheck {
 		return fmt.Errorf("execution.max_claims is only allowed for adapter %s and execution.task %s", AdapterFactCheck, TaskTopicExtraction)
@@ -449,6 +481,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Endpoint == "" {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
 		}
+	case AdapterNewsSearch: // base_url, not endpoint
 	case AdapterFactCheck:
 		if e.BaseURL == "" {
 			e.BaseURL = DefaultFactCheckBaseURL
@@ -513,6 +546,11 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 			if e.Model, err = expand(e.Model, opt.Getenv); err != nil {
 				return fmt.Errorf("execution.model: %w", err)
+			}
+		}
+		if e.Adapter == AdapterNewsSearch {
+			if err := e.expandNewsSearch(opt.Getenv); err != nil {
+				return err
 			}
 		}
 		hdr := make(map[string]string, len(e.Headers))
@@ -740,5 +778,133 @@ func (r *Registry) validateGraph() error {
 			}
 		}
 	}
+	return nil
+}
+
+var langTokenRe = regexp.MustCompile(`^[a-z]{2}$`)
+
+// hasNewsOnlyKeys: keys only news_search accepts; max_results, max_concurrency and cache_ttl are shared with fact_check.
+func (e *Execution) hasNewsOnlyKeys() bool {
+	return e.Languages != nil || e.Translate != nil || e.MaxTopics != nil || e.MaxNews != nil || e.Num != nil ||
+		e.MinResults != nil || e.PerDomain != nil
+}
+
+func (e *Execution) hasSharedKeys() bool {
+	return e.MaxResults != nil || e.MaxConcurrency != nil || e.CacheTTL != nil
+}
+
+// normalizeNewsSearch validates the news_search keys, bindings and dependencies and applies defaults.
+func (a *Analyzer) normalizeNewsSearch() error {
+	e := &a.Execution
+	switch {
+	case e.Endpoint != "" || e.Method != "" || e.Handler != "" || e.PollInterval != 0:
+		return fmt.Errorf("execution.endpoint, execution.method, execution.handler and execution.poll_interval are not allowed for adapter %s (use base_url)", e.Adapter)
+	case strings.TrimSpace(e.BaseURL) == "":
+		return fmt.Errorf("execution.base_url is required for adapter %s", e.Adapter)
+	case strings.TrimSpace(e.APIKey) == "":
+		return fmt.Errorf("execution.api_key is required for adapter %s", e.Adapter)
+	}
+	hasDep := false
+	for _, d := range a.DependsOn {
+		hasDep = hasDep || d == "topic_extraction"
+	}
+	if !hasDep {
+		return fmt.Errorf("depends_on must include topic_extraction for adapter %s", e.Adapter)
+	}
+	for name := range a.Input.Bindings {
+		if name != "topics" && name != "translation" {
+			return fmt.Errorf("input.bindings.%s is not allowed for adapter %s (only topics and translation)", name, e.Adapter)
+		}
+	}
+	if a.Input.Bindings["topics"] != "$analyzers.topic_extraction" {
+		return fmt.Errorf("input.bindings.topics must be $analyzers.topic_extraction")
+	}
+	if t, ok := a.Input.Bindings["translation"]; ok && !strings.HasPrefix(t, "$analyzers.") {
+		return fmt.Errorf("input.bindings.translation must be $analyzers.<id>")
+	}
+	n := &e.News
+	langs := e.Languages
+	if langs == nil {
+		langs = []string{"source", "en"}
+	}
+	needsKey := false
+	for _, l := range langs {
+		l = strings.ToLower(strings.TrimSpace(l))
+		if l != "source" && !langTokenRe.MatchString(l) {
+			return fmt.Errorf("execution.languages: unknown language %q (use source or an ISO 639-1 code)", l)
+		}
+		needsKey = needsKey || l != "source"
+		n.Languages = append(n.Languages, l)
+	}
+	if len(n.Languages) == 0 {
+		return fmt.Errorf("execution.languages must not be empty")
+	}
+	if e.Translate != nil {
+		n.Translate = *e.Translate
+	}
+	if needsKey && strings.TrimSpace(n.Translate.APIKey) == "" {
+		return fmt.Errorf("execution.translate.api_key is required when a language other than source is configured")
+	}
+	if n.Translate.Model == "" {
+		n.Translate.Model = DefaultMistralModel
+	}
+	if n.Translate.Endpoint == "" {
+		n.Translate.Endpoint = DefaultMistralEndpoint
+	}
+	for _, f := range []struct {
+		name string
+		in   *int
+		out  *int
+		def  int
+	}{
+		{"max_topics", e.MaxTopics, &n.MaxTopics, 3}, {"max_news", e.MaxNews, &n.MaxNews, 2}, {"num", e.Num, &n.Num, 8},
+		{"min_results", e.MinResults, &n.MinResults, 2}, {"per_domain", e.PerDomain, &n.PerDomain, 2},
+		{"max_results", e.MaxResults, &n.MaxResults, 12}, {"max_concurrency", e.MaxConcurrency, &n.MaxConcurrency, 4},
+	} {
+		if *f.out = f.def; f.in != nil {
+			if *f.in <= 0 {
+				return fmt.Errorf("execution.%s must be a positive integer", f.name)
+			}
+			*f.out = *f.in
+		}
+	}
+	if n.CacheTTL = 6 * time.Hour; e.CacheTTL != nil {
+		if *e.CacheTTL <= 0 {
+			return fmt.Errorf("execution.cache_ttl must be a positive duration")
+		}
+		n.CacheTTL = *e.CacheTTL
+	}
+	if e.Timeout == 0 {
+		e.Timeout = 20 * time.Second
+	}
+	return nil
+}
+
+// expandNewsSearch expands ${VAR} in the news_search strings of an enabled analyzer and re-checks the keys.
+func (e *Execution) expandNewsSearch(getenv func(string) (string, bool)) error {
+	n := &e.News
+	for _, f := range []struct {
+		name     string
+		v        *string
+		required bool
+	}{
+		{"base_url", &e.BaseURL, true}, {"api_key", &e.APIKey, true},
+		{"translate.api_key", &n.Translate.APIKey, false}, {"translate.model", &n.Translate.Model, false},
+		{"translate.endpoint", &n.Translate.Endpoint, false},
+	} {
+		var err error
+		if *f.v, err = expand(*f.v, getenv); err != nil {
+			return fmt.Errorf("execution.%s: %w", f.name, err)
+		}
+		if f.required && strings.TrimSpace(*f.v) == "" {
+			return fmt.Errorf("execution.%s is empty; it is required for an enabled %s analyzer", f.name, e.Adapter)
+		}
+	}
+	for _, l := range n.Languages {
+		if l != "source" && strings.TrimSpace(n.Translate.APIKey) == "" {
+			return fmt.Errorf("execution.translate.api_key is empty; it is required when a language other than source is configured")
+		}
+	}
+	e.BaseURL = strings.TrimRight(e.BaseURL, "/")
 	return nil
 }

@@ -688,37 +688,3 @@ func TestTranslationFeedsPropagandaDetection(t *testing.T) {
 		require.NotContains(t, s, "provider-detail")
 	}
 }
-
-func TestAdapterReportedSkip(t *testing.T) {
-	skip := func(context.Context, adapter.Request) (any, error) {
-		return nil, &adapter.SkipError{Reason: "no_checkable_claims"}
-	}
-	e := newEngine(t, regYAML(an("a", "ok"), an("s", "skip", deps("a")), an("c", "ok", deps("s")), an("d", "ok", deps("a"))),
-		Config{}, map[string]adapter.Handler{"ok": ok, "skip": skip})
-	j, sub := createWithEvents(t, e, in("x"))
-	evs := drain(t, sub)
-	fin := waitDone(t, e, j.ID)
-
-	s := ar(fin, "s")
-	require.Equal(t, job.RunSkipped, s.Status)
-	require.Equal(t, "no_checkable_claims", *s.Reason)
-	require.Nil(t, s.Error)
-	require.Nil(t, s.Result)
-	require.NotNil(t, s.StartedAt, "started_at is kept")
-	require.NotNil(t, s.FinishedAt)
-	require.Equal(t, job.ReasonDependencySkipped, *ar(fin, "c").Reason)
-	require.Equal(t, job.RunSucceeded, ar(fin, "d").Status)
-	require.Equal(t, job.StatusCompleted, fin.Status)
-
-	names := typesFor(evs)
-	require.Less(t, index(names, "analyzer.started:s"), index(names, "analyzer.skipped:s"))
-	n := 0
-	for _, x := range names {
-		if strings.HasSuffix(x, ":s") && !strings.HasPrefix(x, "analyzer.started") {
-			n++
-		}
-	}
-	require.Equal(t, 1, n, "one settle event")
-	require.Equal(t, 4, fin.Coverage.Applicable, "the runtime skip counts as applicable")
-	require.Equal(t, 2, fin.Coverage.Skipped, "s and its dependent c")
-}
