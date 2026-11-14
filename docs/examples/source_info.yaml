@@ -1,0 +1,26 @@
+# Example registry entry: the outlet, political leaning and country behind every article that news_search found
+# and behind the analyzed page's own URL, looked up offline in data/outlets.csv (no network calls, no quota).
+# Needs news_search (docs/examples/news_search.yaml). outlets_file defaults to the table shipped in the image;
+# set it to use another table (startup fails when an enabled analyzer's file is missing or invalid).
+analyzers:
+  - id: source_info
+    name: Outlet information
+    category: coverage
+    trigger: on_dependencies_succeeded
+    depends_on: [news_search]
+    input:
+      bindings:
+        search: $analyzers.news_search   # must be the id of a news_search analyzer
+        source: $input.source            # gives page_outlet
+    execution:
+      adapter: source_info
+      outlets_file: /etc/orchestrator/data/outlets.csv   # default
+    llm:
+      include: true
+      description: >-
+        Outlet information for the news articles found for the text and for the analyzed page's own URL, from a
+        static table: per article the outlet, its country and its political leaning (`bias`: farLeft, left,
+        leanLeft, center, leanRight, right, farRight, unknown) and factual reporting (`factuality`), plus a
+        `summary` of the leaning and country mix. `bias` and `factuality` describe the outlet, not the article or
+        the text; use them only as context on how broad and balanced the coverage is, never as evidence that a
+        claim is true or false. `unknown` and an unmatched article mean not rated, not neutral.

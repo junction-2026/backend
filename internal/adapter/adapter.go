@@ -49,6 +49,8 @@ func (x *Executor) Execute(ctx context.Context, def *registry.Analyzer, req Requ
 		return x.factCheck(ctx, def, req)
 	case registry.AdapterNewsSearch:
 		return x.newsSearch(ctx, def, req)
+	case registry.AdapterSourceInfo:
+		return x.sourceInfo(ctx, def, req)
 	case registry.AdapterLLM:
 		if def.Execution.TopicExtraction() {
 			return x.topicExtraction(ctx, def, req)
