@@ -182,36 +182,13 @@ func (j *Job) Clone() Job {
 func Str(s string) *string { return &s }
 
 // FinalAssessment mirrors the shared FinalAssessment object. The finalizer
-// runtime owns validation and verbatim keeping of extra members; the engine
-// stores Finalization.Result as raw JSON.
+// runtime owns validation; the engine stores Finalization.Result as raw JSON.
 type FinalAssessment struct {
-	Verdict      string          `json:"verdict"`
-	OverallScore *float64        `json:"overall_score"`
-	Categories   []FinalCategory `json:"categories"`
-	Explanation  string          `json:"explanation"`
-	Evidence     []EvidenceRef   `json:"evidence"`
-	Limitations  []Limitation    `json:"limitations"`
-	ProducedBy   string          `json:"produced_by"`
-}
-
-type FinalCategory struct {
-	ID        string        `json:"id"`
-	Score     *float64      `json:"score"`
-	Label     string        `json:"label,omitempty"`
-	Rationale string        `json:"rationale,omitempty"`
-	Evidence  []EvidenceRef `json:"evidence,omitempty"`
-}
-
-type EvidenceRef struct {
-	AnalyzerID string `json:"analyzer_id"`
-	EvidenceID string `json:"evidence_id,omitempty"`
-	Note       string `json:"note,omitempty"`
-}
-
-type Limitation struct {
-	Kind        string   `json:"kind"`
-	Message     string   `json:"message"`
-	AnalyzerIDs []string `json:"analyzer_ids,omitempty"`
+	Verdict    string          `json:"verdict"`
+	Confidence *float64        `json:"confidence"`
+	UserText   string          `json:"user_text"`
+	ProducedBy string          `json:"produced_by"`
+	Usage      json.RawMessage `json:"usage"` // provider token usage verbatim; nil marshals as null
 }
 
 // Ptr returns a pointer to v.

@@ -414,7 +414,7 @@ func TestListJobsCursorIsOpaqueAndStable(t *testing.T) {
 func TestListJobsFilterAndSummary(t *testing.T) {
 	x := newHarness(t)
 	done := mkJob("done", 1, job.StatusCompleted)
-	done.Finalization = job.Finalization{Status: job.StatusCompleted, Result: json.RawMessage(`{"verdict":"high_risk","overall_score":80}`)}
+	done.Finalization = job.Finalization{Status: job.StatusCompleted, Result: json.RawMessage(`{"verdict":"detected","confidence":0.8,"user_text":"x"}`)}
 	x.svc.jobs["done"] = done
 	x.svc.jobs["run"] = mkJob("run", 0, job.StatusRunning)
 
@@ -424,7 +424,7 @@ func TestListJobsFilterAndSummary(t *testing.T) {
 	require.Equal(t, "done", it.ID)
 	require.True(t, it.Done)
 	require.Equal(t, "completed", it.Finalization.Status)
-	require.Equal(t, "high_risk", *it.Finalization.Verdict)
+	require.Equal(t, "detected", *it.Finalization.Verdict)
 	require.Nil(t, list(t, x, "?status=running").Items[0].Finalization.Verdict)
 
 	rec := x.do("GET", "/api/v1/jobs?status=running", "")
