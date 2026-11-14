@@ -285,10 +285,11 @@ func TestTechniqueNoAveraging(t *testing.T) {
 	// the result has only the shared members: no top-level score summary, no Detection score
 	var top map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(raw, &top))
-	require.ElementsMatch(t, []string{"words", "results", "detected", "span_method", "span_status", "spans_truncated"}, slices.Collect(maps.Keys(top)))
+	require.ElementsMatch(t, []string{"words", "results", "detected", "span_method", "span_status", "spans_truncated",
+		"explanation_language", "glossary_version"}, slices.Collect(maps.Keys(top)))
 	var det []map[string]any
 	require.NoError(t, json.Unmarshal(top["detected"], &det))
-	require.ElementsMatch(t, []string{"name", "display", "explanation", "models", "spans"}, slices.Collect(maps.Keys(det[0])))
+	require.ElementsMatch(t, []string{"name", "display", "explanation", "models", "spans", "plain_language"}, slices.Collect(maps.Keys(det[0])))
 }
 
 func TestTechniqueNothingDetected(t *testing.T) {

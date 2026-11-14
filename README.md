@@ -266,6 +266,47 @@ submitted, not `normalized_content` and never the translation) with half-open UT
 - Without a `spans` block nothing extra is requested: `span_method` follows the language, `span_status` is `ok` and
   every `spans` is `[]`.
 
+### Plain-language explanations
+
+A succeeded result also has `explanation_language` and `glossary_version`, every Detection a `plain_language`
+`{name, definition, why}` and every span a `why` (shared change `technique-explanations-and-llm-techniques`).
+`explanation_language` is the translation's `source_language` when the glossary has it (en, fi, sv, de, fr, es, ru,
+uk), else `en`. Names, definitions and `why` sentences come from the fixed glossary
+`internal/adapter/technique_glossary.yaml` (embedded in the binary; no LLM is asked): a span's `why` is the language's
+span template with the localized name and the span text quoted verbatim, and `plain_language.why` is the first span's
+`why`, or the no-span sentence (score of the whole text, no phrase located) when `spans` is empty. A glossary missing
+a language, entry or template stops startup. Any wording change needs a new `version` and the pinned hash in
+`technique_glossary_test.go`.
+
+## LLM techniques analyzer
+
+`docs/examples/llm_techniques.yaml` (analyzer `llm_techniques`, adapter `llm_techniques`, category `propaganda`,
+`depends_on: [translation]`, `input.bindings: {translation: $analyzers.translation}`) asks an OpenAI-compatible LLM
+for three weaknesses outside the SemEval labels: `evidence_certainty_mismatch`, `misleading_headline` and
+`statistical_cherry_picking` (result shape: shared capability `llm-technique-result`). Set `LLM_TECHNIQUES_BASE_URL`,
+`LLM_TECHNIQUES_API_KEY` and `LLM_TECHNIQUES_MODEL`.
+
+- The LLM gets the system prompt `prompt_file` (default `/etc/orchestrator/llm_techniques/prompt.md`, from
+  `config/llm_techniques/prompt.md`) and `Job.input.content` (first `max_input_chars` characters, default 20000) in
+  `<content>`, never the translation. Only for a job created with `input` (not `scrape`) whose `source.title` is
+  non-empty and differs from the content (both trimmed) is the title sent in `<title>` and `misleading_headline`
+  asked for (`title_checked: true`); a scraped job's title is an account name, not a headline.
+- The reply must be `{"findings": [{"label", "field", "text", "confidence", "explanation"}]}`, else one reply retry
+  and then `invalid_output`. A finding is dropped when its label was not asked for, its `field` is not `title` for
+  `misleading_headline` and `content` otherwise, its confidence is outside 0..1 or below `min_confidence` (default
+  0.5), its explanation is blank, or its `text` is not an exact, case-sensitive substring of that field (leftmost
+  occurrence, UTF-16 offsets, never repaired). At most `max_findings_per_label` (default 5) per label are kept,
+  highest confidence first (`truncated` is true when more were dropped or the content was cut). Findings carry the
+  glossary `name` and `definition` in `explanation_language`, the LLM's one-sentence `explanation` (credentials
+  redacted), `confidence`, `source: "llm"` and the span, ordered by label, title before content, `start`, `end`.
+- A non-2xx answer or connection error is `adapter_error`, the deadline `timeout` (default 30s); error messages never
+  contain the API key or header values. Its failure does not affect `techniques`.
+- `execution` takes only `base_url`, `api_key`, `model` (required, `${VAR}` expanded), `prompt_file`, `temperature`,
+  `max_tokens` (default 1500), `headers`, `min_confidence`, `max_findings_per_label`, `max_input_chars` and
+  `timeout`; any other key aborts startup, and `min_confidence`/`max_findings_per_label` are rejected on other
+  adapters. The example's `llm.description` tells the finalizer that these findings are LLM-assessed, weaker than the
+  `techniques` model labels and not model detections.
+
 ## Jobs from a social-media URL
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of

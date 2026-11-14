@@ -1,0 +1,204 @@
+# Fixed, versioned glossary of the plain-language technique texts (shared technique-classifier-result
+# "Fixed glossary"). Change `version` whenever any wording changes, and update the pinned hash in
+# technique_glossary_test.go. English definitions follow the SemEval-2020 Task 11 technique definitions.
+# Templates: why_span has exactly one {name} and one {span}; why_no_span has exactly one {name} and no {span}.
+version: "2026-11-14.1"
+templates:
+  en: {why_span: "The phrase “{span}” is marked as {name}.", why_no_span: "{name} was indicated by the score of the whole text; no specific phrase was located."}
+  fi: {why_span: "Tekniikka: {name}. Kohta ”{span}” on merkitty esimerkiksi tästä tekniikasta.", why_no_span: "Tekniikka: {name}. Se tunnistettiin koko tekstin pistemäärän perusteella; mitään tiettyä kohtaa ei löydetty."}
+  sv: {why_span: "Frasen ”{span}” har markerats som {name}.", why_no_span: "{name} indikerades av poängen för hela texten; ingen specifik fras kunde hittas."}
+  de: {why_span: "Die Stelle „{span}“ wurde als {name} markiert.", why_no_span: "{name} wurde anhand der Bewertung des gesamten Textes erkannt; eine bestimmte Stelle wurde nicht gefunden."}
+  fr: {why_span: "Le passage « {span} » a été signalé comme : {name}.", why_no_span: "{name} : cette technique a été indiquée par le score de l’ensemble du texte ; aucun passage précis n’a été localisé."}
+  es: {why_span: "El fragmento «{span}» se ha marcado como {name}.", why_no_span: "{name}: la técnica se indicó por la puntuación del texto completo; no se localizó ningún fragmento concreto."}
+  ru: {why_span: "Техника: {name}. Фрагмент «{span}» отмечен как пример этой техники.", why_no_span: "Техника: {name}. Она определена по оценке всего текста; конкретный фрагмент не найден."}
+  uk: {why_span: "Техніка: {name}. Фрагмент «{span}» позначено як приклад цієї техніки.", why_no_span: "Техніка: {name}. Її визначено за оцінкою всього тексту; конкретний фрагмент не знайдено."}
+techniques:
+  Loaded_Language:
+    en: {name: "Loaded language", definition: "Uses words or phrases with strong emotional implications (positive or negative) to influence the audience."}
+    fi: {name: "Tunnelatautunut kieli", definition: "Käyttää vahvasti tunteita herättäviä sanoja tai ilmauksia (myönteisiä tai kielteisiä) vaikuttaakseen yleisöön."}
+    sv: {name: "Laddat språk", definition: "Använder ord eller uttryck med stark känslomässig laddning (positiv eller negativ) för att påverka publiken."}
+    de: {name: "Emotional aufgeladene Sprache", definition: "Verwendet Wörter oder Wendungen mit starker emotionaler Wirkung (positiv oder negativ), um das Publikum zu beeinflussen."}
+    fr: {name: "Langage chargé", definition: "Utilise des mots ou expressions à forte charge émotionnelle (positive ou négative) pour influencer le public."}
+    es: {name: "Lenguaje cargado", definition: "Usa palabras o expresiones con una fuerte carga emocional (positiva o negativa) para influir en el público."}
+    ru: {name: "Эмоционально окрашенная лексика", definition: "Использует слова или выражения с сильной эмоциональной окраской (положительной или отрицательной), чтобы повлиять на аудиторию."}
+    uk: {name: "Емоційно забарвлена лексика", definition: "Використовує слова чи вирази з сильним емоційним забарвленням (позитивним або негативним), щоб вплинути на аудиторію."}
+  Appeal_to_fear-prejudice:
+    en: {name: "Appeal to fear or prejudice", definition: "Seeks to build support for an idea by instilling anxiety or panic about an alternative, sometimes based on preconceived judgements."}
+    fi: {name: "Vetoaminen pelkoon tai ennakkoluuloihin", definition: "Hankkii kannatusta ajatukselle lietsomalla huolta tai paniikkia vaihtoehtoa kohtaan, joskus ennakkoluulojen pohjalta."}
+    sv: {name: "Vädjan till rädsla eller fördomar", definition: "Försöker skapa stöd för en idé genom att väcka oro eller panik inför ett alternativ, ibland utifrån fördomar."}
+    de: {name: "Appell an Angst oder Vorurteile", definition: "Wirbt für eine Idee, indem Angst oder Panik vor einer Alternative geschürt wird, teils gestützt auf Vorurteile."}
+    fr: {name: "Appel à la peur ou aux préjugés", definition: "Cherche à rallier le public à une idée en suscitant l’angoisse ou la panique face à une alternative, parfois sur la base de préjugés."}
+    es: {name: "Apelación al miedo o a los prejuicios", definition: "Busca apoyo para una idea infundiendo ansiedad o pánico ante una alternativa, a veces basándose en prejuicios."}
+    ru: {name: "Апелляция к страху или предрассудкам", definition: "Добивается поддержки идеи, вызывая тревогу или панику по поводу альтернативы, иногда опираясь на предрассудки."}
+    uk: {name: "Апеляція до страху чи упереджень", definition: "Здобуває підтримку ідеї, викликаючи тривогу чи паніку щодо альтернативи, іноді спираючись на упередження."}
+  Exaggeration,Minimisation:
+    en: {name: "Exaggeration or minimisation", definition: "Represents something in an excessive manner, making it larger, better or worse than it is, or makes it seem less important or smaller than it really is."}
+    fi: {name: "Liioittelu tai vähättely", definition: "Esittää asian liioitellusti suurempana, parempana tai huonompana kuin se on, tai saa sen näyttämään vähäisemmältä kuin se todellisuudessa on."}
+    sv: {name: "Överdrift eller förminskning", definition: "Framställer något överdrivet, som större, bättre eller sämre än det är, eller får det att verka mindre viktigt än det egentligen är."}
+    de: {name: "Übertreibung oder Verharmlosung", definition: "Stellt etwas übertrieben dar – größer, besser oder schlimmer, als es ist – oder lässt es kleiner oder unwichtiger erscheinen, als es tatsächlich ist."}
+    fr: {name: "Exagération ou minimisation", definition: "Présente quelque chose de façon excessive, plus grand, meilleur ou pire qu’il n’est, ou le fait paraître moins important qu’il ne l’est réellement."}
+    es: {name: "Exageración o minimización", definition: "Presenta algo de forma excesiva, como más grande, mejor o peor de lo que es, o hace que parezca menos importante de lo que realmente es."}
+    ru: {name: "Преувеличение или преуменьшение", definition: "Представляет что-либо чрезмерно — большим, лучшим или худшим, чем есть, — или делает менее значимым, чем на самом деле."}
+    uk: {name: "Перебільшення або применшення", definition: "Подає щось надмірно — більшим, кращим чи гіршим, ніж воно є, — або робить менш значущим, ніж насправді."}
+  Repetition:
+    en: {name: "Repetition", definition: "Repeats the same message over and over again so that the audience will eventually accept it."}
+    fi: {name: "Toisto", definition: "Toistaa samaa viestiä yhä uudelleen, jotta yleisö lopulta hyväksyisi sen."}
+    sv: {name: "Upprepning", definition: "Upprepar samma budskap om och om igen så att publiken till slut accepterar det."}
+    de: {name: "Wiederholung", definition: "Wiederholt dieselbe Botschaft immer wieder, damit das Publikum sie schließlich übernimmt."}
+    fr: {name: "Répétition", definition: "Répète le même message encore et encore pour que le public finisse par l’accepter."}
+    es: {name: "Repetición", definition: "Repite el mismo mensaje una y otra vez para que el público acabe aceptándolo."}
+    ru: {name: "Повторение", definition: "Повторяет одно и то же сообщение снова и снова, чтобы аудитория в конце концов его приняла."}
+    uk: {name: "Повторення", definition: "Повторює те саме повідомлення знову і знову, щоб аудиторія зрештою його прийняла."}
+  Flag-Waving:
+    en: {name: "Flag-waving", definition: "Plays on strong national feeling (or feelings about any group, such as race, gender or political preference) to justify or promote an action or idea."}
+    fi: {name: "Lipun heiluttelu", definition: "Vetoaa voimakkaaseen kansallistunteeseen (tai ryhmään kuulumisen tunteeseen, esimerkiksi syntyperään, sukupuoleen tai poliittiseen kantaan) toiminnan tai ajatuksen oikeuttamiseksi tai edistämiseksi."}
+    sv: {name: "Flaggviftande", definition: "Spelar på stark nationell känsla (eller känsla för en grupp, till exempel ursprung, kön eller politisk hemvist) för att rättfärdiga eller främja en handling eller idé."}
+    de: {name: "Fahnenschwenken (Patriotismus-Appell)", definition: "Nutzt starke nationale Gefühle (oder Gefühle gegenüber einer Gruppe, etwa Herkunft, Geschlecht oder politische Richtung), um eine Handlung oder Idee zu rechtfertigen oder zu fördern."}
+    fr: {name: "Appel au patriotisme", definition: "Joue sur un fort sentiment national (ou d’appartenance à un groupe, comme l’origine, le genre ou l’orientation politique) pour justifier ou promouvoir une action ou une idée."}
+    es: {name: "Apelación al patriotismo", definition: "Recurre a un fuerte sentimiento nacional (o de pertenencia a un grupo, como origen, género o ideología) para justificar o promover una acción o idea."}
+    ru: {name: "Размахивание флагом", definition: "Играет на сильных национальных чувствах (или чувстве принадлежности к группе — по происхождению, полу или политическим взглядам), чтобы оправдать или продвинуть действие или идею."}
+    uk: {name: "Розмахування прапором", definition: "Грає на сильних національних почуттях (або почутті належності до групи — за походженням, статтю чи політичними поглядами), щоб виправдати чи просунути дію або ідею."}
+  Name_Calling,Labeling:
+    en: {name: "Name calling or labeling", definition: "Labels the object of the propaganda as something the target audience fears, hates or finds undesirable, or loves and praises."}
+    fi: {name: "Nimittely tai leimaaminen", definition: "Leimaa propagandan kohteen joksikin, jota yleisö pelkää, vihaa tai pitää epätoivottavana, tai jota se rakastaa ja ihailee."}
+    sv: {name: "Öknamn eller etikettering", definition: "Sätter en etikett på propagandans måltavla som publiken fruktar, hatar eller ogillar, eller älskar och hyllar."}
+    de: {name: "Beschimpfung oder Etikettierung", definition: "Belegt das Ziel der Propaganda mit einem Etikett, das das Publikum fürchtet, hasst oder ablehnt – oder liebt und lobt."}
+    fr: {name: "Insultes ou étiquetage", definition: "Désigne la cible de la propagande par une étiquette que le public craint, déteste ou rejette, ou au contraire aime et admire."}
+    es: {name: "Insultos o etiquetado", definition: "Etiqueta al objeto de la propaganda como algo que el público teme, odia o considera indeseable, o bien ama y elogia."}
+    ru: {name: "Оскорбления или навешивание ярлыков", definition: "Обозначает объект пропаганды ярлыком, которого аудитория боится, ненавидит или считает нежелательным, либо который любит и превозносит."}
+    uk: {name: "Образливі прізвиська або навішування ярликів", definition: "Позначає об’єкт пропаганди ярликом, якого аудиторія боїться, ненавидить чи вважає небажаним, або який любить і вихваляє."}
+  Reductio_ad_hitlerum:
+    en: {name: "Reductio ad Hitlerum", definition: "Persuades the audience to disapprove of an action or idea by suggesting that it is popular with groups the audience hates or despises, such as the Nazis."}
+    fi: {name: "Reductio ad Hitlerum", definition: "Saa yleisön torjumaan toiminnan tai ajatuksen vihjaamalla, että se on suosittu ryhmissä, joita yleisö vihaa tai halveksii, kuten natsien keskuudessa."}
+    sv: {name: "Reductio ad Hitlerum", definition: "Får publiken att ta avstånd från en handling eller idé genom att antyda att den är populär bland grupper som publiken hatar eller föraktar, till exempel nazister."}
+    de: {name: "Reductio ad Hitlerum", definition: "Bringt das Publikum dazu, eine Handlung oder Idee abzulehnen, indem sie mit verhassten Gruppen wie den Nationalsozialisten in Verbindung gebracht wird."}
+    fr: {name: "Reductio ad Hitlerum", definition: "Pousse le public à rejeter une action ou une idée en suggérant qu’elle est appréciée de groupes qu’il hait ou méprise, comme les nazis."}
+    es: {name: "Reductio ad Hitlerum", definition: "Lleva al público a rechazar una acción o idea sugiriendo que es popular entre grupos que odia o desprecia, como los nazis."}
+    ru: {name: "Reductio ad Hitlerum", definition: "Побуждает аудиторию отвергнуть действие или идею, намекая, что они популярны у групп, которые аудитория ненавидит или презирает, например у нацистов."}
+    uk: {name: "Reductio ad Hitlerum", definition: "Спонукає аудиторію відкинути дію чи ідею, натякаючи, що вони популярні серед груп, яких аудиторія ненавидить чи зневажає, наприклад нацистів."}
+  Black-and-White_Fallacy:
+    en: {name: "Black-and-white fallacy", definition: "Presents two alternative options as the only possibilities when in fact more exist; in its extreme form, tells the audience exactly what to do."}
+    fi: {name: "Mustavalkoinen ajattelu (väärä dilemma)", definition: "Esittää kaksi vaihtoehtoa ainoina mahdollisina, vaikka muitakin on; äärimuodossaan sanelee yleisölle, mitä sen pitää tehdä."}
+    sv: {name: "Svartvitt tänkande (falskt dilemma)", definition: "Framställer två alternativ som de enda möjliga, fast det finns fler; i sin extrema form talar den om exakt vad publiken ska göra."}
+    de: {name: "Schwarz-Weiß-Denken", definition: "Stellt zwei Möglichkeiten als die einzigen dar, obwohl es weitere gibt; in der extremen Form wird dem Publikum genau vorgeschrieben, was es tun soll."}
+    fr: {name: "Faux dilemme", definition: "Présente deux options comme les seules possibles alors qu’il en existe d’autres ; dans sa forme extrême, dicte au public l’action à entreprendre."}
+    es: {name: "Falso dilema", definition: "Presenta dos opciones como las únicas posibles cuando existen más; en su forma extrema, dicta al público qué hacer."}
+    ru: {name: "Ложная дилемма (чёрно-белое мышление)", definition: "Представляет два варианта как единственно возможные, хотя есть и другие; в крайней форме прямо указывает аудитории, что делать."}
+    uk: {name: "Хибна дилема (чорно-біле мислення)", definition: "Подає два варіанти як єдино можливі, хоча є й інші; у крайній формі прямо вказує аудиторії, що робити."}
+  Causal_Oversimplification:
+    en: {name: "Causal oversimplification", definition: "Assumes a single cause or reason when there are actually multiple causes for an issue."}
+    fi: {name: "Syy-yhteyden yksinkertaistaminen", definition: "Olettaa yhden syyn, vaikka ongelmalla on todellisuudessa useita syitä."}
+    sv: {name: "Förenklad orsaksförklaring", definition: "Antar en enda orsak när ett problem i själva verket har flera orsaker."}
+    de: {name: "Kausale Vereinfachung", definition: "Nimmt eine einzige Ursache an, obwohl ein Problem tatsächlich mehrere Ursachen hat."}
+    fr: {name: "Simplification causale", definition: "Attribue un problème à une cause unique alors qu’il a en réalité plusieurs causes."}
+    es: {name: "Simplificación causal", definition: "Atribuye un problema a una sola causa cuando en realidad tiene varias."}
+    ru: {name: "Упрощение причинно-следственной связи", definition: "Сводит проблему к одной причине, хотя на самом деле причин несколько."}
+    uk: {name: "Спрощення причинно-наслідкового зв’язку", definition: "Зводить проблему до однієї причини, хоча насправді причин кілька."}
+  Whataboutism,Straw_Men,Red_Herring:
+    en: {name: "Whataboutism, straw man or red herring", definition: "Discredits an opponent by charging them with hypocrisy, replaces their argument with a distorted version, or brings in irrelevant material to divert attention."}
+    fi: {name: "Entäs-ismi, olkiukko tai harhautus", definition: "Mustamaalaa vastapuolta syyttämällä sitä tekopyhyydestä, korvaa sen argumentin vääristellyllä versiolla tai tuo esiin asiaan kuulumattomia aiheita huomion harhauttamiseksi."}
+    sv: {name: "Whataboutism, halmgubbe eller villospår", definition: "Misskrediterar motparten genom anklagelser om hyckleri, ersätter motpartens argument med en förvrängd version eller för in ovidkommande ämnen för att avleda uppmärksamheten."}
+    de: {name: "Whataboutism, Strohmann oder Ablenkungsmanöver", definition: "Diskreditiert die Gegenseite durch Heuchelei-Vorwürfe, ersetzt ihr Argument durch eine verzerrte Version oder lenkt mit sachfremden Themen ab."}
+    fr: {name: "Whataboutisme, homme de paille ou diversion", definition: "Discrédite l’adversaire en l’accusant d’hypocrisie, remplace son argument par une version déformée ou introduit des éléments hors sujet pour détourner l’attention."}
+    es: {name: "Whataboutismo, hombre de paja o pista falsa", definition: "Desacredita al oponente acusándolo de hipocresía, sustituye su argumento por una versión distorsionada o introduce temas irrelevantes para desviar la atención."}
+    ru: {name: "Вотэбаутизм, соломенное чучело или отвлекающий манёвр", definition: "Дискредитирует оппонента обвинениями в лицемерии, подменяет его аргумент искажённой версией или вводит посторонние темы, чтобы отвлечь внимание."}
+    uk: {name: "Вотебаутизм, солом’яне опудало або відволікання уваги", definition: "Дискредитує опонента звинуваченнями в лицемірстві, підміняє його аргумент спотвореною версією або вводить сторонні теми, щоб відвернути увагу."}
+  Straw_Man:
+    en: {name: "Straw man", definition: "Substitutes an opponent's proposition with a similar one, which is then refuted in place of the original."}
+    fi: {name: "Olkiukko", definition: "Korvaa vastapuolen väitteen samankaltaisella väitteellä, joka sitten kumotaan alkuperäisen sijaan."}
+    sv: {name: "Halmgubbe", definition: "Ersätter motpartens påstående med ett liknande som sedan bemöts i stället för det ursprungliga."}
+    de: {name: "Strohmann-Argument", definition: "Ersetzt die Aussage der Gegenseite durch eine ähnliche, die dann anstelle der ursprünglichen widerlegt wird."}
+    fr: {name: "Homme de paille", definition: "Remplace la thèse de l’adversaire par une thèse semblable, qui est ensuite réfutée à la place de l’originale."}
+    es: {name: "Hombre de paja", definition: "Sustituye la tesis del oponente por otra parecida, que luego se refuta en lugar de la original."}
+    ru: {name: "Соломенное чучело", definition: "Подменяет тезис оппонента похожим, который затем опровергается вместо исходного."}
+    uk: {name: "Солом’яне опудало", definition: "Підміняє тезу опонента схожою, яку потім спростовують замість початкової."}
+  Red_Herring:
+    en: {name: "Red herring", definition: "Introduces material irrelevant to the issue being discussed, so that attention is diverted away from the points made."}
+    fi: {name: "Harhautus (punainen silli)", definition: "Tuo keskusteluun asiaan kuulumatonta aineistoa, jotta huomio siirtyisi pois esitetyistä perusteluista."}
+    sv: {name: "Villospår (red herring)", definition: "För in material som saknar betydelse för frågan så att uppmärksamheten leds bort från de argument som framförts."}
+    de: {name: "Ablenkungsmanöver (Red Herring)", definition: "Bringt für das Thema irrelevante Inhalte ein, um die Aufmerksamkeit von den eigentlichen Punkten abzulenken."}
+    fr: {name: "Diversion (hareng rouge)", definition: "Introduit des éléments sans rapport avec le sujet pour détourner l’attention des arguments avancés."}
+    es: {name: "Pista falsa (cortina de humo)", definition: "Introduce material ajeno al tema para desviar la atención de los argumentos planteados."}
+    ru: {name: "Отвлекающий манёвр (ложный след)", definition: "Вводит не относящийся к делу материал, чтобы отвлечь внимание от высказанных доводов."}
+    uk: {name: "Відволікання уваги (хибний слід)", definition: "Вводить матеріал, що не стосується справи, щоб відвернути увагу від висловлених аргументів."}
+  Doubt:
+    en: {name: "Doubt", definition: "Questions the credibility of someone or something."}
+    fi: {name: "Epäilyn kylväminen", definition: "Kyseenalaistaa jonkun tai jonkin uskottavuuden."}
+    sv: {name: "Tvivel", definition: "Ifrågasätter trovärdigheten hos någon eller något."}
+    de: {name: "Zweifel säen", definition: "Stellt die Glaubwürdigkeit einer Person oder Sache infrage."}
+    fr: {name: "Mise en doute", definition: "Remet en question la crédibilité de quelqu’un ou de quelque chose."}
+    es: {name: "Duda", definition: "Cuestiona la credibilidad de alguien o de algo."}
+    ru: {name: "Сеяние сомнений", definition: "Ставит под сомнение достоверность или репутацию кого-либо или чего-либо."}
+    uk: {name: "Сіяння сумнівів", definition: "Ставить під сумнів достовірність чи репутацію когось або чогось."}
+  Appeal_to_Authority:
+    en: {name: "Appeal to authority", definition: "States that a claim is true simply because an authority or expert on the issue said so, without any other supporting evidence."}
+    fi: {name: "Vetoaminen auktoriteettiin", definition: "Väittää jotain todeksi pelkästään siksi, että auktoriteetti tai asiantuntija on sanonut niin, ilman muuta näyttöä."}
+    sv: {name: "Auktoritetsargument", definition: "Påstår att något är sant enbart för att en auktoritet eller expert har sagt det, utan andra belägg."}
+    de: {name: "Berufung auf Autoritäten", definition: "Behauptet, etwas sei wahr, nur weil eine Autorität oder ein Experte es sagt, ohne weitere Belege."}
+    fr: {name: "Appel à l’autorité", definition: "Affirme qu’une thèse est vraie simplement parce qu’une autorité ou un expert l’a dit, sans autre preuve."}
+    es: {name: "Apelación a la autoridad", definition: "Afirma que algo es verdad simplemente porque lo dijo una autoridad o un experto, sin otras pruebas."}
+    ru: {name: "Апелляция к авторитету", definition: "Утверждает, что что-то истинно лишь потому, что так сказал авторитет или эксперт, без других доказательств."}
+    uk: {name: "Апеляція до авторитету", definition: "Стверджує, що щось є правдою лише тому, що так сказав авторитет чи експерт, без інших доказів."}
+  Thought-terminating_Cliches:
+    en: {name: "Thought-terminating cliché", definition: "Uses short, generic phrases that discourage critical thought and meaningful discussion about a topic."}
+    fi: {name: "Ajattelun pysäyttävä klisee", definition: "Käyttää lyhyitä, yleisiä fraaseja, jotka ehkäisevät kriittistä ajattelua ja asiallista keskustelua aiheesta."}
+    sv: {name: "Tankestoppande klyscha", definition: "Använder korta, allmänna fraser som hindrar kritiskt tänkande och saklig diskussion om ett ämne."}
+    de: {name: "Gedankenstopp-Floskel", definition: "Verwendet kurze, allgemeine Floskeln, die kritisches Nachdenken und eine sachliche Diskussion des Themas unterbinden."}
+    fr: {name: "Cliché coupant court à la réflexion", definition: "Utilise des formules courtes et génériques qui découragent la réflexion critique et le débat de fond sur un sujet."}
+    es: {name: "Cliché que interrumpe el pensamiento", definition: "Usa frases cortas y genéricas que desalientan el pensamiento crítico y el debate de fondo sobre un tema."}
+    ru: {name: "Клише, останавливающее мысль", definition: "Использует короткие шаблонные фразы, которые препятствуют критическому мышлению и содержательному обсуждению темы."}
+    uk: {name: "Кліше, що зупиняє думку", definition: "Використовує короткі шаблонні фрази, які перешкоджають критичному мисленню та змістовному обговоренню теми."}
+  Bandwagon:
+    en: {name: "Bandwagon", definition: "Tries to persuade the audience to join in and take a course of action because “everyone else is doing it”."}
+    fi: {name: "Joukkoon liittymisen vetoomus", definition: "Yrittää saada yleisön mukaan toimintaan, koska ”kaikki muutkin tekevät niin”."}
+    sv: {name: "Bandwagon-effekten", definition: "Försöker få publiken att ansluta sig till en handling eftersom ”alla andra gör det”."}
+    de: {name: "Mitläufereffekt", definition: "Versucht das Publikum zum Mitmachen zu bewegen, weil „alle anderen es auch tun“."}
+    fr: {name: "Effet de mode (suivisme)", definition: "Tente de persuader le public de se joindre à une action parce que « tout le monde le fait »."}
+    es: {name: "Efecto de arrastre", definition: "Intenta persuadir al público para que se sume a una acción porque «todos los demás lo están haciendo»."}
+    ru: {name: "Эффект присоединения к большинству", definition: "Пытается убедить аудиторию присоединиться к действию, потому что «все так делают»."}
+    uk: {name: "Ефект приєднання до більшості", definition: "Намагається переконати аудиторію долучитися до дії, бо «всі так роблять»."}
+  Slogans:
+    en: {name: "Slogans", definition: "Uses a brief and striking phrase that may include labeling and stereotyping, often acting as an emotional appeal."}
+    fi: {name: "Iskulauseet", definition: "Käyttää lyhyttä ja iskevää fraasia, jossa on usein leimoja ja stereotypioita ja joka vetoaa tunteisiin."}
+    sv: {name: "Slagord", definition: "Använder en kort och slående fras, ofta med etiketter och stereotyper, som fungerar som en känslomässig vädjan."}
+    de: {name: "Slogans", definition: "Verwendet eine kurze, einprägsame Parole, die oft Etiketten und Stereotype enthält und an Gefühle appelliert."}
+    fr: {name: "Slogans", definition: "Utilise une formule brève et frappante, souvent faite d’étiquettes et de stéréotypes, qui agit comme un appel aux émotions."}
+    es: {name: "Eslóganes", definition: "Usa una frase breve y llamativa, a menudo con etiquetas y estereotipos, que funciona como apelación emocional."}
+    ru: {name: "Лозунги", definition: "Использует короткую броскую фразу, часто с ярлыками и стереотипами, которая действует как эмоциональный призыв."}
+    uk: {name: "Гасла", definition: "Використовує коротку яскраву фразу, часто з ярликами та стереотипами, що діє як емоційний заклик."}
+  Obfuscation,Intentional_Vagueness,Confusion:
+    en: {name: "Obfuscation or intentional vagueness", definition: "Uses deliberately unclear words so that the audience may have their own interpretations."}
+    fi: {name: "Hämärtäminen tai tahallinen epämääräisyys", definition: "Käyttää tarkoituksella epäselviä sanoja, jotta yleisö voi tulkita ne haluamallaan tavalla."}
+    sv: {name: "Fördunkling eller avsiktlig vaghet", definition: "Använder avsiktligt otydliga ord så att publiken kan tolka dem som den vill."}
+    de: {name: "Verschleierung oder absichtliche Unklarheit", definition: "Verwendet absichtlich unklare Formulierungen, sodass das Publikum sie nach eigenem Belieben auslegen kann."}
+    fr: {name: "Obscurcissement ou flou intentionnel", definition: "Emploie des termes délibérément flous afin que le public puisse les interpréter à sa guise."}
+    es: {name: "Ofuscación o vaguedad intencionada", definition: "Usa palabras deliberadamente poco claras para que el público pueda interpretarlas a su manera."}
+    ru: {name: "Затуманивание или намеренная неясность", definition: "Использует намеренно неясные формулировки, чтобы аудитория могла толковать их по-своему."}
+    uk: {name: "Затуманювання або навмисна нечіткість", definition: "Використовує навмисно нечіткі формулювання, щоб аудиторія могла тлумачити їх по-своєму."}
+  evidence_certainty_mismatch:
+    en: {name: "Evidence-certainty mismatch", definition: "States a claim with more certainty than the evidence given in the text supports."}
+    fi: {name: "Näytön ja varmuuden ristiriita", definition: "Esittää väitteen varmempana kuin tekstissä esitetty näyttö tukee."}
+    sv: {name: "Obalans mellan belägg och säkerhet", definition: "Framför ett påstående med större säkerhet än vad beläggen i texten stöder."}
+    de: {name: "Missverhältnis zwischen Beleg und Gewissheit", definition: "Stellt eine Behauptung mit mehr Gewissheit dar, als die Belege im Text stützen."}
+    fr: {name: "Décalage entre preuves et certitude", definition: "Affirme une thèse avec plus de certitude que ne le permettent les preuves présentes dans le texte."}
+    es: {name: "Desajuste entre evidencia y certeza", definition: "Presenta una afirmación con más certeza de la que respaldan las pruebas del texto."}
+    ru: {name: "Несоответствие уверенности доказательствам", definition: "Утверждает что-либо с большей уверенностью, чем позволяют доказательства, приведённые в тексте."}
+    uk: {name: "Невідповідність упевненості доказам", definition: "Стверджує щось із більшою впевненістю, ніж дозволяють докази, наведені в тексті."}
+  misleading_headline:
+    en: {name: "Misleading headline", definition: "The headline states or implies something that the body of the text does not support."}
+    fi: {name: "Harhaanjohtava otsikko", definition: "Otsikko väittää tai antaa ymmärtää jotain, mitä itse teksti ei tue."}
+    sv: {name: "Vilseledande rubrik", definition: "Rubriken påstår eller antyder något som brödtexten inte stöder."}
+    de: {name: "Irreführende Überschrift", definition: "Die Überschrift behauptet oder suggeriert etwas, das der Text selbst nicht stützt."}
+    fr: {name: "Titre trompeur", definition: "Le titre affirme ou laisse entendre quelque chose que le corps du texte ne confirme pas."}
+    es: {name: "Titular engañoso", definition: "El titular afirma o sugiere algo que el cuerpo del texto no respalda."}
+    ru: {name: "Вводящий в заблуждение заголовок", definition: "Заголовок утверждает или подразумевает то, что не подтверждается основным текстом."}
+    uk: {name: "Оманливий заголовок", definition: "Заголовок стверджує або натякає на те, що не підтверджується основним текстом."}
+  statistical_cherry_picking:
+    en: {name: "Statistical cherry-picking", definition: "Selects numbers that support a conclusion which the fuller data would not support."}
+    fi: {name: "Tilastojen valikoiva poiminta", definition: "Valitsee lukuja, jotka tukevat johtopäätöstä, jota kattavammat tiedot eivät tukisi."}
+    sv: {name: "Selektiv statistik (cherry-picking)", definition: "Väljer ut siffror som stöder en slutsats som de fullständiga uppgifterna inte skulle stödja."}
+    de: {name: "Statistisches Rosinenpicken", definition: "Wählt Zahlen so aus, dass sie eine Schlussfolgerung stützen, die die vollständigen Daten nicht stützen würden."}
+    fr: {name: "Sélection biaisée de statistiques", definition: "Choisit des chiffres qui soutiennent une conclusion que l’ensemble des données ne soutiendrait pas."}
+    es: {name: "Selección sesgada de estadísticas", definition: "Selecciona cifras que apoyan una conclusión que los datos completos no apoyarían."}
+    ru: {name: "Выборочная статистика", definition: "Отбирает цифры, подтверждающие вывод, который полные данные не подтвердили бы."}
+    uk: {name: "Вибіркова статистика", definition: "Відбирає цифри, що підтверджують висновок, який повні дані не підтвердили б."}
