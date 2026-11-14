@@ -1,31 +1,30 @@
 {
-  "data": {
-    "xdt_api__v1__media__shortcode__web_info": {
-      "items": [
-        {
-          "code": "CpC333",
-          "pk": "3003",
-          "media_type": 1,
-          "taken_at": 1763110215,
-          "user": {
-            "pk": "1001",
-            "username": "alice",
-            "full_name": "Alice Example"
-          },
-          "caption": {
-            "text": "  Third post \n\n"
-          },
-          "image_versions2": {
-            "candidates": [
-              {
-                "url": "https://cdn.example/x.jpg"
-              }
-            ]
-          },
-          "like_count": 30,
-          "comment_count": 2
-        }
-      ]
+  "items": [
+    {
+      "code": "CpC333",
+      "pk": "3003",
+      "media_type": 1,
+      "taken_at": 1763110215,
+      "user": {
+        "pk": "1001",
+        "username": "alice",
+        "full_name": "Alice Example"
+      },
+      "caption": {
+        "text": "  Third post \n\n"
+      },
+      "image_versions2": {
+        "candidates": [
+          {
+            "url": "https://cdn.example/x.jpg"
+          }
+        ]
+      },
+      "like_count": 30,
+      "comment_count": 2
     }
-  }
+  ],
+  "num_results": 1,
+  "more_available": false,
+  "status": "ok"
 }
