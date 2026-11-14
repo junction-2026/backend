@@ -20,6 +20,7 @@ analyzers:
       timeout: 30s
       social_max_words: 80     # up to 80 words: nci-social (128-token model)
       technique_min_words: 40  # from 40 words: nci-technique; 40-80 words run both
+      strong_margin: 0.15      # a detection without a located phrase is strong when its best score - cutoff reaches this
       technique:
         endpoint: ${NCI_TECHNIQUE_URL}
         headers:
@@ -62,4 +63,9 @@ analyzers:
         not be averaged. `known: false` marks a label outside the 18 SemEval-2020 techniques. `detected` lists
         the known techniques above cutoff in at least one model (`models` says which), each with `spans`: exact
         phrases of the user's original text (UTF-16 offsets) that carry it, empty when none was found or
-        `span_status` is not `ok`. A detection is an indicator of a technique, not proof of propaganda.
+        `span_status` is not `ok`. Each detection also has `margin` (its highest score minus cutoff across the
+        models that flagged it; not a probability), `located` (true when it has at least one span) and
+        `strength`: `strong` when located or the margin is clear, `weak` otherwise; `summary` counts both.
+        A weak detection is a hint at most (borderline score, no phrase located): on its own it must not move a
+        verdict away from not_detected and may only lower its confidence. A detection is an indicator of a
+        technique, not proof of propaganda.

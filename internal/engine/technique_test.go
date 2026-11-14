@@ -72,6 +72,8 @@ func TestTechniqueAfterTranslation(t *testing.T) {
 	require.Len(t, res.Detected, 1)
 	require.Equal(t, "Doubt", res.Detected[0].Name)
 	require.Equal(t, []string{"nci-social"}, res.Detected[0].Models)
+	require.Contains(t, string(tr.Result), `"margin":0.6,"located":false,"strength":"strong"`)
+	require.Contains(t, string(tr.Result), `"summary":{"strong":1,"weak":0}`)
 	require.Equal(t, int32(1), calls.Load())
 
 	// translation fails: techniques is skipped and no classifier request is sent
