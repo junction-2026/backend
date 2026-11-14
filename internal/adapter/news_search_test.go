@@ -67,6 +67,17 @@ func newSerper(t *testing.T, reply func(rec serperReqRec, n int) (int, string)) 
 	return s
 }
 
+func (s *serperStub) queries(path string) (qs []any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.reqs {
+		if r.path == path {
+			qs = append(qs, r.body["q"])
+		}
+	}
+	return qs
+}
+
 func (s *serperStub) count(path string) (n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -284,7 +295,8 @@ func TestNewsFallbackOnlyForShortQuery(t *testing.T) {
 	o := runNews(t, &Executor{}, d, newsReq([]string{"a", "b"}, nil, "de"))
 	require.Equal(t, 3, o.SearchesUsed)
 	require.Equal(t, 1, s.count("/search"))
-	require.Equal(t, "b", s.reqs[len(s.reqs)-1].body["q"])
+	// queries run concurrently: check the fallback request itself, not the last request recorded
+	require.Equal(t, []any{"b"}, s.queries("/search"))
 	require.Equal(t, "news", o.Queries[0].Endpoint)
 	require.Equal(t, "search", o.Queries[1].Endpoint)
 	require.Equal(t, 1+3, o.Queries[1].Results)

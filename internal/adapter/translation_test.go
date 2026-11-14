@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,8 +229,8 @@ func TestTranslationEmptyAPIKey(t *testing.T) {
 }
 
 func TestTranslationRedirectAndConnectionError(t *testing.T) {
-	var hits int
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
 	defer target.Close()
 	for _, code := range []int{301, 302, 307, 308} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +242,7 @@ func TestTranslationRedirectAndConnectionError(t *testing.T) {
 		noLeak(t, err.Error(), srv.URL, "")
 		require.NotContains(t, err.Error(), target.URL)
 	}
-	require.Zero(t, hits, "the Authorization header never reaches the redirect target")
+	require.Zero(t, hits.Load(), "the Authorization header never reaches the redirect target")
 
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
