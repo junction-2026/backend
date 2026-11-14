@@ -289,6 +289,7 @@ func TestClientMessagesAreIgnored(t *testing.T) {
 	mustRead(t, c)
 	require.NoError(t, c.Write(context.Background(), websocket.MessageText, []byte(`{"cmd":"cancel"}`)))
 	require.NoError(t, c.Write(context.Background(), websocket.MessageBinary, []byte{1, 2, 3}))
+	require.NoError(t, c.Write(context.Background(), websocket.MessageText, []byte(strings.Repeat("x", 200<<10)))) // > the 32 KiB library default
 	s.release("y")
 	for _, want := range []string{"analyzer.succeeded", "analysis.ready_for_finalization", "job.completed"} {
 		require.Equal(t, want, mustRead(t, c)["type"])

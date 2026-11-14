@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -116,10 +117,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) serve(conn *websocket.Conn, sub *events.Subscription) websocket.StatusCode {
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	go func() { // discard client messages; Read also answers pings and the close handshake
+	conn.SetReadLimit(-1) // client messages of any size are ignored, streamed to io.Discard (never buffered)
+	go func() {           // Reader also answers pings and the close handshake
 		defer stop()
 		for {
-			if _, _, err := conn.Read(ctx); err != nil {
+			_, r, err := conn.Reader(ctx)
+			if err != nil {
+				return
+			}
+			if _, err := io.Copy(io.Discard, r); err != nil {
 				return
 			}
 		}
