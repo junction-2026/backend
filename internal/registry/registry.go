@@ -29,6 +29,7 @@ const (
 	AdapterHTTPSync  = "http_sync"
 	AdapterHTTPAsync = "http_async"
 	AdapterCustom    = "custom"
+	AdapterLLM       = "llm"
 
 	AdapterPropagandaDetection = "propaganda_detection"
 	AdapterMistralTranslation  = "mistral_translation"
@@ -62,10 +63,18 @@ type Execution struct {
 	PollInterval time.Duration     `yaml:"poll_interval"`
 	Handler      string            `yaml:"handler"`
 
-	// mistral_translation only
-	APIKey        string `yaml:"api_key"`
-	Model         string `yaml:"model"`
-	MaxInputChars *int   `yaml:"max_input_chars"`
+	// APIKey and Model are shared by llm and mistral_translation; BaseURL..ExtraBody are llm only
+	BaseURL        string         `yaml:"base_url"`
+	APIKey         string         `yaml:"api_key"`
+	Model          string         `yaml:"model"`
+	PromptFile     string         `yaml:"prompt_file"`
+	Temperature    float64        `yaml:"temperature"`
+	MaxTokens      int            `yaml:"max_tokens"`
+	ResponseFormat string         `yaml:"response_format"`
+	ExtraBody      map[string]any `yaml:"extra_body"`
+	Prompt         string         `yaml:"-"` // prompt_file content, read once at load
+
+	MaxInputChars *int `yaml:"max_input_chars"` // mistral_translation only
 }
 
 // MaxChars is max_input_chars with its default.
@@ -74,6 +83,21 @@ func (e Execution) MaxChars() int {
 		return DefaultMaxInputChars
 	}
 	return *e.MaxInputChars
+}
+
+// LLM response_format modes.
+const (
+	FormatJSONSchema = "json_schema"
+	FormatJSONObject = "json_object"
+	FormatNone       = "none"
+)
+
+const DefaultPromptFile = "/etc/orchestrator/finalizer/prompt.md"
+
+// LLMInput opts an analyzer's run into the llm finalizer's input.
+type LLMInput struct {
+	Include     bool   `yaml:"include"`
+	Description string `yaml:"description"`
 }
 
 type Output struct {
@@ -93,6 +117,7 @@ type Analyzer struct {
 	Input     Input     `yaml:"input"`
 	Execution Execution `yaml:"execution"`
 	Output    Output    `yaml:"output"`
+	LLM       *LLMInput `yaml:"llm"`
 
 	file   string
 	schema *jsonschema.Schema
@@ -317,7 +342,7 @@ func (a *Analyzer) normalize(opt Options) error {
 	}
 	if e.Timeout == 0 {
 		e.Timeout = 30 * time.Second
-		if a.Trigger == TriggerAfterAll { // synthesis is slower than a single analysis
+		if a.Trigger == TriggerAfterAll && e.Adapter != AdapterLLM { // synthesis is slower than a single analysis
 			e.Timeout = 60 * time.Second
 		}
 	}
@@ -336,6 +361,27 @@ func (a *Analyzer) normalize(opt Options) error {
 		if !opt.HandlerExists(e.Handler) {
 			return fmt.Errorf("unknown custom handler %q", e.Handler)
 		}
+	case AdapterLLM:
+		if a.Trigger != TriggerAfterAll {
+			return fmt.Errorf("execution.adapter llm is only allowed on %s analyzers", TriggerAfterAll)
+		}
+		for _, k := range []string{"model", "messages"} {
+			if _, ok := e.ExtraBody[k]; ok {
+				return fmt.Errorf("execution.extra_body.%s is not allowed (it would replace the request's %s)", k, k)
+			}
+		}
+		if e.PromptFile == "" {
+			e.PromptFile = DefaultPromptFile
+		}
+		if e.MaxTokens == 0 {
+			e.MaxTokens = 600
+		}
+		if e.ResponseFormat == "" {
+			e.ResponseFormat = FormatJSONSchema
+		}
+		if e.ExtraBody == nil {
+			e.ExtraBody = map[string]any{}
+		}
 	default:
 		return fmt.Errorf("unknown execution.adapter %q", e.Adapter)
 	}
@@ -344,11 +390,13 @@ func (a *Analyzer) normalize(opt Options) error {
 		if e.Endpoint, err = expand(e.Endpoint, opt.Getenv); err != nil {
 			return fmt.Errorf("execution.endpoint: %w", err)
 		}
-		if e.APIKey, err = expand(e.APIKey, opt.Getenv); err != nil {
-			return fmt.Errorf("execution.api_key: %w", err)
-		}
-		if e.Model, err = expand(e.Model, opt.Getenv); err != nil {
-			return fmt.Errorf("execution.model: %w", err)
+		if e.Adapter == AdapterMistralTranslation { // llm expands these once in loadLLM
+			if e.APIKey, err = expand(e.APIKey, opt.Getenv); err != nil {
+				return fmt.Errorf("execution.api_key: %w", err)
+			}
+			if e.Model, err = expand(e.Model, opt.Getenv); err != nil {
+				return fmt.Errorf("execution.model: %w", err)
+			}
 		}
 		hdr := make(map[string]string, len(e.Headers))
 		for k, v := range e.Headers {
@@ -357,6 +405,19 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 		}
 		e.Headers = hdr
+		if e.Adapter == AdapterLLM {
+			if err := e.loadLLM(opt.Getenv); err != nil {
+				return err
+			}
+		}
+	}
+	if a.LLM != nil {
+		switch {
+		case a.Trigger == TriggerAfterAll:
+			return fmt.Errorf("llm block is not allowed on %s analyzers", TriggerAfterAll)
+		case a.LLM.Include && strings.TrimSpace(a.LLM.Description) == "":
+			return fmt.Errorf("llm.description is required when llm.include is true")
+		}
 	}
 	for name, src := range a.Input.Bindings {
 		if err := a.checkBinding(src); err != nil {
@@ -371,6 +432,69 @@ func (a *Analyzer) normalize(opt Options) error {
 		a.schema = s
 	}
 	return nil
+}
+
+// loadLLM expands the llm settings of an enabled analyzer, checks the required
+// ones and reads the prompt file. Errors name the field, never a value.
+func (e *Execution) loadLLM(getenv func(string) (string, bool)) error {
+	for _, f := range []struct {
+		name     string
+		v        *string
+		required bool
+	}{
+		{"base_url", &e.BaseURL, true}, {"api_key", &e.APIKey, true}, {"model", &e.Model, true},
+		{"prompt_file", &e.PromptFile, true}, {"response_format", &e.ResponseFormat, false},
+	} {
+		var err error
+		if *f.v, err = expand(*f.v, getenv); err != nil {
+			return fmt.Errorf("execution.%s: %w", f.name, err)
+		}
+		if f.required && strings.TrimSpace(*f.v) == "" {
+			return fmt.Errorf("execution.%s is empty; it is required for an enabled llm finalizer", f.name)
+		}
+	}
+	switch e.ResponseFormat {
+	case FormatJSONSchema, FormatJSONObject, FormatNone:
+	default:
+		return fmt.Errorf("execution.response_format must be %s, %s or %s", FormatJSONSchema, FormatJSONObject, FormatNone)
+	}
+	body, err := expandAny(e.ExtraBody, getenv)
+	if err != nil {
+		return fmt.Errorf("execution.extra_body: %w", err)
+	}
+	e.ExtraBody = body.(map[string]any)
+	b, err := os.ReadFile(e.PromptFile)
+	if err != nil {
+		return fmt.Errorf("execution.prompt_file cannot be read: %w", err)
+	}
+	e.Prompt = string(b)
+	return nil
+}
+
+// expandAny expands ${VAR} in every string inside v (YAML-decoded values).
+func expandAny(v any, getenv func(string) (string, bool)) (any, error) {
+	var err error
+	switch t := v.(type) {
+	case string:
+		return expand(t, getenv)
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			if out[k], err = expandAny(x, getenv); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			if out[i], err = expandAny(x, getenv); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
+	}
+	return v, nil
 }
 
 // expand replaces ${VAR}; the error names the variable, never any value.

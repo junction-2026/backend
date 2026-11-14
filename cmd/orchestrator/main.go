@@ -16,6 +16,7 @@ import (
 
 	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/engine"
+	"github.com/junction-2026/backend/internal/finalizer"
 	"github.com/junction-2026/backend/internal/httpapi"
 	"github.com/junction-2026/backend/internal/registry"
 	"github.com/junction-2026/backend/internal/ws"
@@ -50,9 +51,10 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 
 	ecfg := cfg.Engine
 	ecfg.Executor = &adapter.Executor{Handlers: handlers}
-	// ---- FINALIZER REGISTRATION: the only place that sets ecfg.Finalizer (backend-finalizer). ----
-	// With none set, jobs finish with finalization skipped / not_configured.
-	// ------------------------------------------------------------------------------------------
+	// The only place that sets ecfg.Finalizer: nil (no enabled finalizer) means
+	// jobs finish with finalization skipped / not_configured. The registry has
+	// already checked an enabled llm finalizer's settings and read its prompt.
+	ecfg.Finalizer = finalizer.New(reg, ecfg.Executor, log)
 	eng := engine.New(reg, ecfg)
 	defer eng.Close()
 
