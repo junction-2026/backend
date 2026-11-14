@@ -45,12 +45,17 @@ var FinalizationSchema = map[string]any{
 var closeContentRe = regexp.MustCompile(`(?i)</(content)>`)
 
 // LLMUserMessage assembles the user message: the untrusted content inside
-// <content> (its closing tag escaped so it cannot end the block), then one
+// <content> (its closing tag escaped so it cannot end the block), then
+// <source_language> when language (a validated two-letter code) is known, then one
 // compact JSON entry per analyzer, then the schema unless json_schema mode
 // carries it in response_format.
-func LLMUserMessage(def *registry.Analyzer, content string, entries []json.RawMessage) string {
+func LLMUserMessage(def *registry.Analyzer, content, language string, entries []json.RawMessage) string {
 	var b strings.Builder
-	b.WriteString("<content>\n" + closeContentRe.ReplaceAllString(content, `<\/$1>`) + "\n</content>\n<analyzers>\n")
+	b.WriteString("<content>\n" + closeContentRe.ReplaceAllString(content, `<\/$1>`) + "\n</content>\n")
+	if language != "" {
+		b.WriteString("<source_language>" + language + "</source_language>\n")
+	}
+	b.WriteString("<analyzers>\n")
 	for _, e := range entries {
 		b.Write(e)
 		b.WriteByte('\n')

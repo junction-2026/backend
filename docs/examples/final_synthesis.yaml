@@ -19,3 +19,11 @@ analyzers:
       response_format: json_schema               # json_schema | json_object | none
       headers: {}                                # optional extra headers (e.g. OpenRouter's HTTP-Referer)
       extra_body: {}                             # optional provider-specific fields, merged into the request body
+# The llm adapter ignores bindings and adds <source_language> itself, so a custom prompt_file must mention
+# <source_language> (an ISO 639-1 code, absent when unknown) for the model to use it.
+# An http_sync/http_async finalizer may bind the job's source language instead (null when unknown):
+#   - id: final_synthesis
+#     trigger: after_all_analyzers_settled
+#     input:
+#       bindings: {content: $input, results: $job.analyzers, coverage: $job.coverage, language: $job.source_language}
+#     execution: {adapter: http_sync, endpoint: ...}
