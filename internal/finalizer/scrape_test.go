@@ -1,9 +1,7 @@
 package finalizer
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,21 +10,23 @@ import (
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/scraper"
+	ss "github.com/junction-2026/backend/internal/socialscraper"
 )
+
+type scrapeModule func() (*ss.Result, error)
+
+func (f scrapeModule) Scrape(context.Context, ss.Target, ss.Request) (*ss.Result, error) { return f() }
 
 // After a successful scrape the finalizer rules are those of text jobs; after a
 // failed scrape the finalizer is never called.
 func TestFinalizerRulesForScrapeJobs(t *testing.T) {
-	scraperCfg := func(status int, body string) engine.Config {
-		sc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(status)
-			_, _ = io.WriteString(w, body)
-		}))
-		t.Cleanup(sc.Close)
-		return engine.Config{Scraper: &scraper.Client{URL: sc.URL, Token: "t"}}
+	scraperCfg := func(res *ss.Result, err error) engine.Config {
+		reg := ss.NewRegistry()
+		reg.Register(ss.Twitter, scrapeModule(func() (*ss.Result, error) { return res, err }))
+		return engine.Config{Scraper: &scraper.Client{Core: ss.New(reg, nil)}}
 	}
 	s := newStub(t, reply(okBody))
-	cfg := scraperCfg(200, `{"platform":"x","url_kind":"post","username":"a","post":{"id":"1","text":"hi"},"posts":[]}`)
+	cfg := scraperCfg(&ss.Result{Platform: "twitter", URLKind: "post", Username: "a", Post: &ss.Post{ID: "1", Text: "hi"}}, nil)
 	scrape := engine.CreateRequest{Scrape: &job.ScrapeRequest{URL: "https://x.com/a/status/1", MaxPosts: 20, MaxComments: 50}}
 
 	// every analyzer fails: insufficient-evidence short-circuit, no finalizer call
@@ -49,7 +49,7 @@ func TestFinalizerRulesForScrapeJobs(t *testing.T) {
 
 	// failed scrape: job failed, finalization skipped, finalizer not called
 	e = newEngine(t, an("ok1", "ok")+finYAML(""), s, map[string]adapter.Handler{"ok": okHandler},
-		scraperCfg(403, `{"error":{"code":"account_private","message":"private"}}`))
+		scraperCfg(nil, ss.AccountPrivate("twitter", "private")))
 	created, sub = create(t, e, scrape)
 	evs := drain(t, sub)
 	j = waitDone(t, e, created.ID)

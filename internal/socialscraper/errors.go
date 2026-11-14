@@ -9,6 +9,7 @@ import (
 )
 
 // Error is a typed, user-visible failure. Message must never carry credentials or stack traces.
+// Status and Header are the HTTP status and headers of the former standalone service; nothing serves them now.
 type Error struct {
 	Code    string
 	Message string
@@ -19,15 +20,6 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
-// Envelope is the error response body {"error": {"code", "message", "details"?}}.
-func (e *Error) Envelope() map[string]any {
-	err := map[string]any{"code": e.Code, "message": e.Message}
-	if len(e.Details) > 0 {
-		err["details"] = e.Details
-	}
-	return map[string]any{"error": err}
-}
-
 func newError(code string, status int, msg, platform string) *Error {
 	e := &Error{Code: code, Message: msg, Status: status, Details: map[string]any{}}
 	if platform != "" {
@@ -36,31 +28,8 @@ func newError(code string, status int, msg, platform string) *Error {
 	return e
 }
 
-func Unauthorized() *Error {
-	e := newError("unauthorized", http.StatusUnauthorized, "missing or invalid bearer token", "")
-	e.Header = http.Header{"Www-Authenticate": {"Bearer"}}
-	return e
-}
-
-func InvalidRequest(msg string) *Error {
-	return newError("invalid_request", http.StatusBadRequest, msg, "")
-}
-
-// ValidationFailed maps each offending request member to a message.
-func ValidationFailed(fields map[string]string) *Error {
-	e := newError("validation_failed", http.StatusUnprocessableEntity, "the request body is invalid", "")
-	e.Details["fields"] = fields
-	return e
-}
-
 func UnsupportedURL(platform, msg string) *Error {
 	return newError("unsupported_url", http.StatusUnprocessableEntity, msg, platform)
-}
-
-func UnsupportedAccountType(platform, accountType, msg string) *Error {
-	e := newError("unsupported_account_type", http.StatusUnprocessableEntity, msg, platform)
-	e.Details["account_type"] = accountType
-	return e
 }
 
 func AccountNotFound(platform, msg string) *Error {
