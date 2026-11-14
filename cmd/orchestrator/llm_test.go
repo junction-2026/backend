@@ -87,7 +87,8 @@ func TestLLMFinalizerExamplesEndToEnd(t *testing.T) {
 	fin := j["finalization"].(map[string]any)
 	require.Equal(t, "completed", fin["status"])
 	require.Equal(t, map[string]any{"verdict": "detected", "confidence": 0.9, "user_text": "This post shows signs of propaganda.",
-		"produced_by": "finalizer", "usage": map[string]any{"prompt_tokens": 5.0, "completion_tokens": 7.0, "total_tokens": 12.0}}, fin["result"])
+		"produced_by": "finalizer", "usage": map[string]any{"prompt_tokens": 5.0, "completion_tokens": 7.0, "total_tokens": 12.0},
+		"attempts": 1.0, "retry_reason": nil}, fin["result"])
 
 	mu.Lock()
 	defer mu.Unlock()

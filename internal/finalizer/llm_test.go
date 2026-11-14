@@ -115,7 +115,7 @@ func TestLLMSuccessAndRequest(t *testing.T) {
 
 	require.Equal(t, job.StatusCompleted, j.Status)
 	require.Equal(t, job.StatusCompleted, j.Finalization.Status)
-	require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`}`, string(j.Finalization.Result))
+	require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null}`, string(j.Finalization.Result))
 
 	require.EqualValues(t, 1, s.calls.Load())
 	require.Equal(t, "/v1/chat/completions", path, "trailing slash of base_url trimmed")
@@ -205,11 +205,12 @@ func TestLLMFailuresAndDecoding(t *testing.T) {
 		calls   int32
 		message string
 	}{
-		{"schema violation", reply(chat(`{"verdict":"detected","confidence":86,"user_text":"x"}`)), "", job.CodeInvalidOutput, 1, "confidence"},
-		{"plain prose", reply(chat("I think it is propaganda.")), "", job.CodeInvalidOutput, 1, "not a JSON object"},
+		{"schema violation", reply(chat(`{"verdict":"detected","confidence":86,"user_text":"x"}`)), "", job.CodeInvalidOutput, 2, `first: finalizer output member "confidence"`},
+		{"plain prose", reply(chat("I think it is propaganda.")), "", job.CodeInvalidOutput, 2, "first: llm reply content is not a JSON object; retry: llm reply content is not a JSON object"},
 		{"refusal", reply(`{"choices":[{"finish_reason":"stop","message":{"content":null,"refusal":"I can't help"}}]}`), "", job.CodeInvalidOutput, 1, "refused"},
-		{"finish length", reply(`{"choices":[{"finish_reason":"length","message":{"content":"{\"verdict\":"}}]}`), "", job.CodeInvalidOutput, 1, "finish_reason"},
-		{"empty content", reply(chat("  ")), "", job.CodeInvalidOutput, 1, "empty"},
+		{"finish length", reply(`{"choices":[{"finish_reason":"length","message":{"content":"{\"verdict\":"}}]}`), "", job.CodeInvalidOutput, 2, "first: llm reply finish_reason is \"length\""},
+		{"content_filter", reply(`{"choices":[{"finish_reason":"content_filter","message":{"content":""}}]}`), "", job.CodeInvalidOutput, 1, "content_filter"},
+		{"empty content", reply(chat("  ")), "", job.CodeInvalidOutput, 2, "first: llm reply content is empty; retry:"},
 		{"no choices", reply(`{"choices":[]}`), "", job.CodeInvalidOutput, 1, "no choices"},
 		{"http 400", status(400, `{"error":{"message":"bad model"}}`), "", job.CodeAdapterError, 1, "llm provider HTTP 400: bad model"},
 		{"http 500 twice", status(500, `{"error":{"message":"overloaded"}}`), "", job.CodeAdapterError, 2, "llm provider HTTP 500: overloaded"},
@@ -232,7 +233,7 @@ func TestLLMFailuresAndDecoding(t *testing.T) {
 			}
 			if c.code == "" {
 				require.Equal(t, job.StatusCompleted, j.Finalization.Status)
-				require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`}`, string(j.Finalization.Result))
+				require.JSONEq(t, `{"verdict":"detected","confidence":0.9,"user_text":"This post shows signs of propaganda.","produced_by":"finalizer","usage":`+stubUsage+`,"attempts":1,"retry_reason":null}`, string(j.Finalization.Result))
 				return
 			}
 			require.Equal(t, job.RunFailed, j.Finalization.Status)

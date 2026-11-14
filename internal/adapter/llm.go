@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+	"math/big"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -53,20 +55,106 @@ func LLMUserMessage(def *registry.Analyzer, content string, entries []json.RawMe
 	return b.String()
 }
 
+// LLMReply is a successful llm call: the decoded JSON object, the provider's
+// usage (both attempts combined after a reply retry; nil when none reported),
+// the number of requests whose replies were judged and the retry reason (nil
+// when no reply retry was sent).
+type LLMReply struct {
+	Out         json.RawMessage
+	Usage       json.RawMessage
+	Attempts    int
+	RetryReason *string
+}
+
+// Reply retry reasons.
+const (
+	RetryLength      = "length"
+	RetryInvalidJSON = "invalid_json"
+	RetrySchema      = "schema"
+)
+
+const retryLengthText = "Your previous reply was cut off. Reply again with only the JSON object, and keep user_text within the word limit."
+
 // LLM calls the OpenAI-compatible {base_url}/chat/completions endpoint of the
-// llm def (finalizer, topic_extraction or technique spans) and returns the JSON object decoded from the model's reply
-// plus the provider's usage object (nil when absent). Errors are *job.RunError
-// and never contain the API key or the URL.
-func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage json.RawMessage, err error) {
+// llm def (finalizer, topic_extraction or technique spans). check (nil: none)
+// applies the caller's schema and built-in checks to the decoded object. A
+// reply that is cut off, not a JSON object or fails check is retried once
+// (see the registry's retry_* settings). Errors are *job.RunError and never
+// contain the API key, the URL or reply content.
+func LLM(ctx context.Context, def *registry.Analyzer, user string, check func(json.RawMessage) error) (LLMReply, error) {
 	e := &def.Execution
+	msgs := []map[string]string{
+		{"role": "system", "content": e.Prompt},
+		{"role": "user", "content": user},
+	}
+	body, err := llmCall(ctx, e, e.Model, e.MaxTokens, msgs)
+	if err != nil {
+		return LLMReply{}, err
+	}
+	out, usage, reason, err := judgeReply(body, check)
+	if err == nil {
+		return LLMReply{Out: out, Usage: usage, Attempts: 1}, nil
+	}
+	if reason == "" || !e.RetryEnabled() || !timeLeft(ctx, e.RetryMinRemainingD()) {
+		return LLMReply{}, err
+	}
+	first := err.(*job.RunError).Message
+	model, maxTokens := e.Model, e.MaxTokens
+	if e.RetryModel != "" {
+		model = e.RetryModel
+	}
+	text := "Your previous reply was not a valid JSON object matching the required schema (" + retryHint(first) + "). Reply again with only that JSON object."
+	if reason == RetryLength {
+		text, maxTokens = retryLengthText, e.RetryMaxTokensN()
+	}
+	slog.Info("llm reply retry", "analyzer_id", def.ID, "reason", reason, "model", model)
+	body, err = llmCall(ctx, e, model, maxTokens, append(msgs, map[string]string{"role": "user", "content": text}))
+	if err != nil {
+		return LLMReply{}, err
+	}
+	out, usage2, _, err := judgeReply(body, check)
+	if err != nil {
+		return LLMReply{}, &job.RunError{Code: job.CodeInvalidOutput, Message: "first: " + first + "; retry: " + err.(*job.RunError).Message}
+	}
+	return LLMReply{Out: out, Usage: mergeUsage(usage, usage2), Attempts: 2, RetryReason: &reason}, nil
+}
+
+// timeLeft reports whether at least need remains before ctx's deadline.
+func timeLeft(ctx context.Context, need time.Duration) bool {
+	dl, ok := ctx.Deadline()
+	return !ok || time.Until(dl) >= need
+}
+
+// retryHint is the reason quoted in the retry message: at most 120 chars and
+// cut before the first ": ", after which a schema error may quote reply values.
+func retryHint(msg string) string {
+	msg, _, _ = strings.Cut(msg, ": ")
+	if r := []rune(msg); len(r) > 120 {
+		msg = string(r[:120])
+	}
+	return msg
+}
+
+// judgeReply decodes body and applies check; reason is the retry reason of an
+// invalid reply ("" when it must not be retried). usage is returned even then.
+func judgeReply(body []byte, check func(json.RawMessage) error) (out, usage json.RawMessage, reason string, err error) {
+	out, usage, reason, err = decodeReply(body)
+	if err == nil && check != nil {
+		if cerr := check(out); cerr != nil {
+			return nil, usage, RetrySchema, &job.RunError{Code: job.CodeInvalidOutput, Message: cerr.Error()}
+		}
+	}
+	return out, usage, reason, err
+}
+
+// llmCall sends one chat completion request (retried once on a connection
+// error, 429 or 5xx) and returns the body of the 2xx answer.
+func llmCall(ctx context.Context, e *registry.Execution, model string, maxTokens int, msgs []map[string]string) ([]byte, error) {
 	req := map[string]any{
-		"model":       e.Model,
+		"model":       model,
 		"temperature": e.Temperature,
-		"max_tokens":  e.MaxTokens,
-		"messages": []map[string]string{
-			{"role": "system", "content": e.Prompt},
-			{"role": "user", "content": user},
-		},
+		"max_tokens":  maxTokens,
+		"messages":    msgs,
 	}
 	schema, name := any(FinalizationSchema), "finalization"
 	switch {
@@ -89,7 +177,7 @@ func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage j
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(req); err != nil {
-		return nil, nil, adapterErr("llm request is not serializable")
+		return nil, adapterErr("llm request is not serializable")
 	}
 	url := strings.TrimRight(e.BaseURL, "/") + "/chat/completions"
 
@@ -99,18 +187,18 @@ func LLM(ctx context.Context, def *registry.Analyzer, user string) (out, usage j
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return nil, nil, ContextError(ctx)
+			return nil, ContextError(ctx)
 		case <-t.C:
 		}
 		status, body, _, _, err = llmSend(ctx, e, url, buf.Bytes())
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if status < 200 || status > 299 {
-		return nil, nil, adapterErr("%s", providerError(status, body, secrets(e)))
+		return nil, adapterErr("%s", providerError(status, body, secrets(e)))
 	}
-	return decodeReply(body)
+	return body, nil
 }
 
 // llmSend performs one POST and reads the whole answer. retry is set for a
@@ -180,12 +268,14 @@ func providerError(status int, body []byte, secrets []string) string {
 	return msg
 }
 
-func invalidOutput(msg string) (json.RawMessage, json.RawMessage, error) {
-	return nil, nil, &job.RunError{Code: job.CodeInvalidOutput, Message: msg}
+func invalidOutput(usage json.RawMessage, reason, msg string) (json.RawMessage, json.RawMessage, string, error) {
+	return nil, usage, reason, &job.RunError{Code: job.CodeInvalidOutput, Message: msg}
 }
 
-// decodeReply extracts the JSON object from choices[0].message.content.
-func decodeReply(body []byte) (json.RawMessage, json.RawMessage, error) {
+// decodeReply extracts the JSON object from choices[0].message.content. An
+// invalid reply returns its retry reason ("" for a refusal, content_filter or
+// another finish_reason, which are not retried) and the usage reported.
+func decodeReply(body []byte) (out, usage json.RawMessage, reason string, err error) {
 	var r struct {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -197,26 +287,93 @@ func decodeReply(body []byte) (json.RawMessage, json.RawMessage, error) {
 		Usage json.RawMessage `json:"usage"`
 	}
 	if json.Unmarshal(body, &r) != nil || len(r.Choices) == 0 {
-		return invalidOutput("llm reply has no choices")
+		return invalidOutput(nil, "", "llm reply has no choices")
 	}
-	c := r.Choices[0]
-	switch {
-	case c.FinishReason != "stop":
-		return invalidOutput("llm reply finish_reason is " + strconv.Quote(truncate(c.FinishReason, 40)) + ", not \"stop\"")
-	case c.Message.Refusal != nil && strings.TrimSpace(*c.Message.Refusal) != "":
-		return invalidOutput("llm refused to answer")
-	case c.Message.Content == nil || strings.TrimSpace(*c.Message.Content) == "":
-		return invalidOutput("llm reply content is empty")
-	}
-	out := []byte(unfence(*c.Message.Content))
-	if !json.Valid(out) || out[0] != '{' {
-		return invalidOutput("llm reply content is not a JSON object")
-	}
-	var usage json.RawMessage
 	if bytes.HasPrefix(r.Usage, []byte("{")) {
 		usage = r.Usage
 	}
-	return out, usage, nil
+	c := r.Choices[0]
+	switch {
+	case c.Message.Refusal != nil && strings.TrimSpace(*c.Message.Refusal) != "":
+		return invalidOutput(usage, "", "llm refused to answer")
+	case c.FinishReason == "length":
+		return invalidOutput(usage, RetryLength, `llm reply finish_reason is "length", not "stop"`)
+	case c.FinishReason != "stop":
+		return invalidOutput(usage, "", "llm reply finish_reason is "+strconv.Quote(truncate(c.FinishReason, 40))+", not \"stop\"")
+	case c.Message.Content == nil || strings.TrimSpace(*c.Message.Content) == "":
+		return invalidOutput(usage, RetryInvalidJSON, "llm reply content is empty")
+	}
+	out = []byte(unfence(*c.Message.Content))
+	if !json.Valid(out) || out[0] != '{' {
+		return invalidOutput(usage, RetryInvalidJSON, "llm reply content is not a JSON object")
+	}
+	return out, usage, "", nil
+}
+
+// mergeUsage combines two provider usage objects: numbers are summed, objects
+// merged recursively, a member of one report is kept, any other member takes
+// b's value. nil only when both are nil.
+func mergeUsage(a, b json.RawMessage) json.RawMessage {
+	if a == nil || b == nil {
+		if a == nil {
+			return b
+		}
+		return a
+	}
+	var x, y any
+	if decodeNumbers(a, &x) != nil || decodeNumbers(b, &y) != nil {
+		return b
+	}
+	out, err := json.Marshal(mergeValue(x, y))
+	if err != nil {
+		return b
+	}
+	return out
+}
+
+func decodeNumbers(raw json.RawMessage, v *any) error {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	return d.Decode(v)
+}
+
+func mergeValue(a, b any) any {
+	switch x := a.(type) {
+	case json.Number:
+		if y, ok := b.(json.Number); ok {
+			return addNumbers(x, y)
+		}
+	case map[string]any:
+		if y, ok := b.(map[string]any); ok {
+			for k, v := range y {
+				if old, ok := x[k]; ok {
+					x[k] = mergeValue(old, v)
+				} else {
+					x[k] = v
+				}
+			}
+			return x
+		}
+	}
+	if b == nil {
+		return a
+	}
+	return b
+}
+
+// addNumbers sums exactly (0.0012 + 0.0010 is 0.0022, not 0.0021999…).
+func addNumbers(a, b json.Number) json.Number {
+	x, ok1 := new(big.Rat).SetString(string(a))
+	y, ok2 := new(big.Rat).SetString(string(b))
+	if !ok1 || !ok2 {
+		return b
+	}
+	x.Add(x, y)
+	if x.IsInt() {
+		return json.Number(x.Num().String())
+	}
+	f, _ := x.Float64()
+	return json.Number(strconv.FormatFloat(f, 'g', -1, 64))
 }
 
 // unfence removes one surrounding ``` or ```json code fence.

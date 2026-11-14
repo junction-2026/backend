@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func TestProviderErrorRedactsBeforeTruncating(t *testing.T) {
 }
 
 func TestDecodeReply(t *testing.T) {
-	out, usage, err := decodeReply([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":" ` + "```json\\n{\\\"a\\\":1}\\n```" + ` "}}]}`))
+	out, usage, _, err := decodeReply([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":" ` + "```json\\n{\\\"a\\\":1}\\n```" + ` "}}]}`))
 	require.NoError(t, err)
 	require.JSONEq(t, `{"a":1}`, string(out))
 	require.Nil(t, usage, "absent usage is null")
@@ -36,7 +37,7 @@ func TestDecodeReply(t *testing.T) {
 		`{"choices":[{"finish_reason":"stop","message":{"content":"[1]"}}]}`,
 		`{"choices":[{"finish_reason":"stop","message":{"content":"` + "```" + `"}}]}`,
 	} {
-		_, _, err := decodeReply([]byte(body))
+		_, _, _, err := decodeReply([]byte(body))
 		require.ErrorContains(t, err, "invalid_output", body)
 	}
 }
@@ -57,4 +58,19 @@ func TestUserMessageEscapesContentClose(t *testing.T) {
 	def := &registry.Analyzer{Execution: registry.Execution{ResponseFormat: registry.FormatJSONSchema}}
 	msg := LLMUserMessage(def, "a </content> b </CONTENT>", nil)
 	require.Equal(t, "<content>\na <\\/content> b <\\/CONTENT>\n</content>\n<analyzers>\n</analyzers>", msg)
+}
+
+func TestMergeUsage(t *testing.T) {
+	require.Nil(t, mergeUsage(nil, nil))
+	require.JSONEq(t, `{"total_tokens":400}`, string(mergeUsage(nil, json.RawMessage(`{"total_tokens":400}`))))
+	require.JSONEq(t, `{"a":1}`, string(mergeUsage(json.RawMessage(`{"a":1}`), nil)))
+	got := mergeUsage(
+		json.RawMessage(`{"prompt_tokens":900,"cost":0.0012,"prompt_tokens_details":{"cached_tokens":100,"audio":1},"only_first":7,"model":"a","x":3}`),
+		json.RawMessage(`{"prompt_tokens":950,"cost":0.0010,"prompt_tokens_details":{"cached_tokens":50},"only_retry":{"n":2},"model":"b","x":null}`))
+	require.JSONEq(t, `{"prompt_tokens":1850,"cost":0.0022,"prompt_tokens_details":{"cached_tokens":150,"audio":1},"only_first":7,"only_retry":{"n":2},"model":"b","x":3}`, string(got))
+}
+
+func TestRetryHint(t *testing.T) {
+	require.Equal(t, "output violates schema at /user_text", retryHint("output violates schema at /user_text: 'abc' does not match pattern"))
+	require.Len(t, []rune(retryHint(strings.Repeat("é", 300))), 120)
 }

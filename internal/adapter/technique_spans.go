@@ -164,10 +164,11 @@ func phraseSpans(ctx context.Context, def *registry.Analyzer, content string, de
 		return nil, false, nil
 	}
 	llm := &registry.Analyzer{ID: def.ID, Execution: s.Exec}
-	raw, _, err := LLM(ctx, llm, spanUserMessage(&s.Exec, text, det))
+	reply, err := LLM(ctx, llm, spanUserMessage(&s.Exec, text, det), nil)
 	if err != nil {
 		return nil, false, err
 	}
+	raw := reply.Out
 	var in struct {
 		Phrases *[]*struct{ Technique, Text *string } `json:"phrases"`
 	}
