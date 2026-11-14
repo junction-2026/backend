@@ -8,11 +8,31 @@ The SQLite schema SHALL gain, as an appended migration that leaves released migr
 - **THEN** it is migrated in place, its jobs are unchanged and they have no map values until the backfill ran
 
 ### Requirement: Map analysis eligibility
-A job SHALL be a map analysis (`map_eligible` 1) when it is done and public, its `techniques` run succeeded with at least one known detected technique (weak included) and whose map country, from a succeeded `source_info` `page_outlet`, else the outlet-table match of `input.source.url`, is non-empty.
+A job SHALL be a map analysis (`map_eligible` 1) exactly when it is done and public, its `techniques` run succeeded with at least one known detected technique (weak included), and its map country is non-empty. The map country SHALL be that of the `page_outlet` of a succeeded `source_info` run when it is not null, otherwise that of the outlet-table match of `input.source.url`; a `country_code` of `""` SHALL count as none. It SHALL NOT be inferred from a TLD, language or text.
 
-#### Scenario: Migration of an existing database
-- **WHEN** a database at the previous schema version is opened
-- **THEN** it is migrated in place, its jobs are unchanged and they have no map values until the backfill ran
+#### Scenario: Non-public job
+- **WHEN** a done job with `public: false` has detected techniques and a `page_outlet` in `RU`
+- **THEN** its `map_eligible` is 0
+
+#### Scenario: Weak-only detection
+- **WHEN** `techniques.result.detected` holds only `Bandwagon` with `strength: "weak"` and the map country is `DE`
+- **THEN** the job is eligible with the technique set `["Bandwagon"]`
+
+#### Scenario: Failed techniques run
+- **WHEN** the `techniques` run failed and `llm_techniques` found techniques
+- **THEN** the job is not eligible
+
+#### Scenario: Outlet-table fallback
+- **WHEN** `source_info` was skipped and `input.source.url` is `https://www.spiegel.de/a-1` and the outlet table lists `spiegel.de` under `DE`
+- **THEN** the job is eligible with map country `DE`
+
+#### Scenario: Page outlet without country
+- **WHEN** `page_outlet.country_code` is `""`
+- **THEN** the job has no map country and is not eligible, without trying the outlet table
+
+#### Scenario: Unmatched URL
+- **WHEN** `input.source.url` is `https://unknown-blog.fr/post` and no outlet matches
+- **THEN** the job is not eligible
 
 ### Requirement: Map values fixed when done
 The map values SHALL be computed once, when a job is saved with `done` true, and written in the same write as the done record. They SHALL never be recomputed, also when the outlet table changes or the job is saved again.
