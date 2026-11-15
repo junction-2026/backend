@@ -461,6 +461,25 @@ for three weaknesses outside the SemEval labels: `evidence_certainty_mismatch`, 
   adapters. The example's `llm.description` tells the finalizer that these findings are LLM-assessed, weaker than the
   `techniques` model labels and not model detections.
 
+## Text bot detection analyzer
+
+`docs/examples/bot_detection.yaml` defines the disabled analyzer `bot_detection` (adapter `bot_detection`): whether one
+text looks human-written or bot / generated, according to the multilingual bot-detector model. Set `BOT_DETECTION_URL`
+(e.g. `http://bot-detector:8001/predict`), `enabled: true` and copy the file into the directory `ANALYZERS_CONFIG` points to.
+Optional `execution.headers` (e.g. `Authorization`) are sent with the request; they never appear in an error.
+
+- Request: one `POST` of `{"text": <job input.normalized_content>}` (`Content-Type: application/json`). The text is the
+  original, never the translation; the analyzer has no dependency on `translation` and runs when it failed. Only
+  `input.bindings: {content: $input}` is accepted. A job without text fails with `adapter_error`, without a request.
+- Response: `{"label","score"}`, `[{"label","score"},...]`, `[[{"label","score"},...]]` or `{"result": <any of these>}`;
+  `latency_ms` is ignored. With several elements the highest score is the top label. `LABEL_1` (bot / generated) with
+  p gives `label: bot_or_generated`, `score: p`; `LABEL_0` (human) with p gives `label: human`, `score: 1 - p`; when both
+  are listed `score` is the `LABEL_1` probability. Any other label, a missing or non-numeric score, a score outside 0..1
+  or an empty answer is `invalid_output`; a non-2xx answer or connection error is `adapter_error`.
+- Result: `{"label", "score", "scope": "text", "model_label", "model_score"}`. `score` is always P(bot_or_generated).
+  It describes one text, not an account, and is not propaganda evidence. The default Manipulation Risk Score is unchanged;
+  to use it as the single-text amplification score set `bot_detection: {single_text_score: score}` in the risk configuration.
+
 ## Jobs from a social-media URL
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of
@@ -481,10 +500,7 @@ curl -s -X POST http://localhost:8080/api/v1/jobs -H 'Content-Type: application/
 ```
 
 Follow the job with `GET /api/v1/jobs/{id}` or the event stream (`scrape.started`, then `scrape.succeeded` or
-`scrape.failed`). `docs/examples/bot_detection.yaml` is a disabled example analyzer for the bot detector
-service (port 8001): it binds `$input` and `$input.source`, so it receives the profile, history and comments.
-Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
-the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.
+`scrape.failed`). A scrape job's text goes through the same analyzers (see "Text bot detection analyzer").
 
 ## Scraping
 
@@ -845,6 +861,25 @@ for three weaknesses outside the SemEval labels: `evidence_certainty_mismatch`, 
   adapters. The example's `llm.description` tells the finalizer that these findings are LLM-assessed, weaker than the
   `techniques` model labels and not model detections.
 
+## Text bot detection analyzer
+
+`docs/examples/bot_detection.yaml` defines the disabled analyzer `bot_detection` (adapter `bot_detection`): whether one
+text looks human-written or bot / generated, according to the multilingual bot-detector model. Set `BOT_DETECTION_URL`
+(e.g. `http://bot-detector:8001/predict`), `enabled: true` and copy the file into the directory `ANALYZERS_CONFIG` points to.
+Optional `execution.headers` (e.g. `Authorization`) are sent with the request; they never appear in an error.
+
+- Request: one `POST` of `{"text": <job input.normalized_content>}` (`Content-Type: application/json`). The text is the
+  original, never the translation; the analyzer has no dependency on `translation` and runs when it failed. Only
+  `input.bindings: {content: $input}` is accepted. A job without text fails with `adapter_error`, without a request.
+- Response: `{"label","score"}`, `[{"label","score"},...]`, `[[{"label","score"},...]]` or `{"result": <any of these>}`;
+  `latency_ms` is ignored. With several elements the highest score is the top label. `LABEL_1` (bot / generated) with
+  p gives `label: bot_or_generated`, `score: p`; `LABEL_0` (human) with p gives `label: human`, `score: 1 - p`; when both
+  are listed `score` is the `LABEL_1` probability. Any other label, a missing or non-numeric score, a score outside 0..1
+  or an empty answer is `invalid_output`; a non-2xx answer or connection error is `adapter_error`.
+- Result: `{"label", "score", "scope": "text", "model_label", "model_score"}`. `score` is always P(bot_or_generated).
+  It describes one text, not an account, and is not propaganda evidence. The default Manipulation Risk Score is unchanged;
+  to use it as the single-text amplification score set `bot_detection: {single_text_score: score}` in the risk configuration.
+
 ## Jobs from a social-media URL
 
 `POST /api/v1/jobs` also accepts `{"scrape": {"url": ..., "max_posts": 20, "max_comments": 50}}` instead of
@@ -865,10 +900,7 @@ curl -s -X POST http://localhost:8080/api/v1/jobs -H 'Content-Type: application/
 ```
 
 Follow the job with `GET /api/v1/jobs/{id}` or the event stream (`scrape.started`, then `scrape.succeeded` or
-`scrape.failed`). `docs/examples/bot_detection.yaml` is a disabled example analyzer for the bot detector
-service (port 8001): it binds `$input` and `$input.source`, so it receives the profile, history and comments.
-Set `BOT_DETECTION_URL` (e.g. `http://bot-detector:8001/predict`), set `enabled: true` once the service accepts
-the standard analyzer request, and copy the file into the directory `ANALYZERS_CONFIG` points to.
+`scrape.failed`). A scrape job's text goes through the same analyzers (see "Text bot detection analyzer").
 
 ## Live progress events
 

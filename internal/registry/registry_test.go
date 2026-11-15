@@ -126,6 +126,15 @@ func TestLoadRejects(t *testing.T) {
 		{"propaganda binding $input.source", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $input.source}}\n", "accept only text"},
 		{"propaganda binding $job.id", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $job.id}}\n", "accept only text"},
 		{"propaganda two bindings", "analyzers:\n  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $input, more: $input}}\n", "accept only text"},
+		{"bot without endpoint", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection}\n", "endpoint is required"},
+		{"bot GET", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x, method: GET}\n", "method must be POST"},
+		{"bot handler", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x, handler: text_stats}\n", "handler"},
+		{"bot poll_interval", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x, poll_interval: 2s}\n", "poll_interval"},
+		{"bot text binding", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x}\n    input: {bindings: {text: $input}}\n", "accept only content: $input"},
+		{"bot source binding", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x}\n    input: {bindings: {content: $input.source}}\n", "accept only content: $input"},
+		{"bot dependency binding", "analyzers:\n  - id: b\n" + custom + "  - id: a\n    depends_on: [b]\n    execution: {adapter: bot_detection, endpoint: http://x}\n    input: {bindings: {content: $analyzers.b}}\n", "accept only content: $input"},
+		{"bot extra binding", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: http://x}\n    input: {bindings: {content: $input, source: $input.source}}\n", "accept only content: $input"},
+		{"bot unset env", "analyzers:\n  - id: a\n    execution: {adapter: bot_detection, endpoint: \"${BOT_DETECTION_URL}\"}\n", "environment variable BOT_DETECTION_URL is not set"},
 		{"propaganda binding not in depends_on", "analyzers:\n  - id: b\n" + custom + "  - id: a\n    execution: {adapter: propaganda_detection, endpoint: http://x}\n    input: {bindings: {text: $analyzers.b}}\n", "not in depends_on"},
 		{"mistral without api_key", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation}\n", "api_key is required"},
 		{"mistral unset api_key var", "analyzers:\n  - id: a\n    execution: {adapter: mistral_translation, api_key: \"${MISTRAL_API_KEY}\"}\n", "environment variable MISTRAL_API_KEY is not set"},
@@ -697,4 +706,36 @@ func TestUIBlock(t *testing.T) {
 		require.Error(t, err, name)
 		require.Contains(t, err.Error(), "r.yaml", name)
 	}
+}
+
+func TestBotDetectionDocsExample(t *testing.T) {
+	r, err := Load("../../docs/examples/bot_detection.yaml", opts(nil)) // disabled: BOT_DETECTION_URL may be unset
+	require.NoError(t, err)
+	a := r.Get("bot_detection")
+	require.NotNil(t, a)
+	require.False(t, a.Enabled)
+	require.Equal(t, "Bot detection", a.Name)
+	require.Equal(t, "bot_detection", a.Category)
+	require.Equal(t, AdapterBotDetection, a.Execution.Adapter)
+	require.Empty(t, a.DependsOn)
+	require.Empty(t, a.Input.Bindings)
+	require.Equal(t, 30*time.Second, a.Execution.Timeout)
+	require.True(t, a.LLM.Include)
+	for _, w := range []string{"single text only", "not a verdict about the author or account", "original text, not the translation", "P(bot_or_generated)", "not propaganda evidence"} {
+		require.Contains(t, a.LLM.Description, w)
+	}
+
+	on := write(t, "on.yaml", strings.Replace(mustRead(t, "../../docs/examples/bot_detection.yaml"), "enabled: false", "enabled: true", 1))
+	_, err = Load(on, opts(nil))
+	require.ErrorContains(t, err, "BOT_DETECTION_URL")
+	r, err = Load(on, opts(map[string]string{"BOT_DETECTION_URL": "http://bot/predict"}))
+	require.NoError(t, err)
+	require.Equal(t, "http://bot/predict", r.Get("bot_detection").Execution.Endpoint)
+	require.Equal(t, "POST", r.Get("bot_detection").Execution.Method)
+}
+
+func mustRead(t *testing.T, p string) string {
+	b, err := os.ReadFile(p)
+	require.NoError(t, err)
+	return string(b)
 }
