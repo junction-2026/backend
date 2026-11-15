@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +12,6 @@ import (
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
 )
-
-var langCodeRe = regexp.MustCompile(`^[a-z]{2}$`)
 
 // SearchQuery is one query in one language; its json form is the shared SearchQuery object.
 type searchQuery struct {
@@ -194,18 +191,7 @@ func readTopics(v any) (topics, news []string, err error) {
 }
 
 // readSourceLanguage is the lower-cased source_language of the bound translation result, "" when unknown.
-func readSourceLanguage(v any) string {
-	b, _ := json.Marshal(v)
-	var tr struct {
-		SourceLanguage any `json:"source_language"`
-	}
-	_ = json.Unmarshal(b, &tr)
-	s, _ := tr.SourceLanguage.(string)
-	if s = strings.ToLower(strings.TrimSpace(s)); langCodeRe.MatchString(s) {
-		return s
-	}
-	return ""
-}
+func readSourceLanguage(v any) string { return job.ReadSourceLanguage(v) }
 
 // resolveLanguages replaces `source` by the source language (dropped when unknown) and removes duplicates.
 func resolveLanguages(configured []string, source string) []string {
