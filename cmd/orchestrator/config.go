@@ -12,6 +12,7 @@ import (
 	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
+	"github.com/junction-2026/backend/internal/httpapi"
 	"github.com/junction-2026/backend/internal/localization"
 	"github.com/junction-2026/backend/internal/risk"
 	ss "github.com/junction-2026/backend/internal/socialscraper"
@@ -38,6 +39,10 @@ type config struct {
 	Chat chat.Config
 	// Country is the COUNTRY_ASSOCIATION_* configuration; an empty Country.Model leaves the step not configured.
 	Country adapter.CountryConfig
+	// PUBLIC_API_SUBMIT_PER_MINUTE (default 30), PUBLIC_API_GET_PER_MINUTE (default 600) and PUBLIC_BASE_URL (the
+	// web client's base URL for share_url; empty: share_url null) of the public analysis API.
+	PublicSubmitPerMinute, PublicGetPerMinute int
+	PublicBaseURL                             string
 }
 
 // obsoleteScraperVars belonged to the former standalone scraper service.
@@ -45,7 +50,7 @@ var obsoleteScraperVars = []string{"SCRAPER_URL", "SCRAPER_TOKEN", "SCRAPER_LIST
 
 // loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG, the engine settings
 // (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_TIMEOUT) and
-// RISK_SCORE_CONFIG (optional YAML file), SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT, the CHAT_* and the COUNTRY_ASSOCIATION_* variables. Errors name variables, never their values.
+// RISK_SCORE_CONFIG (optional YAML file), SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT, the CHAT_*, COUNTRY_ASSOCIATION_* and PUBLIC_* variables. Errors name variables, never their values.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{ListenAddr: getenv("LISTEN_ADDR"), AnalyzersConfig: getenv("ANALYZERS_CONFIG")}
 	if c.ListenAddr == "" {
@@ -79,7 +84,27 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if err := loadCountry(getenv, &c.Country); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
+	if err := loadPublic(getenv, &c); err != nil {
+		return c, fmt.Errorf("configuration error: %w", err)
+	}
 	return c, nil
+}
+
+// loadPublic reads PUBLIC_API_SUBMIT_PER_MINUTE, PUBLIC_API_GET_PER_MINUTE and PUBLIC_BASE_URL.
+func loadPublic(getenv func(string) string, c *config) error {
+	var err error
+	if c.PublicSubmitPerMinute, err = positiveInt(getenv, "PUBLIC_API_SUBMIT_PER_MINUTE", httpapi.DefaultPublicSubmitPerMinute); err != nil {
+		return err
+	}
+	if c.PublicGetPerMinute, err = positiveInt(getenv, "PUBLIC_API_GET_PER_MINUTE", httpapi.DefaultPublicGetPerMinute); err != nil {
+		return err
+	}
+	if c.PublicBaseURL = getenv("PUBLIC_BASE_URL"); c.PublicBaseURL != "" {
+		if u, err := url.Parse(c.PublicBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("PUBLIC_BASE_URL must be an absolute http or https URL")
+		}
+	}
+	return nil
 }
 
 // loadCountry reads COUNTRY_ASSOCIATION_MODEL, _BASE_URL (required with a model), _API_KEY, _TIMEOUT (default 30s)

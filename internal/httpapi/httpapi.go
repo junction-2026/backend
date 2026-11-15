@@ -40,6 +40,12 @@ type Config struct {
 	// Chat serves POST /api/v1/jobs/{id}/chat; nil: chat answers 503 chat_unavailable.
 	Chat   *chat.Service
 	Logger *slog.Logger // default slog.Default()
+	// PublicSubmitPerMinute and PublicGetPerMinute are the global public-analysis-api limits (0: defaults).
+	PublicSubmitPerMinute, PublicGetPerMinute int
+	// PublicBaseURL is the web client's base URL for share_url; empty: share_url null.
+	PublicBaseURL string
+	// Now is the clock of the public rate limits; nil: time.Now.
+	Now func() time.Time
 }
 
 const (
@@ -53,11 +59,19 @@ type api struct {
 	loc  *localization.Service
 	chat *chat.Service
 	log  *slog.Logger
+
+	submitLimit, getLimit *bucket
+	baseURL               string
 }
 
 // NewHandler returns the complete HTTP handler: /api/v1 routes and /healthz.
 func NewHandler(c Config) http.Handler {
-	a := &api{svc: c.Service, reg: c.Registry, loc: c.Localizer, chat: c.Chat, log: c.Logger}
+	a := &api{svc: c.Service, reg: c.Registry, loc: c.Localizer, chat: c.Chat, log: c.Logger, baseURL: c.PublicBaseURL}
+	if c.Now == nil {
+		c.Now = time.Now
+	}
+	a.submitLimit = newBucket(c.PublicSubmitPerMinute, DefaultPublicSubmitPerMinute, c.Now)
+	a.getLimit = newBucket(c.PublicGetPerMinute, DefaultPublicGetPerMinute, c.Now)
 	if a.log == nil {
 		a.log = slog.Default()
 	}
@@ -91,6 +105,8 @@ func NewHandler(c Config) http.Handler {
 	route(basePath+"/map/countries", map[string]http.HandlerFunc{"GET": a.mapCountries})
 	route(basePath+"/map/countries/{country_code}/analyses", map[string]http.HandlerFunc{"GET": a.mapAnalyses})
 	route(basePath+"/jobs/{id}/chat", map[string]http.HandlerFunc{"POST": a.postChat})
+	route(publicPath, map[string]http.HandlerFunc{"POST": a.submitPublic})
+	route(publicPath+"/{id}", map[string]http.HandlerFunc{"GET": a.getPublic})
 	route(basePath+"/analyzers", map[string]http.HandlerFunc{"GET": a.listAnalyzers})
 	if c.Events != nil {
 		route(basePath+"/jobs/{id}/events", map[string]http.HandlerFunc{"GET": c.Events.ServeHTTP})
