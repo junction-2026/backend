@@ -182,7 +182,8 @@ func TestCountryAssociationInterruptedByRestart(t *testing.T) {
 	e, st := sqliteEngine(t, path, yaml, Config{Countries: ca}, h)
 	j, err := e.Create(in("x"))
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return ca.Calls(j.ID) == 1 }, 5*time.Second, time.Millisecond)
+	// the step starts inside the barrier's locked section; Get sees risk only after that section persisted the job
+	require.Eventually(t, func() bool { g, _ := e.Get(j.ID); return ca.Calls(j.ID) == 1 && g.Risk != nil }, 5*time.Second, time.Millisecond)
 	crash(t, e, st)
 
 	e2, _ := sqliteEngine(t, path, yaml, Config{}, h)
