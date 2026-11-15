@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/job"
@@ -321,6 +322,7 @@ type JobSummary struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	FinishedAt   *time.Time      `json:"finished_at"`
 	Coverage     job.Coverage    `json:"coverage"`
+	Excerpt      *string         `json:"excerpt"`
 	Finalization summaryFinalize `json:"finalization"`
 }
 
@@ -332,6 +334,11 @@ type summaryFinalize struct {
 func summarize(j job.Job) JobSummary {
 	s := JobSummary{ID: j.ID, Status: j.Status, Done: j.Done, CreatedAt: j.CreatedAt, FinishedAt: j.FinishedAt,
 		Coverage: j.Coverage, Finalization: summaryFinalize{Status: j.Finalization.Status}}
+	if j.Input != nil && j.Input.Content != "" {
+		s.Excerpt = firstRunes(j.Input.Content, 200)
+	} else if j.Scrape != nil {
+		s.Excerpt = firstRunes(j.Scrape.URL, 200)
+	}
 	var res struct {
 		Verdict string `json:"verdict"`
 	}
@@ -339,6 +346,18 @@ func summarize(j job.Job) JobSummary {
 		s.Finalization.Verdict = &res.Verdict
 	}
 	return s
+}
+
+// firstRunes returns the first n code points of s.
+func firstRunes(s string, n int) *string {
+	for i := range s {
+		if n == 0 {
+			s = s[:i]
+			break
+		}
+		n--
+	}
+	return &s
 }
 
 func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +377,11 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 		bad("unknown status")
 		return
 	}
+	search := strings.TrimSpace(q.Get("q"))
+	if utf8.RuneCountInString(search) > 200 {
+		bad("q must be at most 200 characters")
+		return
+	}
 	var after *store.Cursor
 	if c := q.Get("cursor"); c != "" {
 		at, id, err := decodeCursor(c)
@@ -367,7 +391,7 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		after = &store.Cursor{CreatedAt: at, ID: id}
 	}
-	jobs, err := a.svc.Page(status, after, limit+1) // newest first; one more than the page tells whether there is a next
+	jobs, err := a.svc.Page(status, search, after, limit+1) // newest first; one more than the page tells whether there is a next
 	if err != nil {
 		a.internal(w, "list jobs", err)
 		return

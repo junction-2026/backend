@@ -98,7 +98,7 @@ func TestPersistedJobSurvivesRestart(t *testing.T) {
 	require.Len(t, e2.List(job.StatusCompleted), 4)
 	require.Empty(t, e2.List(job.StatusRunning))
 	all := e2.List("")
-	page, err := e2.Page("", &store.Cursor{CreatedAt: all[0].CreatedAt, ID: all[0].ID}, 1)
+	page, err := e2.Page("", "", &store.Cursor{CreatedAt: all[0].CreatedAt, ID: all[0].ID}, 1)
 	require.NoError(t, err)
 	require.Equal(t, []string{all[1].ID}, []string{page[0].ID}, "a cursor continues after its job")
 
@@ -304,7 +304,7 @@ func TestConcurrentReadsWhileJobsRun(t *testing.T) {
 		require.Equal(t, job.StatusCompleted, got.Status)
 	}
 	e.Sweep(time.Now().Add(100 * time.Hour)) // all evicted from memory: everything is read back from the database
-	list, err := e.Page("", nil, 0)
+	list, err := e.Page("", "", nil, 0)
 	require.NoError(t, err)
 	require.Len(t, list, 40)
 	for _, j := range list {
