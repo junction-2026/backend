@@ -44,6 +44,10 @@ func (r *Record) Interrupt(now time.Time) {
 		f.Status, f.Error = RunFailed, &RunError{Code: CodeInterrupted, Message: interruptedMessage}
 		f.FinishedAt, f.DurationMS = end(f.StartedAt)
 	}
+	// The association settles or is skipped at the settle barrier, where risk is set: unset after it means it was running.
+	if r.Risk != nil && r.CountryAssociation == nil {
+		r.CountryAssociation = NewCountryAssociation(now, nil, nil, &RunError{Code: CodeInterrupted, Message: interruptedMessage})
+	}
 	r.Status, r.Done, r.FinishedAt = StatusFailed, true, &now
 	r.Coverage = ComputeCoverage(r.Analyzers)
 	r.fixEventState()

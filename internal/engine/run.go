@@ -9,6 +9,7 @@ import (
 	"github.com/junction-2026/backend/internal/job"
 	"github.com/junction-2026/backend/internal/registry"
 	"github.com/junction-2026/backend/internal/risk"
+	"github.com/junction-2026/backend/internal/store"
 )
 
 // run is the scheduler state of one job. Everything below the immutable block
@@ -184,9 +185,10 @@ func (r *run) barrierLocked() {
 	r.barrier = true
 	r.j.Status = job.StatusFinalizing
 	r.j.Risk = r.computeRiskLocked() // once, here; a set RiskScore never changes
+	r.startCountryLocked()
 	r.emit("analysis.ready_for_finalization", map[string]any{"coverage": r.j.Coverage, "risk": r.j.Risk})
 	if r.finDef == nil { // finalization skipped at creation
-		r.finishLocked(job.StatusCompleted)
+		r.completeLocked()
 		return
 	}
 	now := r.e.now()
@@ -196,6 +198,43 @@ func (r *run) barrierLocked() {
 	r.j.Activities[r.finDef.ID] = act
 	r.emit("analysis.finalizing", withProgress(map[string]any{"finalization": *f, "activity": act}, r.progressLocked(0)))
 	go r.finalize(FinalizationInput{Job: r.j.Clone(), Analyzer: r.finDef})
+}
+
+// startCountryLocked settles a skipped country association at the barrier, or runs the step concurrently with
+// finalization; the job completes once both settled.
+func (r *run) startCountryLocked() {
+	switch {
+	case len(store.DetectedTechniques(&r.j.Job)) == 0:
+		r.j.CountryAssociation = job.NewCountryAssociation(r.e.now(), nil, job.Str(job.ReasonNoDetectedPropaganda), nil)
+	case r.e.cfg.Countries == nil:
+		r.j.CountryAssociation = job.NewCountryAssociation(r.e.now(), nil, job.Str(job.ReasonNotConfigured), nil)
+	default:
+		go r.associate(r.j.Clone())
+	}
+}
+
+// associate runs the step outside the lock; a result after the job ended (cancelled meanwhile) is dropped. Settling
+// emits no event: the association reaches clients with job.completed.
+func (r *run) associate(j job.Job) {
+	defer r.guard()
+	a := r.e.associate(r.ctx, &j)
+	r.j.Lock()
+	defer r.j.Unlock()
+	defer r.recoverJob()
+	if r.j.Done || r.j.CountryAssociation != nil {
+		return
+	}
+	r.j.CountryAssociation = a
+	r.e.persistLocked(r.j)
+	r.completeLocked()
+}
+
+// completeLocked ends the job completed once finalization and country association have both settled.
+func (r *run) completeLocked() {
+	if r.j.Done || r.j.Finalization.Status == job.RunRunning || r.j.CountryAssociation == nil {
+		return
+	}
+	r.finishLocked(job.StatusCompleted)
 }
 
 // computeRiskLocked is the job's RiskScore as JSON. It cannot fail to marshal (all numbers are validated to be finite).
@@ -323,7 +362,7 @@ func (r *run) finalize(in FinalizationInput) {
 		return
 	}
 	r.endFinalizationLocked(raw, rerr)
-	r.finishLocked(job.StatusCompleted)
+	r.completeLocked()
 }
 
 // endFinalizationLocked settles a running finalization and emits its event.
@@ -364,6 +403,10 @@ func (r *run) abortLocked(status string) {
 		r.endFinalizationLocked(nil, &job.RunError{Code: job.CodeCancelled, Message: "finalization aborted: job " + status})
 	case job.RunPending:
 		f.Status, f.Reason = job.RunSkipped, job.Str(job.ReasonCancelled)
+	}
+	if r.barrier && r.j.CountryAssociation == nil { // the step was running
+		r.j.CountryAssociation = job.NewCountryAssociation(r.e.now(), nil, nil,
+			&job.RunError{Code: job.CodeCancelled, Message: "country association aborted: job " + status})
 	}
 	r.finishLocked(status)
 }

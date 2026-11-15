@@ -97,13 +97,18 @@ func TestDeriveMap(t *testing.T) {
 			}
 			v := DeriveMap(&tc.rec.Job, tb)
 			require.Equal(t, tc.code != "", v.Eligible)
-			require.Equal(t, tc.code, v.CountryCode)
-			require.Equal(t, tc.country, v.Country)
+			if tc.code != "" {
+				require.Equal(t, []JobCountry{{tc.code, tc.country, []string{"outlet"}}}, v.Countries)
+			} else {
+				require.Empty(t, v.Countries)
+			}
 			var names []string
 			for _, mt := range v.Techniques {
 				names = append(names, mt.Name)
 			}
-			require.Equal(t, tc.techs, names)
+			if tc.code != "" {
+				require.Equal(t, tc.techs, names)
+			}
 		})
 	}
 }
@@ -136,7 +141,7 @@ func TestMapQueriesMatchAcrossStores(t *testing.T) {
 				s.Put(r)
 				save(t, s, r)
 			}
-			got, err := s.MapCountries()
+			got, _, err := s.MapCountries()
 			require.NoError(t, err)
 			require.Equal(t, []MapCountry{
 				{Code: "DE", Country: "Pland", Analyses: 1, Techniques: []TechniqueCount{{"Slogans", 1}}},
@@ -146,7 +151,7 @@ func TestMapQueriesMatchAcrossStores(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, page, 1)
 			require.Equal(t, "ru2", page[0].Job.ID)
-			require.Equal(t, "RU", page[0].Values.CountryCode)
+			require.Equal(t, []JobCountry{{"RU", "Pland", []string{"outlet"}}}, page[0].Values.Countries)
 			rest, err := s.MapAnalyses("RU", &Cursor{CreatedAt: page[0].Job.CreatedAt, ID: page[0].Job.ID}, 0)
 			require.NoError(t, err)
 			require.Len(t, rest, 1)
@@ -175,7 +180,7 @@ func TestMapRemovedJobsLeaveTheMap(t *testing.T) {
 	require.NoError(t, sq.Prune(t0.Add(-24*time.Hour)))
 	mem.EvictFinished(t0.Add(-24 * time.Hour))
 	for _, s := range []Store{mem, sq} {
-		got, err := s.MapCountries()
+		got, _, err := s.MapCountries()
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		require.Equal(t, 1, got[1].Analyses, "ru1 is gone")
@@ -199,7 +204,7 @@ func TestMapValuesFixedWhenDone(t *testing.T) {
 	sq.SetOutlets(table(t, "gb.example,gb.example,gb.example,GB Out,IE,Ireland,center,high,en")) // the table changes later
 	save(t, sq, r)                                                                               // saved again
 	require.NoError(t, sq.BackfillMap())
-	got, err := sq.MapCountries()
+	got, _, err := sq.MapCountries()
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "GB", got[0].Code)
@@ -237,12 +242,12 @@ func TestMigrationAndBackfillOfOldJobs(t *testing.T) {
 
 	s, err := OpenSQLite(path) // migrates; nothing is backfilled by opening
 	require.NoError(t, err)
-	got, err := s.MapCountries()
+	got, _, err := s.MapCountries()
 	require.NoError(t, err)
 	require.Empty(t, got)
 	require.NoError(t, s.BackfillMap())
 	require.NoError(t, s.BackfillMap(), "idempotent")
-	got, err = s.MapCountries()
+	got, _, err = s.MapCountries()
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	require.Equal(t, "FI", got[1].Code)
@@ -252,10 +257,146 @@ func TestMigrationAndBackfillOfOldJobs(t *testing.T) {
 	s, err = OpenSQLite(path) // reopening keeps the values
 	require.NoError(t, err)
 	defer s.Close()
-	again, err := s.MapCountries()
+	again, _, err := s.MapCountries()
 	require.NoError(t, err)
 	require.Equal(t, got, again)
 	var n int
 	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE map_eligible IS NULL`).Scan(&n))
 	require.Equal(t, 1, n, "only the unfinished job has no map values")
+}
+
+func assoc(codes ...string) *job.CountryAssociation {
+	var cs []job.AssociatedCountry
+	for _, c := range codes {
+		cs = append(cs, job.AssociatedCountry{CountryCode: c, Country: "N" + c})
+	}
+	return job.NewCountryAssociation(t0, cs, nil, nil)
+}
+
+func TestDeriveMapCountries(t *testing.T) {
+	r := mrec("a", 0, "", pageOutletRun("DE"), techs("Doubt"))
+	r.CountryAssociation = assoc("US", "DE")
+	require.Equal(t, []JobCountry{{"DE", "Pland", []string{"outlet", "content"}}, {"US", "NUS", []string{"content"}}}, DeriveMap(&r.Job, nil).Countries)
+
+	r.CountryAssociation = job.NewCountryAssociation(t0, nil, nil, &job.RunError{Code: job.CodeTimeout})
+	require.Equal(t, []JobCountry{{"DE", "Pland", []string{"outlet"}}}, DeriveMap(&r.Job, nil).Countries, "failed: outlet only")
+
+	pasted := mrec("p", 0, "", techs("Doubt"))
+	pasted.CountryAssociation = assoc("US")
+	v := DeriveMap(&pasted.Job, nil)
+	require.True(t, v.Eligible)
+	require.Nil(t, v.Outlet)
+	require.Equal(t, []JobCountry{{"US", "NUS", []string{"content"}}}, v.Countries)
+
+	pasted.CountryAssociation = assoc()
+	require.False(t, DeriveMap(&pasted.Job, nil).Eligible, "no country at all")
+	for _, cc := range []string{"", "DEU", "1A"} {
+		bad := mrec("b", 0, "", pageOutletRun(cc), techs("Doubt"))
+		v := DeriveMap(&bad.Job, nil)
+		require.False(t, v.Eligible, cc)
+		require.NotNil(t, v.Outlet, "the outlet is still the map outlet")
+	}
+}
+
+// an analysis with several countries is counted and listed in each, once in the distinct total, in both stores.
+func TestMultiCountryMapAcrossStores(t *testing.T) {
+	a := mrec("a", 3, "", pageOutletRun("DE"), techs("Doubt"))
+	a.CountryAssociation = assoc("US", "DE")
+	b := mrec("b", 2, "", techs("Slogans")) // pasted text
+	b.CountryAssociation = assoc("RU", "UA")
+	c := mrec("c", 1, "", pageOutletRun("RU"), techs("Doubt"))
+	for name, s := range map[string]Store{"memory": NewMemory(), "sqlite": openTemp(t)} {
+		t.Run(name, func(t *testing.T) {
+			for _, r := range []*job.Record{a, b, c} {
+				s.Put(r)
+				save(t, s, r)
+			}
+			got, total, err := s.MapCountries()
+			require.NoError(t, err)
+			require.Equal(t, 3, total)
+			require.Equal(t, []MapCountry{
+				{Code: "DE", Country: "Pland", Analyses: 1, Techniques: []TechniqueCount{{"Doubt", 1}}},
+				{Code: "RU", Country: "Pland", Analyses: 2, Techniques: []TechniqueCount{{"Doubt", 1}, {"Slogans", 1}}},
+				{Code: "UA", Country: "NUA", Analyses: 1, Techniques: []TechniqueCount{{"Slogans", 1}}},
+				{Code: "US", Country: "NUS", Analyses: 1, Techniques: []TechniqueCount{{"Doubt", 1}}},
+			}, got)
+			ru, err := s.MapAnalyses("RU", nil, 0)
+			require.NoError(t, err)
+			require.Len(t, ru, 2)
+			require.Equal(t, "c", ru[0].Job.ID)
+			require.Equal(t, "b", ru[1].Job.ID)
+			require.Nil(t, ru[1].Values.Outlet)
+			require.Equal(t, []JobCountry{{"RU", "NRU", []string{"content"}}, {"UA", "NUA", []string{"content"}}}, ru[1].Values.Countries)
+			us, err := s.MapAnalyses("US", nil, 0)
+			require.NoError(t, err)
+			require.Len(t, us, 1)
+			require.Equal(t, []JobCountry{{"DE", "Pland", []string{"outlet", "content"}}, {"US", "NUS", []string{"content"}}}, us[0].Values.Countries)
+		})
+	}
+}
+
+// a database at schema version 3 (one map country per job) keeps that country as the outlet-basis map country.
+func TestMigrationKeepsSingleMapCountry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v3.db")
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	for _, m := range migrations[:3] {
+		_, err := db.Exec(m)
+		require.NoError(t, err)
+	}
+	r := mrec("fi", 1, "", pageOutletRun("FI"), techs("Doubt"))
+	data, err := json.Marshal(r.Clone())
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version VALUES (3);
+		INSERT INTO jobs (id, status, done, created_at, finished_at, public, data, state, map_eligible, map_country_code, map_country, map_outlet, map_techniques)
+		VALUES ('fi', 'completed', 1, ?, ?, 1, ?, '{}', 1, 'FI', 'Finland', '{"name":"P","domain":"p.x","country_code":"FI","country":"Finland"}', '[{"name":"Doubt","display":"Doubt"}]')`,
+		r.CreatedAt.UnixNano(), r.FinishedAt.UnixNano(), string(data))
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s := open(t, path)
+	got, total, err := s.MapCountries()
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, []MapCountry{{Code: "FI", Country: "Finland", Analyses: 1, Techniques: []TechniqueCount{{"Doubt", 1}}}}, got)
+	items, err := s.MapAnalyses("FI", nil, 0)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, []JobCountry{{"FI", "Finland", []string{"outlet"}}}, items[0].Values.Countries)
+}
+
+// the backfill replaces only a missing or failed association and re-derives the countries with the fixed outlet.
+func TestSetCountryAssociation(t *testing.T) {
+	s := openTemp(t)
+	s.SetOutlets(table(t, "gb.example,gb.example,gb.example,GB Out,GB,United Kingdom,center,high,en"))
+	r := mrec("a", 0, "https://gb.example/x", techs("Doubt"))
+	s.Put(r)
+	save(t, s, r)
+	s.SetOutlets(table(t, "gb.example,gb.example,gb.example,GB Out,IE,Ireland,center,high,en"))
+	cand, err := s.CountryBackfill(10, 3)
+	require.NoError(t, err)
+	require.Len(t, cand, 1)
+
+	set, err := s.SetCountryAssociation("a", assoc("GB", "IE"))
+	require.NoError(t, err)
+	require.True(t, set)
+	require.Equal(t, assoc("GB", "IE"), r.CountryAssociation, "the live record follows")
+	items, err := s.MapAnalyses("IE", nil, 0)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, []JobCountry{{"GB", "United Kingdom", []string{"outlet", "content"}}, {"IE", "NIE", []string{"content"}}}, items[0].Values.Countries)
+	loaded, _, err := s.Load("a")
+	require.NoError(t, err)
+	require.Equal(t, assoc("GB", "IE"), loaded.CountryAssociation)
+
+	set, err = s.SetCountryAssociation("a", assoc("FR"))
+	require.NoError(t, err)
+	require.False(t, set, "a succeeded association never changes")
+	cand, err = s.CountryBackfill(10, 3)
+	require.NoError(t, err)
+	require.Empty(t, cand)
+
+	set, err = s.SetCountryAssociation("gone", assoc("FR"))
+	require.NoError(t, err)
+	require.False(t, set)
 }

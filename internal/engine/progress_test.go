@@ -375,7 +375,7 @@ func TestExistingMembersAndRESTUnchanged(t *testing.T) {
 		got = append(got, k)
 	}
 	require.ElementsMatch(t, []string{"id", "status", "done", "created_at", "started_at", "finished_at", "input", "scrape", "options", "public",
-		"analyzers", "coverage", "finalization", "risk"}, got)
+		"analyzers", "coverage", "finalization", "risk", "country_association"}, got)
 	var run map[string]json.RawMessage
 	var runs []json.RawMessage
 	require.NoError(t, json.Unmarshal(m["analyzers"], &runs))

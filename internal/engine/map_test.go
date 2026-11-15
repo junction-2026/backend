@@ -31,7 +31,7 @@ func TestMapJobCountedOnceDone(t *testing.T) {
 	waitDone(t, e, j.ID)
 	waitDone(t, e, private.ID)
 
-	got, err := e.MapCountries()
+	got, _, err := e.MapCountries()
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "PL", got[0].Code)
@@ -45,7 +45,7 @@ func TestMapJobCountedOnceDone(t *testing.T) {
 	e2, _ := sqliteEngine(t, path, yaml, Config{}, h)
 	_, err = e2.Recover()
 	require.NoError(t, err)
-	got, err = e2.MapCountries()
+	got, _, err = e2.MapCountries()
 	require.NoError(t, err)
 	require.Equal(t, 1, got[0].Analyses)
 
@@ -53,7 +53,7 @@ func TestMapJobCountedOnceDone(t *testing.T) {
 	m, err := e3.Create(in("x"))
 	require.NoError(t, err)
 	waitDone(t, e3, m.ID)
-	got, err = e3.MapCountries()
+	got, _, err = e3.MapCountries()
 	require.NoError(t, err)
 	require.Equal(t, 1, got[0].Analyses)
 }

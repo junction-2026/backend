@@ -15,6 +15,7 @@ import (
 
 	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/chat"
+	"github.com/junction-2026/backend/internal/country"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/finalizer"
 	"github.com/junction-2026/backend/internal/httpapi"
@@ -45,7 +46,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 		return err
 	}
 	// Bearer values and secret scraper variables never reach a log line.
-	redactor := ss.NewRedactor(getenv, cfg.Chat.APIKey)
+	redactor := ss.NewRedactor(getenv, cfg.Chat.APIKey, cfg.Country.APIKey)
 	log := ss.NewLogger(logOut, redactor)
 	if cfg.Chat.APIKey == "" {
 		log.Info("chat disabled: CHAT_API_KEY or CHAT_API_KEY_FILE is not set")
@@ -78,6 +79,16 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 		ecfg.Store = st
 	}
 	ecfg.Warn = func(msg string, args ...any) { log.Warn(msg, args...) }
+	ecfg.Info = func(msg string, args ...any) { log.Info(msg, args...) }
+	countries, err := country.Load() // the ISO 3166-1 table; a broken table is a startup error
+	if err != nil {
+		return err
+	}
+	if ca := adapter.NewCountryAssociator(cfg.Country, countries); ca != nil { // a nil interface value: not configured
+		ecfg.Countries = ca
+	} else {
+		log.Info("country association disabled: COUNTRY_ASSOCIATION_MODEL is not set")
+	}
 	eng := engine.New(reg, ecfg)
 	defer eng.Close()
 	// Jobs that were not done when the server stopped end failed before any request is served.

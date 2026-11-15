@@ -235,10 +235,10 @@ The create handler SHALL decode `public` as an optional strict JSON boolean (def
 - **THEN** the status is 422 `validation_failed`, `error.details.fields` has the key `public` and no job is created
 
 ### Requirement: Propaganda map endpoints
-The server SHALL serve `GET {basePath}/map/countries` and `GET {basePath}/map/countries/{country_code}/analyses` (shared change `propaganda-map-api`, shared-specs @ fa2a80df8674ccbbc6183931e95dbb7d7c8c5b85), registered in `httpapi.go` with their handlers in `internal/httpapi/map.go`. Other methods SHALL yield 405 `method_not_allowed` and errors SHALL use the api-conventions envelope. The handlers SHALL only read the store: no analyzer, scraper or network call and no job change.
+The server SHALL serve `GET {basePath}/map/countries` and `GET {basePath}/map/countries/{country_code}/analyses` (shared `propaganda-map-api` as of shared-specs @ 24b7969236d03059dd6447481c27afd541fcac7e, change `ai-country-association`), with handlers in `internal/httpapi/map.go`. Other methods SHALL yield 405 `method_not_allowed`; errors use the api-conventions envelope. The handlers SHALL only read the store: no analyzer, scraper or network call, no job change.
 
 #### Scenario: Aggregates
-- **WHEN** two `RU` and one `DE` map analyses exist
+- **WHEN** two `RU` and one `DE` map analyses exist, each with one map country
 - **THEN** `GET /api/v1/map/countries` is 200 with the `DE` then `RU` items and `analyses: 3`
 
 #### Scenario: Wrong method
@@ -257,11 +257,15 @@ The list handler SHALL accept `country_code` of exactly two ASCII letters (upper
 - **THEN** the status is 400 with `error.code` `invalid_request`
 
 ### Requirement: Map list items
-Each item of the list SHALL carry `job_id`, `created_at`, `finished_at`, `status`, `country_code`, `country`, `outlet`, `source` (`url`, `title` or null), `techniques` (`strength` only when stored), `verdict` (null without final assessment) and a `snippet` (whitespace collapsed, at most 200 code points, U+2026 appended when cut).
+Each item of the list SHALL carry `job_id`, `created_at`, `finished_at`, `status`, `country_code`, `country`, `countries`, `outlet` (null without map outlet), `source` (`url`, `""` without URL, and `title` or null), `techniques` (`strength` only when stored), `verdict` (null without final assessment) and a `snippet` (whitespace collapsed, at most 200 code points, U+2026 appended when cut).
 
 #### Scenario: Snippet
 - **WHEN** `input.content` is `"  Short\n\ntext "`
 - **THEN** `snippet` is `"Short text"`
+
+#### Scenario: Pasted text item
+- **WHEN** a map analysis was created from pasted text with `"source": {}` and associated with `US`
+- **THEN** its item in the `US` list has `outlet: null`, `source: {"url": "", "title": null}` and `countries: [{"country_code": "US", "country": "United States", "basis": ["content"]}]`
 
 ### Requirement: Job list search parameter
 The list handler SHALL trim leading and trailing white space from `q`, reject a trimmed `q` of more than 200 code points with 400 `invalid_request`, and pass an empty `q` as no filter.
@@ -284,3 +288,17 @@ The list handler SHALL trim leading and trailing white space from `q`, reject a 
 #### Scenario: Stored before the change
 - **WHEN** jobs are stored without an `excerpt` and served after a restart
 - **THEN** each item has `excerpt` built from its stored content or scrape URL, or null
+
+### Requirement: Distinct map analyses count
+The top-level `analyses` of `GET {basePath}/map/countries` SHALL be the store's number of distinct map analyses, not the sum of the items.
+
+#### Scenario: Multi-country analysis
+- **WHEN** one map analysis has the map countries `DE` and `US` and another only `US`
+- **THEN** the items are `DE` with `analyses: 1` and `US` with `analyses: 2`, and the top-level `analyses` is 2
+
+### Requirement: Map list item countries
+An item's `country_code` and `country` SHALL be the requested country (upper case) and its name among the job's map countries; `countries` SHALL be all map countries of the job in order, each with `country_code`, `country` and `basis`.
+
+#### Scenario: Item in the second country's list
+- **WHEN** a map analysis has the map countries `DE` then `US` and a client lists `US`
+- **THEN** its item has `country_code: "US"` and `countries` with `DE` then `US`

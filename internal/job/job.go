@@ -40,6 +40,8 @@ const (
 	ReasonDisabledByRequest = "disabled_by_request"
 	ReasonInputUnavailable  = "input_unavailable"
 	ReasonInterrupted       = "interrupted" // pending part when the server stopped (persistent history)
+	// country association only
+	ReasonNoDetectedPropaganda = "no_detected_propaganda"
 )
 
 // Error codes of failed runs and failed finalization.
@@ -168,6 +170,38 @@ type Job struct {
 	Finalization Finalization  `json:"finalization"`
 	// Risk is the RiskScore (manipulation-risk-score) as raw JSON, set once at the settle barrier; nil (null) before it.
 	Risk json.RawMessage `json:"risk"`
+	// CountryAssociation is nil (null) until the country association step settled; once set it is replaced, never mutated.
+	CountryAssociation *CountryAssociation `json:"country_association"`
+}
+
+// CountryAssociation is the shared CountryAssociation object (country-association); Status uses the Run* values.
+type CountryAssociation struct {
+	Status     string              `json:"status"`
+	Reason     *string             `json:"reason"`
+	Error      *RunError           `json:"error"`
+	Countries  []AssociatedCountry `json:"countries"` // never nil
+	FinishedAt *time.Time          `json:"finished_at"`
+}
+
+// AssociatedCountry is a validated ISO 3166-1 alpha-2 code with the name from the orchestrator's country table.
+type AssociatedCountry struct {
+	CountryCode string `json:"country_code"`
+	Country     string `json:"country"`
+}
+
+// NewCountryAssociation is a settled association: failed when rerr is set, skipped when reason is set, else succeeded.
+func NewCountryAssociation(at time.Time, countries []AssociatedCountry, reason *string, rerr *RunError) *CountryAssociation {
+	a := &CountryAssociation{Status: RunSucceeded, Reason: reason, Error: rerr, Countries: countries, FinishedAt: &at}
+	switch {
+	case rerr != nil:
+		a.Status, a.Countries = RunFailed, nil
+	case reason != nil:
+		a.Status, a.Countries = RunSkipped, nil
+	}
+	if a.Countries == nil {
+		a.Countries = []AssociatedCountry{}
+	}
+	return a
 }
 
 // UnmarshalJSON reads a Job stored before `public` existed as public and one stored before `risk` existed without risk.
@@ -223,7 +257,7 @@ func (j *Job) Clone() Job {
 		ID: j.ID, Status: j.Status, Done: j.Done, CreatedAt: j.CreatedAt,
 		StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Input: j.Input, Options: j.Options, Public: j.Public,
 		Analyzers: append([]AnalyzerRun(nil), j.Analyzers...), Coverage: j.Coverage,
-		Finalization: j.Finalization, Risk: j.Risk,
+		Finalization: j.Finalization, Risk: j.Risk, CountryAssociation: j.CountryAssociation,
 	}
 	if j.Scrape != nil {
 		s := *j.Scrape

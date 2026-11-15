@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/junction-2026/backend/internal/adapter"
 	"github.com/junction-2026/backend/internal/chat"
 	"github.com/junction-2026/backend/internal/engine"
 	"github.com/junction-2026/backend/internal/localization"
@@ -35,6 +36,8 @@ type config struct {
 	LocalizationTimeout time.Duration
 	// Chat is the CHAT_* configuration of POST /api/v1/jobs/{id}/chat; an empty Chat.APIKey disables chat.
 	Chat chat.Config
+	// Country is the COUNTRY_ASSOCIATION_* configuration; an empty Country.Model leaves the step not configured.
+	Country adapter.CountryConfig
 }
 
 // obsoleteScraperVars belonged to the former standalone scraper service.
@@ -42,7 +45,7 @@ var obsoleteScraperVars = []string{"SCRAPER_URL", "SCRAPER_TOKEN", "SCRAPER_LIST
 
 // loadConfig reads LISTEN_ADDR, ANALYZERS_CONFIG, the engine settings
 // (MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION, SCRAPER_TIMEOUT) and
-// RISK_SCORE_CONFIG (optional YAML file), SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT and the CHAT_* variables. Errors name variables, never their values.
+// RISK_SCORE_CONFIG (optional YAML file), SCRAPER_ENABLED, SCRAPER_UPSTREAM_TIMEOUT_SECONDS, LOCALIZATION_TIMEOUT, the CHAT_* and the COUNTRY_ASSOCIATION_* variables. Errors name variables, never their values.
 func loadConfig(getenv func(string) string) (config, error) {
 	c := config{ListenAddr: getenv("LISTEN_ADDR"), AnalyzersConfig: getenv("ANALYZERS_CONFIG")}
 	if c.ListenAddr == "" {
@@ -73,7 +76,34 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if err := loadChat(getenv, &c.Chat); err != nil {
 		return c, fmt.Errorf("configuration error: %w", err)
 	}
+	if err := loadCountry(getenv, &c.Country); err != nil {
+		return c, fmt.Errorf("configuration error: %w", err)
+	}
 	return c, nil
+}
+
+// loadCountry reads COUNTRY_ASSOCIATION_MODEL, _BASE_URL (required with a model), _API_KEY, _TIMEOUT (default 30s)
+// and _MAX_INPUT_CHARS (default 8000). Without a model the other variables are not checked.
+func loadCountry(getenv func(string) string, c *adapter.CountryConfig) error {
+	if c.Model = strings.TrimSpace(getenv("COUNTRY_ASSOCIATION_MODEL")); c.Model == "" {
+		return nil
+	}
+	c.BaseURL = getenv("COUNTRY_ASSOCIATION_BASE_URL")
+	if u, err := url.Parse(c.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New("COUNTRY_ASSOCIATION_BASE_URL must be an http or https URL when COUNTRY_ASSOCIATION_MODEL is set")
+	}
+	c.APIKey = strings.TrimSpace(getenv("COUNTRY_ASSOCIATION_API_KEY"))
+	c.Timeout = adapter.DefaultCountryTimeout
+	if v := getenv("COUNTRY_ASSOCIATION_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return errors.New("COUNTRY_ASSOCIATION_TIMEOUT must be a positive duration")
+		}
+		c.Timeout = d
+	}
+	var err error
+	c.MaxInputChars, err = positiveInt(getenv, "COUNTRY_ASSOCIATION_MAX_INPUT_CHARS", adapter.DefaultCountryMaxInput)
+	return err
 }
 
 // loadChat reads the CHAT_* variables. A missing key is not an error (chat answers 503); the file wins over

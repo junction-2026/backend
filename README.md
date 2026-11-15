@@ -17,6 +17,12 @@ Analysis orchestrator HTTP server (`cmd/orchestrator`).
 | `CHAT_TIMEOUT` | `90s` | positive Go duration bounding one upstream call (exceeded: 504 `chat_timeout`) |
 | `CHAT_RATE_PER_MINUTE` | `10` | chat requests per minute per job (token bucket); more: 429 `rate_limited` |
 | `CHAT_MAX_CONCURRENT` | `4` | upstream calls in flight across all jobs; more: 429 `rate_limited` |
+| `COUNTRY_ASSOCIATION_MODEL` | unset | model of the AI country association step (propaganda map countries from the content). Unset: the step is skipped as `not_configured`, no backfill runs and the map uses outlet countries only |
+| `COUNTRY_ASSOCIATION_BASE_URL` | unset | OpenAI-compatible base URL (`/chat/completions` is appended); required when a model is set |
+| `COUNTRY_ASSOCIATION_API_KEY` | unset | **secret** bearer key of that provider; never logged or returned |
+| `COUNTRY_ASSOCIATION_TIMEOUT` | `30s` | positive Go duration bounding one step call (exceeded: `failed` / `timeout`) |
+| `COUNTRY_ASSOCIATION_MAX_INPUT_CHARS` | `8000` | code points of `input.content` sent to the model |
+| `COUNTRY_BACKFILL_BATCH` | `20` | stored jobs per batch of the background backfill (with `sqlite` and a model): done public jobs with detected propaganda and a missing or failed association, at most 3 attempts each |
 
 ## Job history
 
