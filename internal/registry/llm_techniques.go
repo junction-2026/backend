@@ -15,7 +15,7 @@ const DefaultLLMTechniquesPrompt = "/etc/orchestrator/llm_techniques/prompt.md"
 // MinConfidenceN is min_confidence with its default; MaxFindingsPerLabelN is max_findings_per_label with its default.
 func (e Execution) MinConfidenceN() float64 {
 	if e.MinConfidence == nil {
-		return 0.5
+		return 0.6
 	}
 	return *e.MinConfidence
 }

@@ -6,8 +6,12 @@ you may use for this text and <language> the language code in which you write ex
 
 The labels:
 
-- evidence_certainty_mismatch: a claim is stated with more certainty than the evidence given in the text supports
-  (for example "proves", "definitely", "everyone knows" backed by one anecdote or by nothing).
+- evidence_certainty_mismatch: a contested, causal or sweeping claim is presented as certain ("proves",
+  "definitely", "everyone knows", "there is no doubt", "the real reason is") while the text gives no evidence or
+  only an anecdote. Reporting events, figures or statements attributed to a named source, quoting someone's
+  certainty, and the ordinary declarative style of news reports are NOT a mismatch.
+  - Not flagged: "The ministry said 40 people were killed in the strike on Tuesday." (attributed reporting).
+  - Flagged: "This definitely proves the vaccine was designed to harm us." (unsupported certainty).
 - misleading_headline: the headline states or implies something that the body of the text does not support. Use it
   only when <title> is present, and quote only from the title.
 - statistical_cherry_picking: numbers are selected to support a conclusion that the fuller data would not support

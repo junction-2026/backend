@@ -46,15 +46,14 @@ var closeContentRe = regexp.MustCompile(`(?i)</(content)>`)
 
 // LLMUserMessage assembles the user message: the untrusted content inside
 // <content> (its closing tag escaped so it cannot end the block), then
-// <source_language> when language (a validated two-letter code) is known, then one
-// compact JSON entry per analyzer, then the schema unless json_schema mode
+// <source_language>CODE (English name)</source_language> (language is a validated two-letter code or ""; see
+// FinalizerLanguage), then one compact JSON entry per analyzer, then the schema unless json_schema mode
 // carries it in response_format.
 func LLMUserMessage(def *registry.Analyzer, content, language string, entries []json.RawMessage) string {
 	var b strings.Builder
 	b.WriteString("<content>\n" + closeContentRe.ReplaceAllString(content, `<\/$1>`) + "\n</content>\n")
-	if language != "" {
-		b.WriteString("<source_language>" + language + "</source_language>\n")
-	}
+	code, name := FinalizerLanguage(language)
+	b.WriteString("<source_language>" + code + " (" + name + ")</source_language>\n")
 	b.WriteString("<analyzers>\n")
 	for _, e := range entries {
 		b.Write(e)
@@ -95,12 +94,30 @@ const retryLengthText = "Your previous reply was cut off. Reply again with only 
 // (see the registry's retry_* settings). Errors are *job.RunError and never
 // contain the API key, the URL or reply content.
 func LLM(ctx context.Context, def *registry.Analyzer, user string, check func(json.RawMessage) error) (LLMReply, error) {
-	return llmChat(ctx, def, def.Execution.Prompt, user, nil, "", check)
+	return llmChatLang(ctx, def, def.Execution.Prompt, user, nil, "", check, nil)
+}
+
+// LangCheck is the finalizer-only soft output language check of LLMLang.
+type LangCheck struct {
+	Wrong func(json.RawMessage) bool // reports whether a valid reply is in the wrong language
+	Name  string                     // English name of the expected language
+}
+
+// LLMLang is LLM plus a soft language check: a valid first reply that lang.Wrong flags is retried once (when reply
+// retry is enabled and time remains) with a message naming the expected language. A wrong language never fails the
+// call: the retry's reply is kept when valid, otherwise the first one, with Attempts 2 and the language RetryReason.
+func LLMLang(ctx context.Context, def *registry.Analyzer, user string, check func(json.RawMessage) error, lang LangCheck) (LLMReply, error) {
+	return llmChatLang(ctx, def, def.Execution.Prompt, user, nil, "", check, &lang)
 }
 
 // llmChat is LLM with an explicit system prompt and, for an analyzer that asks several questions (term_context), the
 // reply schema and its name; a nil schema is the one of the analyzer's adapter.
 func llmChat(ctx context.Context, def *registry.Analyzer, system, user string, schema map[string]any, schemaName string, check func(json.RawMessage) error) (LLMReply, error) {
+	return llmChatLang(ctx, def, system, user, schema, schemaName, check, nil)
+}
+
+// llmChatLang is llmChat with the optional finalizer language check (nil: none).
+func llmChatLang(ctx context.Context, def *registry.Analyzer, system, user string, schema map[string]any, schemaName string, check func(json.RawMessage) error, lang *LangCheck) (LLMReply, error) {
 	e := &def.Execution
 	msgs := []map[string]string{
 		{"role": "system", "content": system},
@@ -112,7 +129,25 @@ func llmChat(ctx context.Context, def *registry.Analyzer, system, user string, s
 	}
 	out, usage, reason, err := judgeReply(body, check)
 	if err == nil {
-		return LLMReply{Out: out, Usage: usage, Attempts: 1}, nil
+		if lang == nil || !lang.Wrong(out) || !e.RetryEnabled() || !timeLeft(ctx, e.RetryMinRemainingD()) {
+			return LLMReply{Out: out, Usage: usage, Attempts: 1}, nil
+		}
+		reason := "user_text must be written in " + lang.Name
+		slog.Info("llm reply retry", "analyzer_id", def.ID, "reason", "language", "model", e.Model)
+		model := e.Model
+		if e.RetryModel != "" {
+			model = e.RetryModel
+		}
+		text := "Your previous reply's user_text was not in " + lang.Name + ". Reply again with only the JSON object and write user_text in " + lang.Name + "."
+		body2, err2 := llmCall(ctx, e, model, e.MaxTokens, append(msgs, map[string]string{"role": "user", "content": text}), schema, schemaName)
+		if err2 != nil {
+			return LLMReply{Out: out, Usage: usage, Attempts: 2, RetryReason: &reason}, nil
+		}
+		out2, usage2, _, err2 := judgeReply(body2, check)
+		if err2 != nil {
+			return LLMReply{Out: out, Usage: mergeUsage(usage, usage2), Attempts: 2, RetryReason: &reason}, nil
+		}
+		return LLMReply{Out: out2, Usage: mergeUsage(usage, usage2), Attempts: 2, RetryReason: &reason}, nil
 	}
 	if reason == "" || !e.RetryEnabled() || !timeLeft(ctx, e.RetryMinRemainingD()) {
 		return LLMReply{}, err

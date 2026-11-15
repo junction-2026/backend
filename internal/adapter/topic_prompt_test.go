@@ -19,7 +19,7 @@ func TestExtractorPromptShortQueriesAndPlans(t *testing.T) {
 	require.NoError(t, err)
 	prompt := string(b)
 	for _, want := range []string{
-		"2-4 words", "dates and years", "relative", "verbs of deciding or saying", "hedges", "framing", "infinitive or noun form",
+		"3-8 words", "dates and years", "relative", "verbs of deciding or saying", "hedges", "framing", "infinitive or noun form",
 		"decided, plans, wants, announced or will do", "forecasts about", "uncertain outcomes nobody controls",
 		`"query": "pension age 70"`, `"query": "EU Bargeld abschaffen", "query_en": "EU abolish cash"`,
 		"Die EU hat gestern beschlossen, das Bargeld ab 2027 komplett abzuschaffen.",
