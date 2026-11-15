@@ -557,13 +557,13 @@ func (e *Engine) MapAnalyses(code string, after *store.Cursor, limit int) ([]sto
 	return e.store.MapAnalyses(code, after, limit)
 }
 
-func (e *Engine) Page(status, q string, after *store.Cursor, limit int) ([]job.Job, error) {
-	return e.store.Page(status, q, after, limit)
+func (e *Engine) Page(status, q, lang string, after *store.Cursor, limit int) ([]job.Job, error) {
+	return e.store.Page(status, q, lang, after, limit)
 }
 
 // List returns all jobs newest first, optionally only those with the given status.
 func (e *Engine) List(status string) []job.Job {
-	out, _ := e.Page(status, "", nil, 0)
+	out, _ := e.Page(status, "", "", nil, 0)
 	return out
 }
 

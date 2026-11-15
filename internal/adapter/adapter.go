@@ -132,14 +132,7 @@ func Inputs(def *registry.Analyzer, j *job.Job) map[string]any {
 }
 
 // JobSourceLanguage is the normalized source_language of the job's succeeded translation run, "" when unknown.
-func JobSourceLanguage(j *job.Job) string {
-	for i := range j.Analyzers {
-		if r := &j.Analyzers[i]; r.ID == "translation" && r.Status == job.RunSucceeded {
-			return readSourceLanguage(r.Result)
-		}
-	}
-	return ""
-}
+func JobSourceLanguage(j *job.Job) string { return j.SourceLanguage() }
 
 func inputObject(j *job.Job) map[string]any {
 	return map[string]any{

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -323,6 +324,7 @@ type JobSummary struct {
 	FinishedAt   *time.Time      `json:"finished_at"`
 	Coverage     job.Coverage    `json:"coverage"`
 	Excerpt      *string         `json:"excerpt"`
+	Language     *string         `json:"language"` // the job language, null when unknown
 	Finalization summaryFinalize `json:"finalization"`
 }
 
@@ -338,6 +340,9 @@ func summarize(j job.Job) JobSummary {
 		s.Excerpt = firstRunes(j.Input.Content, 200)
 	} else if j.Scrape != nil {
 		s.Excerpt = firstRunes(j.Scrape.URL, 200)
+	}
+	if l := j.SourceLanguage(); l != "" {
+		s.Language = &l
 	}
 	var res struct {
 		Verdict string `json:"verdict"`
@@ -382,6 +387,11 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 		bad("q must be at most 200 characters")
 		return
 	}
+	lang := strings.ToLower(strings.TrimSpace(q.Get("language")))
+	if lang != "" && lang != store.LanguageUnknown && !languageCode.MatchString(lang) {
+		bad("language must be a two-letter language code or unknown")
+		return
+	}
 	var after *store.Cursor
 	if c := q.Get("cursor"); c != "" {
 		at, id, err := decodeCursor(c)
@@ -391,7 +401,7 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		after = &store.Cursor{CreatedAt: at, ID: id}
 	}
-	jobs, err := a.svc.Page(status, search, after, limit+1) // newest first; one more than the page tells whether there is a next
+	jobs, err := a.svc.Page(status, search, lang, after, limit+1) // newest first; one more than the page tells whether there is a next
 	if err != nil {
 		a.internal(w, "list jobs", err)
 		return
@@ -408,6 +418,8 @@ func (a *api) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
 }
+
+var languageCode = regexp.MustCompile(`^[a-z]{2}$`)
 
 func encodeCursor(j job.Job) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(j.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + j.ID))
