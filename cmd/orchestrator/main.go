@@ -103,7 +103,8 @@ func run(ctx context.Context, lookup func(string) (string, bool), logOut io.Writ
 	events := ws.New(eng, ws.Options{Logger: log})
 	loc := localization.New(localization.FromRegistry(reg), cfg.LocalizationTimeout, log)
 	srv := &http.Server{
-		Handler:           httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Localizer: loc, Chat: chat.New(cfg.Chat, log), Logger: log}),
+		Handler: httpapi.NewHandler(httpapi.Config{Service: eng, Registry: reg, Events: events, Localizer: loc, Chat: chat.New(cfg.Chat, log), Logger: log,
+			PublicSubmitPerMinute: cfg.PublicSubmitPerMinute, PublicGetPerMinute: cfg.PublicGetPerMinute, PublicBaseURL: cfg.PublicBaseURL}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
