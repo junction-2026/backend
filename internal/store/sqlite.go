@@ -70,6 +70,66 @@ var migrations = []string{
 	UPDATE jobs SET map_countries = json_array(json_object('country_code', map_country_code, 'country', map_country, 'basis', json_array('outlet')))
 		WHERE map_eligible = 1;
 	DROP INDEX jobs_map;`,
+	// language: the job language (job.Job.SourceLanguage), NULL when unknown; set by every save. Existing rows are
+	// filled by backfillLanguage in the same transaction.
+	`ALTER TABLE jobs ADD COLUMN language TEXT;
+	CREATE INDEX jobs_public_language_created ON jobs (public, language, created_at DESC, id);`,
+}
+
+// backfills[i], when set, runs right after migrations[i] in the same transaction.
+var backfills = map[int]func(context.Context, *sql.Tx) error{4: backfillLanguage}
+
+// languageBatch is the number of rows backfillLanguage reads at a time.
+const languageBatch = 500
+
+// backfillLanguage sets the language of every row from its stored job, in batches by id. A row whose job cannot be
+// decoded keeps NULL (unknown).
+func backfillLanguage(ctx context.Context, tx *sql.Tx) error {
+	type row struct {
+		id   string
+		data []byte
+	}
+	for last := ""; ; {
+		rows, err := tx.QueryContext(ctx, `SELECT id, data FROM jobs WHERE id > ? ORDER BY id LIMIT ?`, last, languageBatch)
+		if err != nil {
+			return err
+		}
+		var batch []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.data); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			batch = append(batch, r)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		for _, r := range batch {
+			var j job.Job
+			if json.Unmarshal(r.data, &j) != nil {
+				continue
+			}
+			if l := j.SourceLanguage(); l != "" {
+				if _, err := tx.ExecContext(ctx, `UPDATE jobs SET language = ? WHERE id = ?`, l, r.id); err != nil {
+					return err
+				}
+			}
+		}
+		last = batch[len(batch)-1].id
+	}
+}
+
+// nullable is s, or SQL NULL when s is "".
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // SQLite is a Store whose history lives in a SQLite file. Its working set is the embedded Memory store.
@@ -124,6 +184,11 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, migrations[v]); err != nil {
 			return fmt.Errorf("migrating the job store to version %d: %w", v+1, err)
 		}
+		if f := backfills[v]; f != nil {
+			if err := f(ctx, tx); err != nil {
+				return fmt.Errorf("migrating the job store to version %d: %w", v+1, err)
+			}
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_version SET version = ?`, v); err != nil {
 		return fmt.Errorf("migrating the job store: %w", err)
@@ -167,6 +232,7 @@ func (s *SQLite) Save(j *job.Record) error {
 	if j.Done {
 		mv = DeriveMap(&j.Job, s.table())
 	}
+	lang := j.SourceLanguage()
 	return s.write(func(tx *sql.Tx) error {
 		// The map values are written once, by the first save of the done job; later saves keep them.
 		fix := false
@@ -177,10 +243,10 @@ func (s *SQLite) Save(j *job.Record) error {
 			}
 			fix = !eligible.Valid
 		}
-		if _, err := tx.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, public, data, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		if _, err := tx.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, public, language, data, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET status = excluded.status, done = excluded.done, finished_at = excluded.finished_at,
-			data = excluded.data, state = excluded.state`,
-			j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), j.Public, string(data), string(st)); err != nil {
+			language = excluded.language, data = excluded.data, state = excluded.state`,
+			j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), j.Public, nullable(lang), string(data), string(st)); err != nil {
 			return err
 		}
 		if !fix {
@@ -462,10 +528,17 @@ func (s *SQLite) Unfinished() ([]*job.Record, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) Page(status, search string, after *Cursor, limit int) ([]job.Job, error) {
+func (s *SQLite) Page(status, search, lang string, after *Cursor, limit int) ([]job.Job, error) {
 	where, args := []string{"public = 1"}, []any{}
 	if status != "" {
 		where, args = append(where, "status = ?"), append(args, status)
+	}
+	switch lang {
+	case "":
+	case LanguageUnknown:
+		where = append(where, "language IS NULL")
+	default:
+		where, args = append(where, "language = ?"), append(args, lang)
 	}
 	if after != nil {
 		at := after.CreatedAt.UnixNano()

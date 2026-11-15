@@ -98,7 +98,7 @@ func TestPersistedJobSurvivesRestart(t *testing.T) {
 	require.Len(t, e2.List(job.StatusCompleted), 4)
 	require.Empty(t, e2.List(job.StatusRunning))
 	all := e2.List("")
-	page, err := e2.Page("", "", &store.Cursor{CreatedAt: all[0].CreatedAt, ID: all[0].ID}, 1)
+	page, err := e2.Page("", "", "", &store.Cursor{CreatedAt: all[0].CreatedAt, ID: all[0].ID}, 1)
 	require.NoError(t, err)
 	require.Equal(t, []string{all[1].ID}, []string{page[0].ID}, "a cursor continues after its job")
 
@@ -304,7 +304,7 @@ func TestConcurrentReadsWhileJobsRun(t *testing.T) {
 		require.Equal(t, job.StatusCompleted, got.Status)
 	}
 	e.Sweep(time.Now().Add(100 * time.Hour)) // all evicted from memory: everything is read back from the database
-	list, err := e.Page("", "", nil, 0)
+	list, err := e.Page("", "", "", nil, 0)
 	require.NoError(t, err)
 	require.Len(t, list, 40)
 	for _, j := range list {
@@ -320,4 +320,47 @@ func TestMemoryStoreIsTheDefaultAndHasNoHistory(t *testing.T) {
 	n, err := e.Recover()
 	require.NoError(t, err)
 	require.Zero(t, n)
+}
+
+func TestRestartKeepsPersistedLanguageConsistent(t *testing.T) {
+	de := func(context.Context, adapter.Request) (any, error) {
+		return map[string]any{"source_language": "DE"}, nil
+	}
+	h := map[string]adapter.Handler{"ok": ok, "block": block, "de": de}
+	ids := func(e *Engine, lang string) []string {
+		page, err := e.Page("", "", lang, nil, 0)
+		require.NoError(t, err)
+		out := []string{}
+		for _, j := range page {
+			out = append(out, j.ID)
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		yaml, lang string
+	}{
+		"translation interrupted": {regYAML(an("translation", "block")), store.LanguageUnknown},
+		"translation succeeded":   {regYAML(an("translation", "de"), an("hang", "block", deps("translation"))), "de"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "jobs.db")
+			e1, st1 := sqliteEngine(t, path, c.yaml, Config{}, h)
+			j, err := e1.Create(in("x"))
+			require.NoError(t, err)
+			waitFor(t, e1, j.ID, func(j job.Job) bool {
+				return j.Status == job.StatusRunning && len(j.Analyzers) > 0 && ar(j, "translation").Status != job.RunPending
+			})
+			if c.lang == "de" {
+				waitFor(t, e1, j.ID, func(j job.Job) bool { return ar(j, "translation").Status == job.RunSucceeded })
+			}
+			require.Equal(t, []string{j.ID}, ids(e1, c.lang), "before the restart")
+			crash(t, e1, st1)
+
+			e2, _ := sqliteEngine(t, path, c.yaml, Config{}, h)
+			n, err := e2.Recover()
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
+			require.Equal(t, []string{j.ID}, ids(e2, c.lang), "after the restart")
+		})
+	}
 }

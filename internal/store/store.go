@@ -23,6 +23,14 @@ func Matches(j *job.Job, q string) bool {
 	return q == "" || has(j.ID) || (j.Input != nil && has(j.Input.Content)) || (j.Scrape != nil && has(j.Scrape.URL))
 }
 
+// LanguageUnknown as the language filter of Page lists only jobs whose job language is unknown.
+const LanguageUnknown = "unknown"
+
+// matchesLanguage tells whether the job language l ("": unknown) passes the filter lang (see Page).
+func matchesLanguage(l, lang string) bool {
+	return lang == "" || l == lang || (lang == LanguageUnknown && l == "")
+}
+
 // Cursor is the position after which a page starts (the last job of the previous page).
 type Cursor struct {
 	CreatedAt time.Time
@@ -43,9 +51,11 @@ type Store interface {
 	// Load returns an unshared record of a persisted job, with its event-stream state and LastSeq.
 	Load(id string) (*job.Record, bool, error)
 	// Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with
-	// status, only public jobs matching the search q (see Matches; "": no search), the limit and the cursor counting
-	// those only, starting after cursor (nil: from the newest). Without q only the jobs it returns are decoded.
-	Page(status, q string, after *Cursor, limit int) ([]job.Job, error)
+	// status, only public jobs matching the search q (see Matches; "": no search) and with the job language lang
+	// (job.Job.SourceLanguage; "": any, LanguageUnknown: none), the limit and the cursor counting those only, starting
+	// after cursor (nil: from the newest). The job language is stored when the job is saved, so without q only the
+	// jobs it returns are decoded.
+	Page(status, q, lang string, after *Cursor, limit int) ([]job.Job, error)
 	// Unfinished returns the persisted jobs that are not done, as unshared records.
 	Unfinished() ([]*job.Record, error)
 	// Prune deletes persisted done jobs that finished before cutoff.
@@ -79,6 +89,7 @@ type Memory struct {
 	jobs    map[string]*job.Record
 	outlets *outlets.Table
 	vals    map[string]memMap // map values of the done jobs saved so far, fixed at the first save of the done job
+	langs   sync.Map          // id → job language as of the job's last save ("": unknown); not under mu, which Save need not take
 }
 
 type memMap struct {
@@ -136,14 +147,16 @@ func (m *Memory) EvictFinished(cutoff time.Time) []string {
 		if old {
 			delete(m.jobs, id)
 			delete(m.vals, id)
+			m.langs.Delete(id)
 			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
-// Save only fixes the map values of a job that is done; the Memory store keeps no history.
+// Save only records the job language and fixes the map values of a job that is done; the Memory store keeps no history.
 func (m *Memory) Save(j *job.Record) error {
+	m.langs.Store(j.ID, j.SourceLanguage())
 	if !j.Done {
 		return nil
 	}
@@ -164,13 +177,15 @@ func (m *Memory) Unfinished() ([]*job.Record, error)     { return nil, nil }
 func (m *Memory) Prune(time.Time) error                  { return nil }
 func (m *Memory) Close() error                           { return nil }
 
-// Page lists the working set.
-func (m *Memory) Page(status, q string, after *Cursor, limit int) ([]job.Job, error) {
+// Page lists the working set; the language filter uses the job language recorded by the last Save.
+func (m *Memory) Page(status, q, lang string, after *Cursor, limit int) ([]job.Job, error) {
 	var out []job.Job
 	q = strings.ToLower(q)
 	for _, j := range m.All() {
 		j.Lock()
-		if j.Public && (status == "" || j.Status == status) && Matches(&j.Job, q) {
+		l, _ := m.langs.Load(j.ID)
+		code, _ := l.(string) // never saved: unknown
+		if j.Public && (status == "" || j.Status == status) && matchesLanguage(code, lang) && Matches(&j.Job, q) {
 			out = append(out, j.Clone())
 		}
 		j.Unlock()
