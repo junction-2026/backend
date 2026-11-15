@@ -688,3 +688,61 @@ func TestTranslationFeedsPropagandaDetection(t *testing.T) {
 		require.NotContains(t, s, "provider-detail")
 	}
 }
+
+// botTranslationYAML: translation plus the text-level bot_detection, which has no dependency on it.
+func botTranslationYAML(mistral, bot string) string {
+	return "analyzers:\n" +
+		"  - id: translation\n    execution: {adapter: mistral_translation, endpoint: \"" + mistral + "\", api_key: sk-secret-key}\n" +
+		"  - id: bot_detection\n    category: bot_detection\n    execution: {adapter: bot_detection, endpoint: \"" + bot + "\"}\n"
+}
+
+func TestBotDetectionSendsOriginalText(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	bot := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+		w.Write([]byte(`[[{"label":"LABEL_0","score":0.9}]]`))
+	}))
+	defer bot.Close()
+	mistralStatus := 200
+	mis := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(mistralStatus)
+		content, _ := json.Marshal(map[string]any{"source_language": "ru", "translated_text": "This is a text example."})
+		reply, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": string(content)}}}})
+		w.Write(reply)
+	}))
+	defer mis.Close()
+	e := newEngine(t, botTranslationYAML(mis.URL, bot.URL), Config{}, nil)
+
+	check := func(done job.Job) {
+		r := ar(done, "bot_detection")
+		require.Equal(t, job.RunSucceeded, r.Status)
+		require.JSONEq(t, `{"label":"human","score":0.1,"scope":"text","model_label":"LABEL_0","model_score":0.9}`, string(r.Result))
+		require.Equal(t, job.StatusCompleted, done.Status)
+	}
+	j, err := e.Create(CreateRequest{Input: job.Input{Content: "Это пример текста."}, Finalize: job.Ptr(false)})
+	require.NoError(t, err)
+	done := waitDone(t, e, j.ID)
+	require.Equal(t, job.RunSucceeded, ar(done, "translation").Status)
+	check(done)
+	mu.Lock()
+	require.Len(t, bodies, 1)
+	require.JSONEq(t, `{"text":"Это пример текста."}`, bodies[0])
+	require.NotContains(t, bodies[0], "text example")
+	mu.Unlock()
+
+	// translation fails: bot_detection still runs on the original text
+	mistralStatus = 401
+	j, err = e.Create(CreateRequest{Input: job.Input{Content: "Это пример текста."}, Finalize: job.Ptr(false)})
+	require.NoError(t, err)
+	done = waitDone(t, e, j.ID)
+	require.Equal(t, job.RunFailed, ar(done, "translation").Status)
+	check(done)
+	mu.Lock()
+	require.Len(t, bodies, 2)
+	require.JSONEq(t, `{"text":"Это пример текста."}`, bodies[1])
+	mu.Unlock()
+}

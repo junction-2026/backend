@@ -33,6 +33,7 @@ const (
 	AdapterLLM       = "llm"
 
 	AdapterPropagandaDetection = "propaganda_detection"
+	AdapterBotDetection        = "bot_detection"
 	AdapterMistralTranslation  = "mistral_translation"
 	AdapterFactCheck           = "fact_check"
 	AdapterNewsSearch          = "news_search"
@@ -532,6 +533,19 @@ func (a *Analyzer) normalize(opt Options) error {
 			}
 		}
 	}
+	if e.Adapter == AdapterBotDetection { // fixed request shape; the text is always the job's original text
+		switch {
+		case e.Method != "" && e.Method != "POST":
+			return fmt.Errorf("execution.method must be POST or absent for adapter %s", e.Adapter)
+		case e.Handler != "" || e.PollInterval != 0:
+			return fmt.Errorf("execution.handler and execution.poll_interval are not allowed for adapter %s", e.Adapter)
+		}
+		for name, src := range a.Input.Bindings {
+			if name != "content" || src != "$input" {
+				return fmt.Errorf("input.bindings for adapter %s accept only content: $input", e.Adapter)
+			}
+		}
+	}
 	if err := a.checkTechnique(); err != nil {
 		return err
 	}
@@ -617,7 +631,7 @@ func (a *Analyzer) normalize(opt Options) error {
 		return fmt.Errorf("execution.spans.timeout must be shorter than execution.timeout (%s)", e.Timeout)
 	}
 	switch e.Adapter {
-	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection, AdapterMistralTranslation:
+	case AdapterHTTPSync, AdapterHTTPAsync, AdapterPropagandaDetection, AdapterBotDetection, AdapterMistralTranslation:
 		if e.Endpoint == "" {
 			return fmt.Errorf("execution.endpoint is required for adapter %s", e.Adapter)
 		}

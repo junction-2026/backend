@@ -66,8 +66,8 @@ func TestBotDetectionExampleLoadsDisabled(t *testing.T) {
 	a := reg.Get("bot_detection")
 	require.NotNil(t, a)
 	require.False(t, a.Enabled)
-	require.Equal(t, "http_sync", a.Execution.Adapter)
-	require.Equal(t, map[string]string{"content": "$input", "source": "$input.source"}, a.Input.Bindings)
+	require.Equal(t, "bot_detection", a.Execution.Adapter)
+	require.Empty(t, a.Input.Bindings)
 }
 
 func fixture(t *testing.T, platform, name string) []byte {

@@ -28,3 +28,5 @@ bot_detection:
   # author_score: author.bot_probability       # the author-level score, used with at least min_author_posts posts
   # author_posts: author.posts_analyzed        # how many of the author's posts that score is based on
   # single_text_score: text.bot_probability    # the score of this single text (low confidence)
+  # The text-level adapter `bot_detection` (docs/examples/bot_detection.yaml) stores {label, score, scope: text}, so for it use:
+  # single_text_score: score

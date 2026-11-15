@@ -1,29 +1,32 @@
-# Example registry entry: the bot detector service (port 8001) for jobs created from a social-media URL
-# (`POST /api/v1/jobs` with `scrape`). It receives the job input and its source; for scrape jobs
-# `source.metadata.scrape` is the full ScrapeResult (profile, posting history, comments).
-# Disabled by default: the bot detector's request shape is not documented yet, so check that it
-# accepts the standard analyzer request before enabling it. Set BOT_DETECTION_URL, e.g.
-# http://bot-detector:8001/predict, and add this file to the directory in ANALYZERS_CONFIG.
+# Example registry entry: text-level bot / generated-text detection with the multilingual bot-detector service
+# (adapter `bot_detection`, shared change bot-detection-text-result). It sends the job's original `normalized_content`
+# (never the translation, so it has no dependency on `translation`) as one POST {"text": "..."} to BOT_DETECTION_URL, e.g.
+# http://bot-detector:8001/predict, and maps the model's labels (LABEL_1 = bot / generated, LABEL_0 = human) to the result
+# {"label": "human" | "bot_or_generated", "score": P(bot_or_generated), "scope": "text", "model_label", "model_score"}.
+# The service may answer {"label","score"}, a list of those, a list of lists, or {"result": ...}. Disabled by default: set
+# BOT_DETECTION_URL, `enabled: true` and add this file to the directory in ANALYZERS_CONFIG.
 #
-# Manipulation Risk Score: the amplification dimension reads this analyzer's result through the `bot_detection` mapping in the
-# risk configuration (RISK_SCORE_CONFIG, see config/risk_score/risk_score.yaml), because the result shape is not a shared
-# contract. Name the dot-separated result member paths of the author-level bot score (0..1), the number of author posts it is
-# based on, and the score of the single text (0..1), e.g. for a result {"author": {"score": 0.9, "posts": 120}, "text": {"score": 0.6}}:
+# Manipulation Risk Score (optional): to let the amplification dimension use the score of this single text, set in the risk
+# configuration (RISK_SCORE_CONFIG, see config/risk_score/risk_score.yaml) the deployment mapping
 #   bot_detection:
-#     author_score: author.score
-#     author_posts: author.posts
-#     single_text_score: text.score
-# Without a mapping the analyzer still runs, but amplification is reported unavailable (no_bot_score).
+#     single_text_score: score
+# Without it the analyzer still runs and the default risk scores are unchanged.
 analyzers:
   - id: bot_detection
     name: Bot detection
     category: bot_detection
     enabled: false
-    input:
-      bindings:
-        content: $input
-        source: $input.source
     execution:
-      adapter: http_sync
+      adapter: bot_detection
       endpoint: ${BOT_DETECTION_URL}
+      # headers:
+      #   Authorization: Bearer ${ML_API_TOKEN}
       timeout: 30s
+    # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).
+    llm:
+      include: true
+      description: >
+        Classifies this single text only as `human` or `bot_or_generated`; it is not a verdict about the author or
+        account. The multilingual model sees the original text, not the translation. `score` is always
+        P(bot_or_generated), also when `label` is `human` (a `human` label with score 0.1 means 10% bot or generated).
+        It is not propaganda evidence and must not be used as such.
