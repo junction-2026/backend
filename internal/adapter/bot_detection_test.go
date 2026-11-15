@@ -102,6 +102,7 @@ func TestBotDetectionInvalidOutput(t *testing.T) {
 		"score null":        `{"label":"LABEL_1","score":null}`,
 		"score above 1":     `{"label":"LABEL_1","score":1.2}`,
 		"score negative":    `{"label":"LABEL_0","score":-0.1}`,
+		"duplicate human":   `[{"label":"LABEL_0","score":0.9},{"label":"LABEL_0","score":0.8}]`,
 		"duplicate label":   `[{"label":"LABEL_1","score":0.5},{"label":"LABEL_1","score":0.4}]`,
 		"empty object":      `{}`,
 		"empty list":        `[]`,

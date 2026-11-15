@@ -109,17 +109,19 @@ func parseBotResponse(b []byte) ([]botPrediction, string) {
 func mapBotLabels(preds []botPrediction) (json.RawMessage, string) {
 	top := preds[0]
 	var bot *float64
+	seen := map[string]bool{}
 	for i, p := range preds {
 		switch p.Label {
 		case botModelBot:
-			if bot != nil {
-				return nil, "a label is duplicated"
-			}
 			bot = &preds[i].Score
 		case botModelHuman:
 		default:
 			return nil, "unknown label"
 		}
+		if seen[p.Label] {
+			return nil, "a label is duplicated"
+		}
+		seen[p.Label] = true
 		if p.Score > top.Score {
 			top = p
 		}
