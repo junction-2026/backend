@@ -22,7 +22,7 @@ analyzers:
       prompt_file: /etc/orchestrator/llm_techniques/prompt.md   # image default from config/llm_techniques/prompt.md
       temperature: 0
       max_tokens: 1500
-      min_confidence: 0.5         # findings rated lower are dropped
+      min_confidence: 0.6         # findings rated lower are dropped
       max_findings_per_label: 5   # more are dropped, highest confidence kept; sets truncated
       max_input_chars: 20000      # characters of the original text sent; more sets truncated
     # Opts this analyzer's result in to the llm finalizer's input (final_synthesis.yaml).

@@ -178,7 +178,7 @@ func TestLLMTechniquesCapAndTruncation(t *testing.T) {
 	const content = "a1 b2 c3 d4 e5 f6 g7"
 	var fs []map[string]any
 	for i, w := range strings.Fields(content) {
-		fs = append(fs, fnd(labelEvidence, "content", w, 0.5+float64(i)*0.05))
+		fs = append(fs, fnd(labelEvidence, "content", w, 0.6+float64(i)*0.03))
 	}
 	m := newTopicMock(t, answer(ltReply(fs...)))
 	r, err := runLT(t, ltDef(m.URL), ltJob(content, "", "en", false))
@@ -195,7 +195,7 @@ func TestLLMTechniquesCapAndTruncation(t *testing.T) {
 	r, err = runLT(t, d, ltJob(content, "", "en", false))
 	require.NoError(t, err)
 	require.False(t, r.Truncated)
-	require.Len(t, r.Findings, 3) // 0.7, 0.75, 0.8
+	require.Len(t, r.Findings, 3) // 0.72, 0.75, 0.78
 
 	// max_input_chars: only the first part is sent; a span in the full content is still accepted
 	m = newTopicMock(t, answer(ltReply(fnd(labelEvidence, "content", "g7", 0.9))))
@@ -264,4 +264,14 @@ func TestLLMTechniquesRedactsExplanation(t *testing.T) {
 	r, err := runLT(t, ltDef(m.URL), ltJob(ltContent, "", "en", false))
 	require.NoError(t, err) // runLT asserts the raw result has neither credential
 	require.Equal(t, "Use key [redacted] or [redacted].", r.Findings[0].Explanation)
+}
+
+// Default minimum confidence is 0.6: 0.5 is dropped, 0.6 kept.
+func TestLLMTechniquesDefaultMinConfidence(t *testing.T) {
+	const content = "a1 b2"
+	m := newTopicMock(t, answer(ltReply(fnd(labelEvidence, "content", "a1", 0.5), fnd(labelEvidence, "content", "b2", 0.6))))
+	r, err := runLT(t, ltDef(m.URL), ltJob(content, "", "en", false))
+	require.NoError(t, err)
+	require.Len(t, r.Findings, 1)
+	require.Equal(t, "b2", r.Findings[0].Span.Text)
 }

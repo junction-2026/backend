@@ -85,17 +85,19 @@ func (r *Runtime) run(ctx context.Context, in engine.FinalizationInput) (json.Ra
 		if !ok {
 			return insufficientEvidence()
 		}
-		var a job.FinalAssessment
-		reply, err := adapter.LLM(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, adapter.JobSourceLanguage(&in.Job), entries),
-			func(raw json.RawMessage) (err error) {
-				if a, err = normalize(raw); err == nil {
-					err = def.ValidateOutput(raw) // configured schema judges the finalizer's own answer
+		code, name := adapter.FinalizerLanguage(adapter.JobSourceLanguage(&in.Job))
+		reply, err := adapter.LLMLang(ctx, def, adapter.LLMUserMessage(def, in.Job.Input.NormalizedContent, code, entries),
+			func(raw json.RawMessage) error {
+				if _, err := normalize(raw); err != nil {
+					return err
 				}
-				return err
-			})
+				return def.ValidateOutput(raw) // configured schema judges the finalizer's own answer
+			},
+			adapter.LangCheck{Name: name, Wrong: func(raw json.RawMessage) bool { return adapter.WrongLanguage(code, raw) }})
 		if err != nil {
 			return nil, err
 		}
+		a, _ := normalize(reply.Out) // valid: it passed the check above
 		a.Usage, a.Attempts, a.RetryReason = reply.Usage, &reply.Attempts, reply.RetryReason
 		a.WikipediaQuotes = r.wikipediaQuotes(&in.Job, reply.Out)
 		return json.Marshal(a)

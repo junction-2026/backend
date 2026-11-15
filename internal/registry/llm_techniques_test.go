@@ -35,7 +35,7 @@ func TestLLMTechniquesDefaults(t *testing.T) {
 	require.Equal(t, "http://llm/v1", e.BaseURL)
 	require.Equal(t, "key", e.APIKey)
 	require.Equal(t, "Bearer tok", e.Headers["Authorization"])
-	require.Equal(t, 0.5, e.MinConfidenceN())
+	require.Equal(t, 0.6, e.MinConfidenceN())
 	require.Equal(t, 5, e.MaxFindingsPerLabelN())
 	require.Equal(t, 20000, e.MaxChars())
 	require.Equal(t, 1500, e.MaxTokens)

@@ -43,6 +43,6 @@ func TestJobSourceLanguageBinding(t *testing.T) {
 
 func TestUserMessageSourceLanguage(t *testing.T) {
 	def := &registry.Analyzer{Execution: registry.Execution{ResponseFormat: registry.FormatJSONSchema}}
-	require.Equal(t, "<content>\nx\n</content>\n<source_language>ru</source_language>\n<analyzers>\n</analyzers>", LLMUserMessage(def, "x", "ru", nil))
-	require.Equal(t, "<content>\nx\n</content>\n<analyzers>\n</analyzers>", LLMUserMessage(def, "x", "", nil))
+	require.Equal(t, "<content>\nx\n</content>\n<source_language>ru (Russian)</source_language>\n<analyzers>\n</analyzers>", LLMUserMessage(def, "x", "ru", nil))
+	require.Equal(t, "<content>\nx\n</content>\n<source_language>en (English)</source_language>\n<analyzers>\n</analyzers>", LLMUserMessage(def, "x", "", nil))
 }

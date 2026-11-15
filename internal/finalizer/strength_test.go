@@ -25,7 +25,7 @@ func TestPromptStrongSignalRules(t *testing.T) {
 		// strong-signal list
 		`A strong signal is any of:`, `a "techniques" detection with "strength": "strong"`,
 		`an "llm_techniques" finding with "confidence" of 0.8 or more`, `a fact-check whose rating contradicts a claim in the text`,
-		`news coverage that clearly contradicts a claim in the text`, `"propaganda_detection" with the label PROPAGANDA`,
+		`news coverage that clearly contradicts a claim in the text`,
 		// verdict rules
 		`"detected": at least one strong signal that the content supports.`,
 		`"not_detected": no strong signal. Weak technique detections and low-confidence findings only lower your confidence; they, like not_applicable analyzers, are never a reason for "uncertain".`,
