@@ -409,7 +409,8 @@ func TestMigratesDatabaseWithoutPublicColumn(t *testing.T) {
 	s := open(t, path)
 	save(t, s, rec("old", 1, job.StatusCompleted))
 	// put the file back into its schema version 1 state: no column, no index, and a Job stored without `public`
-	for _, q := range []string{`DROP INDEX jobs_map`, `ALTER TABLE jobs DROP COLUMN map_eligible`, `ALTER TABLE jobs DROP COLUMN map_country_code`,
+	for _, q := range []string{`DROP TABLE job_map_countries`, `ALTER TABLE jobs DROP COLUMN map_countries`, `ALTER TABLE jobs DROP COLUMN country_attempts`,
+		`ALTER TABLE jobs DROP COLUMN map_eligible`, `ALTER TABLE jobs DROP COLUMN map_country_code`,
 		`ALTER TABLE jobs DROP COLUMN map_country`, `ALTER TABLE jobs DROP COLUMN map_outlet`, `ALTER TABLE jobs DROP COLUMN map_techniques`,
 		`DROP INDEX jobs_public_created`, `DROP INDEX jobs_public_status_created`, `ALTER TABLE jobs DROP COLUMN public`,
 		`UPDATE jobs SET data = json_remove(data, '$.public')`, `UPDATE schema_version SET version = 1`} {

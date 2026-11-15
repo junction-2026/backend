@@ -88,3 +88,32 @@ func TestInterruptScrapingAndFinalizing(t *testing.T) {
 	require.Equal(t, int64(2000), *f.Finalization.DurationMS)
 	require.JSONEq(t, `{"k":"v"}`, string(f.Analyzers[0].Result))
 }
+
+func TestInterruptCountryAssociation(t *testing.T) {
+	now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	running := &Record{Job: Job{Status: StatusFinalizing, Risk: json.RawMessage(`{}`), Finalization: Finalization{Status: RunSkipped}}}
+	running.Interrupt(now)
+	a := running.CountryAssociation
+	require.Equal(t, RunFailed, a.Status)
+	require.Equal(t, CodeInterrupted, a.Error.Code)
+	require.Equal(t, []AssociatedCountry{}, a.Countries)
+	require.Equal(t, &now, a.FinishedAt)
+
+	before := &Record{Job: Job{Status: StatusRunning, Finalization: Finalization{Status: RunPending}}}
+	before.Interrupt(now)
+	require.Nil(t, before.CountryAssociation, "the step never ran before the barrier")
+
+	settled := NewCountryAssociation(now, nil, Str(ReasonNotConfigured), nil)
+	skipped := &Record{Job: Job{Status: StatusFinalizing, Risk: json.RawMessage(`{}`), CountryAssociation: settled}}
+	skipped.Interrupt(now)
+	require.Same(t, settled, skipped.CountryAssociation)
+}
+
+func TestCountryAssociationReadsMissingAsNull(t *testing.T) {
+	var j Job
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"old"}`), &j))
+	require.Nil(t, j.CountryAssociation)
+	b, err := json.Marshal(j)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"country_association":null`)
+}

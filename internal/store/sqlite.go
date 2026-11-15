@@ -17,6 +17,7 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver, no CGO
 
 	"github.com/junction-2026/backend/internal/job"
+	"github.com/junction-2026/backend/internal/outlets"
 )
 
 // migrations[i] upgrades schema version i to i+1. Append only; never edit a released entry.
@@ -47,6 +48,28 @@ var migrations = []string{
 	ALTER TABLE jobs ADD COLUMN map_outlet TEXT;      -- the map Outlet as JSON
 	ALTER TABLE jobs ADD COLUMN map_techniques TEXT;  -- [{name, display, strength?}] as JSON
 	CREATE INDEX jobs_map ON jobs (map_country_code, created_at DESC, id) WHERE map_eligible = 1;`,
+	// multi-country map (country association): the map countries of an eligible job, one row each, indexed for the
+	// per-country listing; map_countries is the same list as JSON for reading. map_outlet and map_techniques are now
+	// also kept for a done public job with detected propaganda but no map country (map_eligible 0), so the backfill
+	// can determine its countries again; SQL NULL there means not recorded. The single map country of existing rows
+	// becomes their outlet-basis map country; map_country_code and map_country are no longer read.
+	// country_attempts counts the country association backfill attempts of the job.
+	`CREATE TABLE job_map_countries (
+		job_id       TEXT NOT NULL,
+		position     INTEGER NOT NULL,
+		country_code TEXT NOT NULL,
+		country      TEXT NOT NULL,
+		created_at   INTEGER NOT NULL, -- the job's, for the listing order
+		PRIMARY KEY (job_id, position)
+	);
+	CREATE INDEX job_map_countries_list ON job_map_countries (country_code, created_at DESC, job_id);
+	ALTER TABLE jobs ADD COLUMN map_countries TEXT; -- [{country_code, country, basis}] as JSON
+	ALTER TABLE jobs ADD COLUMN country_attempts INTEGER NOT NULL DEFAULT 0;
+	INSERT INTO job_map_countries (job_id, position, country_code, country, created_at)
+		SELECT id, 0, map_country_code, map_country, created_at FROM jobs WHERE map_eligible = 1;
+	UPDATE jobs SET map_countries = json_array(json_object('country_code', map_country_code, 'country', map_country, 'basis', json_array('outlet')))
+		WHERE map_eligible = 1;
+	DROP INDEX jobs_map;`,
 }
 
 // SQLite is a Store whose history lives in a SQLite file. Its working set is the embedded Memory store.
@@ -140,34 +163,88 @@ func (s *SQLite) Save(j *job.Record) error {
 	if err != nil {
 		return fmt.Errorf("encoding job state: %w", err)
 	}
-	var mv []any // map columns; NULL map_eligible until the job is done
+	var mv MapValues
 	if j.Done {
-		if mv, err = mapColumns(DeriveMap(&j.Job, s.table())); err != nil {
+		mv = DeriveMap(&j.Job, s.table())
+	}
+	return s.write(func(tx *sql.Tx) error {
+		// The map values are written once, by the first save of the done job; later saves keep them.
+		fix := false
+		if j.Done {
+			var eligible sql.NullInt64
+			if err := tx.QueryRow(`SELECT map_eligible FROM jobs WHERE id = ?`, j.ID).Scan(&eligible); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			fix = !eligible.Valid
+		}
+		if _, err := tx.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, public, data, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET status = excluded.status, done = excluded.done, finished_at = excluded.finished_at,
+			data = excluded.data, state = excluded.state`,
+			j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), j.Public, string(data), string(st)); err != nil {
 			return err
 		}
-	} else {
-		mv = []any{nil, "", "", nil, nil}
-	}
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
-	// The map values are written once: a later save of a done job keeps those already determined.
-	_, err = s.db.Exec(`INSERT INTO jobs (id, status, done, created_at, finished_at, public, data, state,
-			map_eligible, map_country_code, map_country, map_outlet, map_techniques) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET status = excluded.status, done = excluded.done, finished_at = excluded.finished_at,
-		data = excluded.data, state = excluded.state,
-		map_eligible = COALESCE(jobs.map_eligible, excluded.map_eligible),
-		map_country_code = CASE WHEN jobs.map_eligible IS NULL THEN excluded.map_country_code ELSE jobs.map_country_code END,
-		map_country = CASE WHEN jobs.map_eligible IS NULL THEN excluded.map_country ELSE jobs.map_country END,
-		map_outlet = CASE WHEN jobs.map_eligible IS NULL THEN excluded.map_outlet ELSE jobs.map_outlet END,
-		map_techniques = CASE WHEN jobs.map_eligible IS NULL THEN excluded.map_techniques ELSE jobs.map_techniques END`,
-		append([]any{j.ID, j.Status, j.Done, j.CreatedAt.UnixNano(), nanos(j.FinishedAt), j.Public, string(data), string(st)}, mv...)...)
-	return err
+		if !fix {
+			return nil
+		}
+		_, err := writeMap(tx, j.ID, j.CreatedAt, mv, "")
+		return err
+	})
 }
 
-// mapColumns is v as the values of map_eligible, map_country_code, map_country, map_outlet and map_techniques.
+// write runs f in a write transaction (one writer at a time).
+func (s *SQLite) write(f func(tx *sql.Tx) error) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := f(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// writeMap sets the map columns of job id to v and replaces its job_map_countries rows; cond (may be "") restricts the
+// update, then nothing is written when it does not hold. It reports whether the row was updated.
+func writeMap(tx *sql.Tx, id string, createdAt time.Time, v MapValues, cond string, condArgs ...any) (bool, error) {
+	cols, err := mapColumns(v)
+	if err != nil {
+		return false, err
+	}
+	q := `UPDATE jobs SET map_eligible = ?, map_outlet = ?, map_techniques = ?, map_countries = ? WHERE id = ?`
+	if cond != "" {
+		q += ` AND ` + cond
+	}
+	res, err := tx.Exec(q, append(append(cols, id), condArgs...)...)
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM job_map_countries WHERE job_id = ?`, id); err != nil {
+		return false, err
+	}
+	for i, c := range v.Countries {
+		if _, err := tx.Exec(`INSERT INTO job_map_countries (job_id, position, country_code, country, created_at) VALUES (?, ?, ?, ?, ?)`,
+			id, i, c.Code, c.Country, createdAt.UnixNano()); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// mapColumns is v as the values of map_eligible, map_outlet, map_techniques and map_countries. Outlet and techniques
+// are kept whenever the job has detected propaganda (a JSON null outlet: none), so a backfill can reuse them.
 func mapColumns(v MapValues) ([]any, error) {
-	if !v.Eligible {
-		return []any{0, "", "", nil, nil}, nil
+	eligible := 0
+	if v.Eligible {
+		eligible = 1
+	}
+	if v.Techniques == nil {
+		return []any{eligible, nil, nil, nil}, nil
 	}
 	outlet, err := json.Marshal(v.Outlet)
 	if err != nil {
@@ -177,7 +254,15 @@ func mapColumns(v MapValues) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encoding map techniques: %w", err)
 	}
-	return []any{1, v.CountryCode, v.Country, string(outlet), string(techniques)}, nil
+	var countries any
+	if v.Eligible {
+		b, err := json.Marshal(v.Countries)
+		if err != nil {
+			return nil, fmt.Errorf("encoding map countries: %w", err)
+		}
+		countries = string(b)
+	}
+	return []any{eligible, string(outlet), string(techniques), countries}, nil
 }
 
 // backfillBatch is the number of jobs BackfillMap derives per transaction.
@@ -211,35 +296,104 @@ func (s *SQLite) BackfillMap() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := func() error {
-			s.wmu.Lock()
-			defer s.wmu.Unlock()
-			tx, err := s.db.Begin()
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback()
+		if err := s.write(func(tx *sql.Tx) error {
 			for _, r := range batch {
 				var j job.Job
 				var v MapValues
 				if json.Unmarshal(r.data, &j) == nil {
 					v = DeriveMap(&j, table)
 				}
-				cols, err := mapColumns(v)
-				if err != nil {
-					return err
-				}
 				// map_eligible IS NULL: a save of the done job meanwhile has already fixed the values
-				if _, err := tx.Exec(`UPDATE jobs SET map_eligible = ?, map_country_code = ?, map_country = ?, map_outlet = ?, map_techniques = ?
-					WHERE id = ? AND map_eligible IS NULL`, append(cols, r.id)...); err != nil {
+				if _, err := writeMap(tx, r.id, j.CreatedAt, v, `map_eligible IS NULL`); err != nil {
 					return err
 				}
 			}
-			return tx.Commit()
-		}(); err != nil {
+			return nil
+		}); err != nil {
 			return fmt.Errorf("backfilling map values: %w", err)
 		}
 	}
+}
+
+// missingAssociation holds for a row whose country_association is absent, null or failed.
+const missingAssociation = `(json_extract(data, '$.country_association') IS NULL OR json_extract(data, '$.country_association.status') = 'failed')`
+
+// CountryBackfill: see Store.
+// shortcut: scans the done public rows' JSON on every batch; add a pending-flag column with an index if history grows large.
+func (s *SQLite) CountryBackfill(limit, maxAttempts int) ([]job.Job, error) {
+	rows, err := s.db.Query(`SELECT data FROM jobs WHERE done = 1 AND public = 1 AND country_attempts < ? AND `+missingAssociation+`
+		AND EXISTS (SELECT 1 FROM json_each(data, '$.analyzers') a WHERE json_extract(a.value, '$.id') = 'techniques'
+			AND json_extract(a.value, '$.status') = 'succeeded' AND json_array_length(a.value, '$.result.detected') > 0)
+		ORDER BY country_attempts, created_at DESC, id LIMIT ?`, maxAttempts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []job.Job
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		r, err := decode(data, []byte(`{"previews":{}}`))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r.Job)
+	}
+	return out, rows.Err()
+}
+
+// SetCountryAssociation: see Store. The live record of the job, when in the working set, is updated under its lock.
+func (s *SQLite) SetCountryAssociation(id string, a *job.CountryAssociation) (bool, error) {
+	if live, ok := s.Memory.Get(id); ok {
+		live.Lock()
+		defer live.Unlock()
+	}
+	set := false
+	err := s.write(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE jobs SET country_attempts = country_attempts + 1 WHERE id = ?`, id); err != nil {
+			return err
+		}
+		var data []byte
+		var outlet sql.NullString
+		switch err := tx.QueryRow(`SELECT data, map_outlet FROM jobs WHERE id = ? AND `+missingAssociation, id).Scan(&data, &outlet); {
+		case errors.Is(err, sql.ErrNoRows) || a == nil: // pruned, settled meanwhile, or only an attempt to count
+			return nil
+		case err != nil:
+			return err
+		}
+		var j job.Job
+		if err := json.Unmarshal(data, &j); err != nil {
+			return fmt.Errorf("decoding job: %w", err)
+		}
+		j.CountryAssociation = a
+		// the map outlet fixed when the job became done; shortcut: rows stored before map_outlet was kept for
+		// non-eligible jobs take it from the current outlet table.
+		v := deriveMap(&j, func() *outlets.Outlet {
+			var o *outlets.Outlet
+			if !outlet.Valid || json.Unmarshal([]byte(outlet.String), &o) != nil {
+				return mapOutlet(&j, s.table())
+			}
+			return o
+		})
+		b, err := json.Marshal(&j)
+		if err != nil {
+			return fmt.Errorf("encoding job: %w", err)
+		}
+		if _, err := tx.Exec(`UPDATE jobs SET data = ? WHERE id = ?`, string(b), id); err != nil {
+			return err
+		}
+		set, err = writeMap(tx, id, j.CreatedAt, v, "")
+		return err
+	})
+	if err != nil || !set {
+		return false, err
+	}
+	if live, ok := s.Memory.Get(id); ok { // locked above
+		live.CountryAssociation = a
+	}
+	return true, nil
 }
 
 // decode builds an unshared record from the data and state columns.
@@ -352,63 +506,72 @@ func (s *SQLite) Page(status, search string, after *Cursor, limit int) ([]job.Jo
 }
 
 func (s *SQLite) Prune(cutoff time.Time) error {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM jobs WHERE done = 1 AND finished_at < ?`, cutoff.UnixNano())
-	return err
+	return s.write(func(tx *sql.Tx) error {
+		at := cutoff.UnixNano()
+		if _, err := tx.Exec(`DELETE FROM job_map_countries WHERE job_id IN (SELECT id FROM jobs WHERE done = 1 AND finished_at < ?)`, at); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM jobs WHERE done = 1 AND finished_at < ?`, at)
+		return err
+	})
 }
 
-func (s *SQLite) MapCountries() ([]MapCountry, error) {
+func (s *SQLite) MapCountries() ([]MapCountry, int, error) {
 	a := newMapAgg()
 	// the country name is that of the newest analysis of the code (the first of the listing order)
-	rows, err := s.db.Query(`SELECT map_country_code, COUNT(*),
-		(SELECT map_country FROM jobs n WHERE n.map_eligible = 1 AND n.map_country_code = j.map_country_code ORDER BY n.created_at DESC, n.id LIMIT 1)
-		FROM jobs j WHERE map_eligible = 1 GROUP BY map_country_code`)
+	rows, err := s.db.Query(`SELECT c.country_code, COUNT(*),
+		(SELECT n.country FROM job_map_countries n WHERE n.country_code = c.country_code ORDER BY n.created_at DESC, n.job_id LIMIT 1)
+		FROM job_map_countries c GROUP BY c.country_code`)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for rows.Next() {
 		var code, country string
 		var n int
 		if err := rows.Scan(&code, &n, &country); err != nil {
 			_ = rows.Close()
-			return nil, err
+			return nil, 0, err
 		}
 		a.country(code).Analyses, a.country(code).Country = n, country
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	rows, err = s.db.Query(`SELECT j.map_country_code, json_extract(t.value, '$.name'), COUNT(*)
-		FROM jobs j, json_each(j.map_techniques) t WHERE j.map_eligible = 1 GROUP BY 1, 2`)
+	rows, err = s.db.Query(`SELECT c.country_code, json_extract(t.value, '$.name'), COUNT(*)
+		FROM job_map_countries c JOIN jobs j ON j.id = c.job_id, json_each(j.map_techniques) t GROUP BY 1, 2`)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for rows.Next() {
 		var code, name string
 		var n int
 		if err := rows.Scan(&code, &name, &n); err != nil {
 			_ = rows.Close()
-			return nil, err
+			return nil, 0, err
 		}
-		if a.counts[code] != nil { // a job that finished between the two queries is counted by the next request
+		if a.counts[code] != nil { // a job that finished between the queries is counted by the next request
 			a.counts[code][name] = n
 		}
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return a.result(), nil
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE map_eligible = 1`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return a.result(), total, nil
 }
 
 func (s *SQLite) MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, error) {
-	where, args := `map_eligible = 1 AND map_country_code = ?`, []any{code}
+	where, args := `c.country_code = ?`, []any{code}
 	if after != nil {
 		at := after.CreatedAt.UnixNano()
-		where += ` AND created_at <= ? AND (created_at < ? OR id > ?)` // the first term lets the index seek
+		where += ` AND c.created_at <= ? AND (c.created_at < ? OR c.job_id > ?)` // the first term lets the index seek
 		args = append(args, at, at, after.ID)
 	}
-	q := `SELECT data, map_country, map_outlet, map_techniques FROM jobs WHERE ` + where + ` ORDER BY created_at DESC, id`
+	q := `SELECT j.data, j.map_outlet, j.map_techniques, j.map_countries FROM job_map_countries c JOIN jobs j ON j.id = c.job_id
+		WHERE ` + where + ` ORDER BY c.created_at DESC, c.job_id`
 	if limit > 0 {
 		q, args = q+` LIMIT ?`, append(args, limit)
 	}
@@ -419,12 +582,13 @@ func (s *SQLite) MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, 
 	defer rows.Close()
 	var out []MapItem
 	for rows.Next() {
-		var data, outlet, techniques []byte
-		it := MapItem{Values: MapValues{Eligible: true, CountryCode: code}}
-		if err := rows.Scan(&data, &it.Values.Country, &outlet, &techniques); err != nil {
+		var data, outlet, techniques, countries []byte
+		it := MapItem{Values: MapValues{Eligible: true}}
+		if err := rows.Scan(&data, &outlet, &techniques, &countries); err != nil {
 			return nil, err
 		}
-		if err := errors.Join(json.Unmarshal(data, &it.Job), json.Unmarshal(outlet, &it.Values.Outlet), json.Unmarshal(techniques, &it.Values.Techniques)); err != nil {
+		if err := errors.Join(json.Unmarshal(data, &it.Job), json.Unmarshal(outlet, &it.Values.Outlet),
+			json.Unmarshal(techniques, &it.Values.Techniques), json.Unmarshal(countries, &it.Values.Countries)); err != nil {
 			return nil, fmt.Errorf("decoding map analysis: %w", err)
 		}
 		out = append(out, it)
