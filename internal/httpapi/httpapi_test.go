@@ -66,12 +66,12 @@ func (f *fakeSvc) Cancel(id string) (job.Job, error) {
 	return j, nil
 }
 
-func (f *fakeSvc) Page(status string, after *store.Cursor, limit int) ([]job.Job, error) {
+func (f *fakeSvc) Page(status, q string, after *store.Cursor, limit int) ([]job.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []job.Job
 	for _, j := range f.jobs {
-		if !j.Public || (status != "" && j.Status != status) {
+		if !j.Public || (status != "" && j.Status != status) || !store.Matches(&j, strings.ToLower(q)) {
 			continue
 		}
 		// newest first, ties by id (the engine's contract for Page)

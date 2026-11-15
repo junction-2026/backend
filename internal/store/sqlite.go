@@ -308,7 +308,7 @@ func (s *SQLite) Unfinished() ([]*job.Record, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) Page(status string, after *Cursor, limit int) ([]job.Job, error) {
+func (s *SQLite) Page(status, search string, after *Cursor, limit int) ([]job.Job, error) {
 	where, args := []string{"public = 1"}, []any{}
 	if status != "" {
 		where, args = append(where, "status = ?"), append(args, status)
@@ -320,9 +320,11 @@ func (s *SQLite) Page(status string, after *Cursor, limit int) ([]job.Job, error
 	}
 	q := `SELECT data FROM jobs WHERE ` + strings.Join(where, " AND ")
 	q += ` ORDER BY created_at DESC, id`
-	if limit > 0 {
+	if limit > 0 && search == "" {
 		q, args = q+` LIMIT ?`, append(args, limit)
 	}
+	// a search is matched in Go (SQLite lower() is ASCII-only): scan in order until limit matches or the rows end
+	search = strings.ToLower(search)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -339,7 +341,12 @@ func (s *SQLite) Page(status string, after *Cursor, limit int) ([]job.Job, error
 			return nil, fmt.Errorf("decoding job: %w", err)
 		}
 		s.decoded.Add(1)
-		out = append(out, j)
+		if !Matches(&j, search) {
+			continue
+		}
+		if out = append(out, j); limit > 0 && len(out) == limit {
+			break
+		}
 	}
 	return out, rows.Err()
 }
