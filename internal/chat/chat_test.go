@@ -271,3 +271,17 @@ func TestFocusCapTrimsLargestFirst(t *testing.T) {
 func TestSystemPromptFocusUntrusted(t *testing.T) {
 	require.Contains(t, systemPrompt(""), focusStart)
 }
+
+func TestFocusCapEscapedLabelsAndRefs(t *testing.T) {
+	var items []FocusItem
+	for i := 0; i < 20; i++ {
+		items = append(items, FocusItem{"technique", fmt.Sprint(i) + strings.Repeat("<", 190), strings.Repeat("<", 500)})
+	}
+	items[0] = FocusItem{"technique", "Doubt", strings.Repeat("<", 500)}
+	msg := Focus(focusJob(), items)
+	require.LessOrEqual(t, runeLen(msg), MaxFocus)
+	d := focusData(t, msg) // exactly one pair of markers, valid JSON
+	require.Len(t, d, 20)
+	require.Equal(t, true, d[0]["found"])
+	require.Equal(t, "Doubt", d[0]["ref"], "refs are shortened only after labels")
+}

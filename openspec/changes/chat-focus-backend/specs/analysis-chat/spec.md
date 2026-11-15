@@ -53,11 +53,15 @@ The focus data SHALL be JSON between `<<<VEIL_FOCUS_DATA` and `VEIL_FOCUS_DATA>>
 - **THEN** each marker occurs exactly once and the label is inside the data
 
 ### Requirement: Focus message cap
-The focus message SHALL have at most 16000 code points; the largest resolved elements are replaced by `{"_trimmed":true,"excerpt":...}` first, as in Ground. Ground's own cap stays 48000.
+The focus message SHALL have at most 16000 code points; the largest resolved elements are replaced by `{"_trimmed":true,"excerpt":...}` first, as in Ground; when that is not enough, the longest labels and then the longest refs are shortened. Ground's own cap stays 48000.
 
 #### Scenario: Oversized element
 - **WHEN** one focused element alone exceeds 16000 code points
 - **THEN** the message has at most 16000 code points, that element is marked trimmed and smaller elements are intact
+
+#### Scenario: Escaped labels and refs
+- **WHEN** 20 items have 500 code point labels and 190 code point refs of `<`
+- **THEN** the message has at most 16000 code points and the markers occur exactly once
 
 ### Requirement: Focus resolution from the stored job
 Resolution SHALL read only the stored job: the AnalyzerRuns with id `techniques`, `llm_techniques`, `wikipedia` and `term_context`, `Job.risk` and the finalization result when finalization succeeded. Index refs SHALL be non-negative decimal integers without sign; anything else is not found. `passage` refs SHALL be split on the first two `:` only. Duplicate `(kind, ref)` items SHALL be collapsed to the first occurrence before building the message.
