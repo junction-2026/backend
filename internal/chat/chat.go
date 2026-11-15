@@ -111,10 +111,12 @@ func Window(msgs []Message) ([]Message, bool) {
 func (s *Service) Acquire(jobID string) (release func(), retryAfter int) { return s.lim.acquire(jobID) }
 
 // Reply asks the agent about job j. history is the already windowed conversation (non-empty, ends with a user
-// message). It returns ErrUnavailable or ErrTimeout, logging only the job id, outcome and duration.
-func (s *Service) Reply(ctx context.Context, j job.Job, history []Message, language string) (string, error) {
+// message). focus names the result elements the question is about (may be empty). It returns ErrUnavailable or
+// ErrTimeout, logging only the job id, outcome, duration and focus count.
+func (s *Service) Reply(ctx context.Context, j job.Job, history []Message, focus []FocusItem, language string) (string, error) {
 	start := time.Now()
-	text, err := s.call(ctx, j, history, language)
+	focus = dedupe(focus)
+	text, err := s.call(ctx, j, history, focus, language)
 	outcome := "ok"
 	switch {
 	case errors.Is(err, ErrTimeout):
@@ -122,13 +124,16 @@ func (s *Service) Reply(ctx context.Context, j job.Job, history []Message, langu
 	case err != nil:
 		outcome = "chat_unavailable"
 	}
-	s.log.Info("chat", "job_id", j.ID, "outcome", outcome, "duration_ms", time.Since(start).Milliseconds())
+	s.log.Info("chat", "job_id", j.ID, "outcome", outcome, "duration_ms", time.Since(start).Milliseconds(), "focus_count", len(focus))
 	return text, err
 }
 
-func (s *Service) call(ctx context.Context, j job.Job, history []Message, language string) (string, error) {
-	msgs := make([]Message, 0, len(history)+2)
+func (s *Service) call(ctx context.Context, j job.Job, history []Message, focus []FocusItem, language string) (string, error) {
+	msgs := make([]Message, 0, len(history)+3)
 	msgs = append(msgs, Message{Role: "system", Content: systemPrompt(language)}, Message{Role: "system", Content: Ground(j)})
+	if len(focus) > 0 {
+		msgs = append(msgs, Message{Role: "system", Content: Focus(j, focus)})
+	}
 	msgs = append(msgs, history...)
 	body, err := json.Marshal(map[string]any{"model": s.cfg.Model, "messages": msgs, "stream": false})
 	if err != nil {

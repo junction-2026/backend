@@ -83,9 +83,14 @@ func Ground(j job.Job) string {
 		sb.WriteString(dataStart + "\n" + jsonText(doc) + "\n" + dataEnd)
 		return sb.String()
 	}
+	return fit(render, items, MaxGround)
+}
+
+// fit renders until the output is at most limit code points, trimming the largest item first.
+func fit(render func() string, items []*item, limit int) string {
 	for {
 		out := render()
-		over := runeLen(out) - MaxGround
+		over := runeLen(out) - limit
 		if over <= 0 {
 			return out
 		}
