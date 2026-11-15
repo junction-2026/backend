@@ -18,7 +18,14 @@ const (
 	maxChatMessages = 40
 	maxUserChars    = 2000
 	maxAssistChars  = 8000
+	maxFocus        = 20
 )
+
+// focusLimits are the code point limits of the ChatFocusItem members.
+var focusLimits = []struct {
+	key string
+	max int
+}{{"kind", 40}, {"ref", 200}, {"label", 500}}
 
 type chatReply struct {
 	JobID            string       `json:"job_id"`
@@ -27,8 +34,9 @@ type chatReply struct {
 	CreatedAt        time.Time    `json:"created_at"`
 }
 
-// parseChat validates a ChatRequest (shared "ChatRequest validation" and "ChatMessage content limits").
-func parseChat(body json.RawMessage) (msgs []chat.Message, language string, f fields) {
+// parseChat validates a ChatRequest (shared "ChatRequest validation", "ChatMessage content limits", "ChatRequest
+// focus validation" and "ChatFocusItem member limits").
+func parseChat(body json.RawMessage) (msgs []chat.Message, focus []chat.FocusItem, language string, f fields) {
 	f = fields{}
 	top, ok := object(body)
 	if !ok {
@@ -36,6 +44,7 @@ func parseChat(body json.RawMessage) (msgs []chat.Message, language string, f fi
 		return
 	}
 	language, _ = f.str(top, "language", "language")
+	focus = parseFocus(top, f)
 	raw, present := member(top, "messages")
 	var elems []json.RawMessage
 	switch {
@@ -83,13 +92,51 @@ func parseChat(body json.RawMessage) (msgs []chat.Message, language string, f fi
 	return
 }
 
+// parseFocus reads the optional focus member; absent and null mean no focus.
+func parseFocus(top map[string]json.RawMessage, f fields) []chat.FocusItem {
+	raw, present := member(top, "focus")
+	if !present {
+		return nil
+	}
+	var elems []json.RawMessage
+	if json.Unmarshal(raw, &elems) != nil || len(elems) > maxFocus {
+		f["focus"] = fmt.Sprintf("must be an array of at most %d elements", maxFocus)
+		return nil
+	}
+	var out []chat.FocusItem
+	for i, el := range elems {
+		path := fmt.Sprintf("focus[%d]", i)
+		m, ok := object(el)
+		if !ok {
+			f[path] = "must be an object"
+			continue
+		}
+		var v [3]string
+		for k, l := range focusLimits {
+			p := path + "." + l.key
+			s, isStr := f.str(m, l.key, p)
+			switch {
+			case !isStr && f[p] == nil:
+				f[p] = "is required"
+			case isStr && strings.TrimSpace(s) == "":
+				f[p] = "must not be blank"
+			case isStr && utf8.RuneCountInString(s) > l.max:
+				f[p] = fmt.Sprintf("must have at most %d characters", l.max)
+			}
+			v[k] = s
+		}
+		out = append(out, chat.FocusItem{Kind: v[0], Ref: v[1], Label: v[2]})
+	}
+	return out
+}
+
 // postChat serves the shared analysis-chat-api endpoint. It only reads the job.
 func (a *api) postChat(w http.ResponseWriter, r *http.Request) {
 	raw, ok := readJSON(w, r)
 	if !ok {
 		return
 	}
-	msgs, language, f := parseChat(raw)
+	msgs, focus, language, f := parseChat(raw)
 	if len(f) > 0 {
 		WriteError(w, http.StatusUnprocessableEntity, "validation_failed", "request body violates the schema", map[string]any{"fields": f})
 		return
@@ -115,7 +162,7 @@ func (a *api) postChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	window, truncated := chat.Window(msgs)
-	text, err := a.chat.Reply(r.Context(), j, window, language)
+	text, err := a.chat.Reply(r.Context(), j, window, focus, language)
 	switch {
 	case errors.Is(err, chat.ErrTimeout):
 		WriteError(w, http.StatusGatewayTimeout, "chat_timeout", "the assistant did not answer in time", nil)
