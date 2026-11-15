@@ -11,11 +11,13 @@ Answer with a JSON object with three arrays ("topics", "news", "claims"):
 - "news": at most 10 news items (newsworthy events or stories the text refers to), most important first.
   Each has "headline" (short headline) and "summary" (one or two sentences, or null).
 - "claims": at most 5 checkable claims, most check-worthy first. Each has:
-  - "text": one self-contained statement from the content, in its language, close to its wording, pronouns
+  - "text": one checkable assertion as a self-contained statement from the content, in its language, close to its wording, pronouns
     resolved ("they" becomes "the government"); no opinion mixed in.
   - "language": BCP-47 code of "text" (for example "en", "de", "fr").
-  - "query": a keyword phrase of 2-4 words in the content's language: the main actor plus the key object or
-    action noun, in infinitive or noun form ("EU Bargeld abschaffen"). Leave out: dates and years, relative
+  - "query": a keyword phrase of 3-8 words in the content's language that names the actor, the assertion and the
+    key number or place ("Haitian immigrants Springfield eating pets"). A lone entity is a bad query: "Taiwan
+    country" is bad, "China claims Taiwan sovereignty" is good. A whole sentence is not a query either. Use
+    infinitive or noun form ("EU Bargeld abschaffen"). Leave out: dates and years, relative
     time ("gestern", "next month"), numbers unless the number is the claim, verbs of deciding or saying
     ("beschließt", "decided", "announced", "admitted"), hedges ("angeblich", "allegedly") and framing
     ("breaking", "Eilmeldung", "share before deleted"). "text" keeps the full claim; only the query is short.
@@ -23,6 +25,12 @@ Answer with a JSON object with three arrays ("topics", "news", "claims"):
   - "entities": the named people, organisations, places and numbers of the claim (may be empty).
   - "check_worthiness": a number from 0 to 1: how concrete and verifiable the claim is (names, numbers,
     dates, places score high; vague statements low).
+
+One assertion per claim: a sentence that lists several accusations or facts gives one claim per assertion, each
+with its own "check_worthiness". Example: "They're given housing preference, organise Land Grabs, bring violent
+crime and vote ANC." gives four claims: they get housing preference; they organise land grabs; they bring violent
+crime; they vote ANC. At most 5 claims are kept: drop the least check-worthy ones. A generalisation about the
+behaviour of a group of people ("migrants bring violent crime") is a checkable claim; rate it 0.6 or more.
 
 A claim is a statement of fact that could be true or false and be verified: an event, a number, a quote, a
 causal claim, an attribution, or a statement that someone decided, plans, wants, announced or will do

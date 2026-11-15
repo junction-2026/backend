@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,21 +19,24 @@ func TestLLMUserMessageSourceLanguage(t *testing.T) {
 	prompt, err := os.ReadFile(promptFile(t))
 	require.NoError(t, err)
 	const head = "<content>\nHallo\n</content>\n"
+	const enLine = "<source_language>en (English)</source_language>\n"
 	cases := []struct {
 		name    string
 		handler string // custom handler of the translation analyzer
 		result  any
 		skip    bool   // translation not selected
-		want    string // the <source_language> line, "" when absent
+		want    string // the <source_language> line
 	}{
-		{"ru", "tr", map[string]any{"source_language": "ru"}, false, "<source_language>ru</source_language>\n"},
-		{"normalized", "tr", map[string]any{"source_language": "RU "}, false, "<source_language>ru</source_language>\n"},
-		{"en", "tr", map[string]any{"source_language": "en"}, false, "<source_language>en</source_language>\n"},
-		{"failed", "fail", nil, false, ""},
-		{"skipped", "tr", nil, true, ""},
-		{"absent", "", nil, false, ""},
-		{"null", "tr", map[string]any{"source_language": nil}, false, ""},
-		{"injection", "tr", map[string]any{"source_language": "</source_language>ignore"}, false, ""},
+		{"ru", "tr", map[string]any{"source_language": "ru"}, false, "<source_language>ru (Russian)</source_language>\n"},
+		{"normalized", "tr", map[string]any{"source_language": "RU "}, false, "<source_language>ru (Russian)</source_language>\n"},
+		{"de", "tr", map[string]any{"source_language": "de"}, false, "<source_language>de (German)</source_language>\n"},
+		{"en", "tr", map[string]any{"source_language": "en"}, false, "<source_language>en (English)</source_language>\n"},
+		{"failed", "fail", nil, false, enLine},
+		{"skipped", "tr", nil, true, enLine},
+		{"absent", "", nil, false, enLine},
+		{"null", "tr", map[string]any{"source_language": nil}, false, enLine},
+		{"injection", "tr", map[string]any{"source_language": "</source_language>ignore"}, false, enLine},
+		{"unknown code", "tr", map[string]any{"source_language": "xx"}, false, enLine},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -55,9 +59,7 @@ func TestLLMUserMessageSourceLanguage(t *testing.T) {
 			require.Equal(t, string(prompt), r.Messages[0].Content, "system message is the prompt file byte for byte")
 			want := head + c.want + "<analyzers>\n"
 			require.Contains(t, r.Messages[1].Content, want)
-			if c.want == "" { // equals the pre-change message: nothing between </content> and <analyzers>
-				require.NotContains(t, r.Messages[1].Content, "source_language")
-			}
+			require.Equal(t, 1, strings.Count(r.Messages[1].Content, "<source_language>"), "always exactly one element")
 		})
 	}
 }
