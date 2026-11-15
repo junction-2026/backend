@@ -91,9 +91,9 @@ func (f *fakeSvc) Page(status, q string, after *store.Cursor, limit int) ([]job.
 	return out, nil
 }
 
-func (f *fakeSvc) MapCountries() ([]store.MapCountry, error) {
+func (f *fakeSvc) MapCountries() ([]store.MapCountry, int, error) {
 	if f.maps == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
 	return f.maps.MapCountries()
 }

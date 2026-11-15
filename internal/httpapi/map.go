@@ -29,18 +29,18 @@ type countryAggregate struct {
 }
 
 func (a *api) mapCountries(w http.ResponseWriter, _ *http.Request) {
-	countries, err := a.svc.MapCountries()
+	countries, total, err := a.svc.MapCountries()
 	if err != nil {
 		a.internal(w, "map countries", err)
 		return
 	}
-	items, total := make([]countryAggregate, 0, len(countries)), 0
+	items := make([]countryAggregate, 0, len(countries))
 	for _, c := range countries {
 		agg := countryAggregate{CountryCode: c.Code, Country: c.Country, Analyses: c.Analyses, Techniques: make([]techniqueCount, 0, len(c.Techniques))}
 		for _, t := range c.Techniques {
 			agg.Techniques = append(agg.Techniques, techniqueCount{t.Name, adapter.TechniqueDisplay(t.Name), t.Analyses})
 		}
-		items, total = append(items, agg), total+c.Analyses
+		items = append(items, agg)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "analyses": total})
 }
@@ -57,6 +57,7 @@ type mapAnalysis struct {
 	Status      string               `json:"status"`
 	CountryCode string               `json:"country_code"`
 	Country     string               `json:"country"`
+	Countries   []store.JobCountry   `json:"countries"`
 	Outlet      *outlets.Outlet      `json:"outlet"`
 	Source      mapSource            `json:"source"`
 	Techniques  []store.MapTechnique `json:"techniques"`
@@ -91,9 +92,11 @@ func snippet(s string) string {
 	return b.String()
 }
 
-func toMapAnalysis(it store.MapItem) mapAnalysis {
+// toMapAnalysis is the item of the code's list (upper case, one of the job's map countries).
+func toMapAnalysis(it store.MapItem, code string) mapAnalysis {
+	c, _ := it.Values.Country(code)
 	m := mapAnalysis{JobID: it.Job.ID, CreatedAt: it.Job.CreatedAt, FinishedAt: it.Job.FinishedAt, Status: it.Job.Status,
-		CountryCode: it.Values.CountryCode, Country: it.Values.Country, Outlet: it.Values.Outlet, Techniques: it.Values.Techniques}
+		CountryCode: code, Country: c.Country, Countries: it.Values.Countries, Outlet: it.Values.Outlet, Techniques: it.Values.Techniques}
 	if in := it.Job.Input; in != nil {
 		m.Source.URL, m.Snippet = in.Source.URL, snippet(in.Content)
 		if in.Source.Title != "" {
@@ -135,7 +138,8 @@ func (a *api) mapAnalyses(w http.ResponseWriter, r *http.Request) {
 		}
 		after = &store.Cursor{CreatedAt: at, ID: id}
 	}
-	its, err := a.svc.MapAnalyses(strings.ToUpper(code), after, limit+1) // one more than the page tells whether there is a next
+	code = strings.ToUpper(code)
+	its, err := a.svc.MapAnalyses(code, after, limit+1) // one more than the page tells whether there is a next
 	if err != nil {
 		a.internal(w, "map analyses", err)
 		return
@@ -148,7 +152,7 @@ func (a *api) mapAnalyses(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]mapAnalysis, 0, len(its))
 	for _, it := range its {
-		items = append(items, toMapAnalysis(it))
+		items = append(items, toMapAnalysis(it, code))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
 }

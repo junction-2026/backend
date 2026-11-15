@@ -61,6 +61,16 @@ type Finalizer interface {
 	Run(ctx context.Context, in FinalizationInput) (json.RawMessage, error)
 }
 
+// CountryAssociator is the country association step (country-association); adapter.CountryAssociator implements
+// it. It returns the validated countries or an error (a *job.RunError keeps its code, others are adapter_error) and
+// bounds itself by its own timeout.
+type CountryAssociator interface {
+	Associate(ctx context.Context, j *job.Job) ([]job.AssociatedCountry, error)
+}
+
+// countryMaxAttempts bounds the backfill attempts per job.
+const countryMaxAttempts = 3
+
 // Executor runs one analyzer; adapter.Executor implements it.
 type Executor interface {
 	Execute(ctx context.Context, def *registry.Analyzer, req adapter.Request) (json.RawMessage, error)
@@ -80,13 +90,19 @@ type Config struct {
 	Scraper              *scraper.Client               // nil: jobs with Scrape are refused (ErrScrapeUnavailable)
 	ScrapeTimeout        time.Duration                 // default 360s: an unrendered page fetch, a rendered one (>= 150 s) and one 429/5xx retry
 	Risk                 risk.Settings                 // manipulation risk score configuration; the zero value means the defaults
+	Countries            CountryAssociator             // nil: country association skipped / not_configured, no backfill
+	CountryBackfillBatch int                           // jobs per backfill batch, default 20
+	CountryBackfillPause time.Duration                 // pause between backfill batches, default 10s
+	Info                 func(msg string, args ...any) // optional: backfill progress
 	Now                  func() time.Time
 }
 
-// ConfigFromEnv reads MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, JOB_RETENTION and JOB_HISTORY_RETENTION.
+// ConfigFromEnv reads MAX_PARALLEL_ANALYZERS, MAX_PARALLEL_JOBS, COUNTRY_BACKFILL_BATCH, JOB_RETENTION and
+// JOB_HISTORY_RETENTION.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	var c Config
-	for name, dst := range map[string]*int{"MAX_PARALLEL_ANALYZERS": &c.MaxParallelAnalyzers, "MAX_PARALLEL_JOBS": &c.MaxParallelJobs} {
+	for name, dst := range map[string]*int{"MAX_PARALLEL_ANALYZERS": &c.MaxParallelAnalyzers, "MAX_PARALLEL_JOBS": &c.MaxParallelJobs,
+		"COUNTRY_BACKFILL_BATCH": &c.CountryBackfillBatch} {
 		if v := getenv(name); v != "" {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 {
@@ -137,7 +153,8 @@ type Engine struct {
 	running int    // jobs holding a global slot
 	waiting []*run // queued jobs in creation order
 
-	gate chan struct{} // test seam: jobs wait for it to be closed before starting
+	gate chan struct{}  // test seam: jobs wait for it to be closed before starting
+	bg   sync.WaitGroup // the country association backfill
 }
 
 func New(reg *registry.Registry, cfg Config) *Engine {
@@ -171,6 +188,15 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.CountryBackfillBatch < 1 {
+		cfg.CountryBackfillBatch = 20
+	}
+	if cfg.CountryBackfillPause <= 0 {
+		cfg.CountryBackfillPause = 10 * time.Second
+	}
+	if cfg.Info == nil {
+		cfg.Info = func(string, ...any) {}
+	}
 	if cfg.Risk.Bands == nil {
 		cfg.Risk = risk.Default()
 	}
@@ -199,9 +225,12 @@ func New(reg *registry.Registry, cfg Config) *Engine {
 	return e
 }
 
-// Close stops the sweeper and aborts every running analyzer. Jobs are not
+// Close stops the sweeper and the backfill (waiting for it) and aborts every running analyzer. Jobs are not
 // finished; the process is shutting down.
-func (e *Engine) Close() { e.stop() }
+func (e *Engine) Close() {
+	e.stop()
+	e.bg.Wait()
+}
 
 // Sweep drops jobs finished more than JobRetention before now from the in-memory working set (never from the
 // persisted history) and, when HistoryRetention is set, deletes persisted done jobs finished longer ago than that.
@@ -257,7 +286,73 @@ func (e *Engine) Recover() (int, error) {
 	if err := e.store.BackfillMap(); err != nil {
 		e.cfg.Warn("backfilling map values failed", "err", err)
 	}
+	if e.cfg.Countries != nil {
+		e.bg.Add(1)
+		go e.backfillCountries()
+	}
 	return len(recs), nil
+}
+
+// associate runs the country association step for j; the result is settled (succeeded or failed).
+func (e *Engine) associate(ctx context.Context, j *job.Job) *job.CountryAssociation {
+	countries, err := e.cfg.Countries.Associate(ctx, j)
+	if rerr := classify(ctx, err); rerr != nil {
+		return job.NewCountryAssociation(e.now(), nil, nil, rerr)
+	}
+	return job.NewCountryAssociation(e.now(), countries, nil, nil)
+}
+
+// backfillCountries runs the country association step for stored jobs that lack it (country-association "Country
+// association backfill"), one job at a time in batches with a pause between them, without events, until no job is
+// left or the engine closes. A failed attempt is retried by a later batch up to countryMaxAttempts.
+func (e *Engine) backfillCountries() {
+	defer e.bg.Done()
+	defer func() {
+		if p := recover(); p != nil {
+			e.cfg.Warn("country association backfill stopped", "err", fmt.Sprint(p))
+		}
+	}()
+	succeeded, failed := 0, 0
+	for e.ctx.Err() == nil {
+		jobs, err := e.store.CountryBackfill(e.cfg.CountryBackfillBatch, countryMaxAttempts)
+		if err != nil {
+			e.cfg.Warn("country association backfill failed", "err", err)
+			return
+		}
+		if len(jobs) == 0 {
+			e.cfg.Info("country association backfill finished", "succeeded", succeeded, "failed", failed)
+			return
+		}
+		for i := range jobs {
+			var a *job.CountryAssociation // nil: no detected propaganda after all, only the attempt is counted
+			if len(store.DetectedTechniques(&jobs[i])) > 0 {
+				a = e.associate(e.ctx, &jobs[i])
+			}
+			if e.ctx.Err() != nil { // shutting down: an aborted attempt is not stored
+				return
+			}
+			if _, err := e.store.SetCountryAssociation(jobs[i].ID, a); err != nil {
+				e.cfg.Warn("country association backfill failed", "job_id", jobs[i].ID, "err", err)
+				return
+			}
+			switch {
+			case a == nil:
+			case a.Status == job.RunSucceeded:
+				succeeded++
+			default:
+				failed++
+				e.cfg.Warn("country association backfill attempt failed", "job_id", jobs[i].ID, "code", a.Error.Code)
+			}
+		}
+		e.cfg.Info("country association backfill batch", "jobs", len(jobs), "succeeded", succeeded, "failed", failed)
+		t := time.NewTimer(e.cfg.CountryBackfillPause)
+		select {
+		case <-e.ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // Create stores a new job (status queued), starts it asynchronously and
@@ -454,8 +549,8 @@ func (e *Engine) persisted(id string) (*job.Record, error) {
 
 // Page returns up to limit jobs (0: all) newest first (created_at, ties by id), optionally only those with the
 // given status and matching the search q (store.Matches; "": no search), starting after the cursor (nil: from the newest).
-// MapCountries returns the per-country aggregates of the propaganda map.
-func (e *Engine) MapCountries() ([]store.MapCountry, error) { return e.store.MapCountries() }
+// MapCountries returns the per-country aggregates of the propaganda map and the number of distinct map analyses.
+func (e *Engine) MapCountries() ([]store.MapCountry, int, error) { return e.store.MapCountries() }
 
 // MapAnalyses returns up to limit (0: all) map analyses of the country (upper case), newest first, after cursor.
 func (e *Engine) MapAnalyses(code string, after *store.Cursor, limit int) ([]store.MapItem, error) {

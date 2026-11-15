@@ -18,13 +18,30 @@ type MapTechnique struct {
 	Strength string `json:"strength,omitempty"` // only when the stored Detection has it
 }
 
-// MapValues are the values a job contributes to the propaganda map; they are fixed when the job becomes done.
+// MapValues are the values a job contributes to the propaganda map; they are fixed when the job becomes done, except
+// that the country association backfill determines the countries again with the fixed outlet and techniques.
 type MapValues struct {
-	Eligible    bool // a map analysis: done, public, techniques detected, map country known
-	CountryCode string
-	Country     string
-	Outlet      *outlets.Outlet
-	Techniques  []MapTechnique
+	Eligible   bool            // a map analysis: done, public, techniques detected, at least one map country
+	Countries  []JobCountry    // the map countries in order (Map country); nil when none
+	Outlet     *outlets.Outlet // the map outlet; nil when none
+	Techniques []MapTechnique  // the technique set; nil without detected propaganda
+}
+
+// JobCountry is one map country of a job, as stored and as served (propaganda-map-api MapCountry).
+type JobCountry struct {
+	Code    string   `json:"country_code"`
+	Country string   `json:"country"`
+	Basis   []string `json:"basis"` // "outlet", "content"
+}
+
+// Country returns the job's map country with the code, if any.
+func (v MapValues) Country(code string) (JobCountry, bool) {
+	for _, c := range v.Countries {
+		if c.Code == code {
+			return c, true
+		}
+	}
+	return JobCountry{}, false
 }
 
 // MapItem is a map analysis: the job and its map values.
@@ -65,26 +82,50 @@ func runByID(j *job.Job, id string) *job.AnalyzerRun {
 }
 
 // DeriveMap computes the map values of a job from its stored results and, for the outlet fallback, table (may be nil).
-// A job that is not a map analysis yields the zero MapValues.
+// A job that is not done, not public or without detected propaganda yields the zero MapValues; one with detected
+// propaganda but no map country keeps its outlet and techniques (not Eligible) for a later backfill.
 func DeriveMap(j *job.Job, table *outlets.Table) MapValues {
+	return deriveMap(j, func() *outlets.Outlet { return mapOutlet(j, table) })
+}
+
+// deriveMap is DeriveMap with the map outlet given (called only for a done public job with detected propaganda).
+func deriveMap(j *job.Job, outlet func() *outlets.Outlet) MapValues {
 	if !j.Done || !j.Public {
 		return MapValues{}
 	}
-	techniques := detectedTechniques(j)
+	techniques := DetectedTechniques(j)
 	if len(techniques) == 0 {
 		return MapValues{}
 	}
-	outlet := pageOutlet(j, table)
-	if outlet == nil || strings.TrimSpace(outlet.CountryCode) == "" {
-		return MapValues{}
+	v := MapValues{Outlet: outlet(), Techniques: techniques}
+	add := func(code, name, basis string) {
+		for i := range v.Countries {
+			if v.Countries[i].Code == code {
+				v.Countries[i].Basis = append(v.Countries[i].Basis, basis)
+				return
+			}
+		}
+		v.Countries = append(v.Countries, JobCountry{code, name, []string{basis}})
 	}
-	return MapValues{Eligible: true, CountryCode: strings.ToUpper(strings.TrimSpace(outlet.CountryCode)), Country: outlet.Country,
-		Outlet: outlet, Techniques: techniques}
+	if o := v.Outlet; o != nil {
+		if code := strings.ToUpper(strings.TrimSpace(o.CountryCode)); len(code) == 2 && isASCIILetter(code[0]) && isASCIILetter(code[1]) {
+			add(code, o.Country, "outlet")
+		}
+	}
+	if a := j.CountryAssociation; a != nil && a.Status == job.RunSucceeded {
+		for _, c := range a.Countries {
+			add(c.CountryCode, c.Country, "content")
+		}
+	}
+	v.Eligible = len(v.Countries) > 0
+	return v
 }
 
-// detectedTechniques: the distinct known technique names of techniques.result.detected (weak included) in
-// registry.TechniqueNames order; nil unless the run succeeded.
-func detectedTechniques(j *job.Job) []MapTechnique {
+func isASCIILetter(c byte) bool { return c >= 'A' && c <= 'Z' }
+
+// DetectedTechniques: the distinct known technique names of techniques.result.detected (weak included) in
+// registry.TechniqueNames order; nil unless the run succeeded. Non-empty means the job has detected propaganda.
+func DetectedTechniques(j *job.Job) []MapTechnique {
 	run := runByID(j, "techniques")
 	if run == nil || run.Status != job.RunSucceeded {
 		return nil
@@ -111,9 +152,8 @@ func detectedTechniques(j *job.Job) []MapTechnique {
 	return out
 }
 
-// pageOutlet is the stored page_outlet of a succeeded source_info run, else the outlet-table match of
-// input.source.url; never inferred from the TLD, language or text. An outlet without country code is returned as is.
-func pageOutlet(j *job.Job, table *outlets.Table) *outlets.Outlet {
+// PageOutlet is the stored page_outlet of a succeeded source_info run, nil when none.
+func PageOutlet(j *job.Job) *outlets.Outlet {
 	if run := runByID(j, "source_info"); run != nil && run.Status == job.RunSucceeded {
 		var res struct {
 			PageOutlet *outlets.Outlet `json:"page_outlet"`
@@ -121,6 +161,15 @@ func pageOutlet(j *job.Job, table *outlets.Table) *outlets.Outlet {
 		if json.Unmarshal(run.Result, &res) == nil && res.PageOutlet != nil {
 			return res.PageOutlet
 		}
+	}
+	return nil
+}
+
+// mapOutlet is PageOutlet, else the outlet-table match of input.source.url. An outlet without country code is
+// returned as is.
+func mapOutlet(j *job.Job, table *outlets.Table) *outlets.Outlet {
+	if o := PageOutlet(j); o != nil {
+		return o
 	}
 	if table == nil || j.Input == nil {
 		return nil
@@ -167,15 +216,17 @@ func (a *mapAgg) country(code string) *MapCountry {
 	return c
 }
 
-// add counts one map analysis (Memory store).
+// add counts one map analysis in each of its countries (Memory store).
 func (a *mapAgg) add(k mapKey, v MapValues) {
-	c := a.country(v.CountryCode)
-	c.Analyses++
-	if n, ok := a.newest[v.CountryCode]; !ok || k.before(n) {
-		a.newest[v.CountryCode], c.Country = k, v.Country
-	}
-	for _, t := range v.Techniques {
-		a.counts[v.CountryCode][t.Name]++
+	for _, mc := range v.Countries {
+		c := a.country(mc.Code)
+		c.Analyses++
+		if n, ok := a.newest[mc.Code]; !ok || k.before(n) {
+			a.newest[mc.Code], c.Country = k, mc.Country
+		}
+		for _, t := range v.Techniques {
+			a.counts[mc.Code][t.Name]++
+		}
 	}
 }
 

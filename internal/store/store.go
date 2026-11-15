@@ -54,11 +54,21 @@ type Store interface {
 	SetOutlets(t *outlets.Table)
 	// BackfillMap determines the map values of persisted done jobs that have none yet (jobs stored before the map).
 	BackfillMap() error
-	// MapCountries returns the per-country aggregates of the map analyses, ordered by country code.
-	MapCountries() ([]MapCountry, error)
-	// MapAnalyses returns up to limit (0: all) map analyses of the country (upper case) newest first (created_at,
-	// ties by id), starting after cursor (nil: from the newest).
+	// MapCountries returns the per-country aggregates of the map analyses, ordered by country code (an analysis is
+	// counted in each of its map countries), and the number of distinct map analyses.
+	MapCountries() ([]MapCountry, int, error)
+	// MapAnalyses returns up to limit (0: all) map analyses whose map countries include the country (upper case)
+	// newest first (created_at, ties by id), starting after cursor (nil: from the newest).
 	MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, error)
+	// CountryBackfill returns up to limit persisted done public jobs with detected techniques whose
+	// country_association is missing, null or failed and that had fewer than maxAttempts backfill attempts, fewest
+	// attempts first, then newest. The Memory store (no history) returns none.
+	CountryBackfill(limit, maxAttempts int) ([]job.Job, error)
+	// SetCountryAssociation counts a backfill attempt of the persisted job and, when a is not nil and the job's
+	// association is still missing, null or failed, sets it (also on the live record) and determines the job's map
+	// countries again with its fixed map outlet and technique set. It reports whether a was set; a job settled
+	// meanwhile is never changed.
+	SetCountryAssociation(id string, a *job.CountryAssociation) (bool, error)
 	// Close releases the store.
 	Close() error
 }
@@ -144,7 +154,11 @@ func (m *Memory) Save(j *job.Record) error {
 	}
 	return nil
 }
-func (m *Memory) BackfillMap() error                     { return nil }
+func (m *Memory) BackfillMap() error                          { return nil }
+func (m *Memory) CountryBackfill(int, int) ([]job.Job, error) { return nil, nil }
+func (m *Memory) SetCountryAssociation(string, *job.CountryAssociation) (bool, error) {
+	return false, nil
+}
 func (m *Memory) Load(string) (*job.Record, bool, error) { return nil, false, nil }
 func (m *Memory) Unfinished() ([]*job.Record, error)     { return nil, nil }
 func (m *Memory) Prune(time.Time) error                  { return nil }
@@ -179,16 +193,17 @@ func (m *Memory) Page(status, q string, after *Cursor, limit int) ([]job.Job, er
 	return out, nil
 }
 
-func (m *Memory) MapCountries() ([]MapCountry, error) {
+func (m *Memory) MapCountries() ([]MapCountry, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	a := newMapAgg()
+	a, n := newMapAgg(), 0
 	for _, v := range m.vals {
 		if v.Eligible {
 			a.add(v.key, v.MapValues)
+			n++
 		}
 	}
-	return a.result(), nil
+	return a.result(), n, nil
 }
 
 func (m *Memory) MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, error) {
@@ -196,7 +211,7 @@ func (m *Memory) MapAnalyses(code string, after *Cursor, limit int) ([]MapItem, 
 	var keys []mapKey
 	vals := map[string]MapValues{}
 	for id, v := range m.vals {
-		if v.Eligible && v.CountryCode == code && (after == nil || mapKey{after.CreatedAt, after.ID}.before(v.key)) {
+		if _, in := v.Country(code); v.Eligible && in && (after == nil || mapKey{after.CreatedAt, after.ID}.before(v.key)) {
 			keys, vals[id] = append(keys, v.key), v.MapValues
 		}
 	}

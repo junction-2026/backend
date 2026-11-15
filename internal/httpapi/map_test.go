@@ -145,6 +145,7 @@ func TestMapAnalysisMembers(t *testing.T) {
 	var got struct{ Items []json.RawMessage }
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.JSONEq(t, fmt.Sprintf(`{"job_id":"j-42","created_at":%q,"finished_at":%q,"status":"completed","country_code":"DE","country":"Land DE",
+		"countries":[{"country_code":"DE","country":"Land DE","basis":["outlet"]}],
 		"outlet":{"name":"Out DE","domain":"x.de","country_code":"DE","country":"Land DE","bias":"","factuality":""},
 		"source":{"url":"https://x.de/a","title":"T j-42"},
 		"techniques":[{"name":"Repetition","display":"disp-Repetition"},{"name":"Doubt","display":"disp-Doubt","strength":"strong"}],
@@ -176,4 +177,41 @@ func TestMapEndpointsAreReadOnly(t *testing.T) {
 	x.do("GET", "/api/v1/map/countries/DE/analyses", "")
 	require.Equal(t, before, x.svc.last)
 	require.Empty(t, x.svc.jobs)
+}
+
+func TestMapMultiCountryAndPastedText(t *testing.T) {
+	multi := mapJob("multi", 2, "DE", "Doubt")
+	multi.CountryAssociation = job.NewCountryAssociation(t0, []job.AssociatedCountry{{CountryCode: "US", Country: "United States"}, {CountryCode: "DE", Country: "Germany"}}, nil, nil)
+	pasted := mapJob("pasted", 1, "XX", "Doubt")
+	pasted.Analyzers = pasted.Analyzers[1:] // no source_info
+	pasted.Input.Source = job.Source{}
+	pasted.CountryAssociation = job.NewCountryAssociation(t0, []job.AssociatedCountry{{CountryCode: "US", Country: "United States"}}, nil, nil)
+	x := mapHarness(t, multi, pasted)
+
+	rec := x.do("GET", "/api/v1/map/countries", "")
+	require.Equal(t, 200, rec.Code)
+	require.JSONEq(t, `{"analyses":2,"items":[
+		{"country_code":"DE","country":"Land DE","analyses":1,"techniques":[{"name":"Doubt","display":"Doubt","analyses":1}]},
+		{"country_code":"US","country":"United States","analyses":2,"techniques":[{"name":"Doubt","display":"Doubt","analyses":2}]}]}`, rec.Body.String())
+
+	us := x.page(t, "/api/v1/map/countries/US/analyses")
+	require.Len(t, us.Items, 2)
+	p, m := us.Items[0], us.Items[1]
+	require.Equal(t, "pasted", p["job_id"])
+	require.Nil(t, p["outlet"])
+	require.Equal(t, map[string]any{"url": "", "title": nil}, p["source"])
+	require.Equal(t, "US", p["country_code"])
+	require.Equal(t, []any{map[string]any{"country_code": "US", "country": "United States", "basis": []any{"content"}}}, p["countries"])
+
+	require.Equal(t, "multi", m["job_id"])
+	require.Equal(t, "US", m["country_code"], "the requested list's country")
+	require.Equal(t, "United States", m["country"])
+	require.Equal(t, []any{
+		map[string]any{"country_code": "DE", "country": "Land DE", "basis": []any{"outlet", "content"}},
+		map[string]any{"country_code": "US", "country": "United States", "basis": []any{"content"}},
+	}, m["countries"])
+	de := x.page(t, "/api/v1/map/countries/DE/analyses")
+	require.Len(t, de.Items, 1)
+	require.Equal(t, "DE", de.Items[0]["country_code"])
+	require.Equal(t, "Land DE", de.Items[0]["country"])
 }
